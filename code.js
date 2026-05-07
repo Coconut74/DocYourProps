@@ -910,11 +910,15 @@ function buildPropsAndMatrixContent(target, groupBy, excludeRules, propLocks, la
         sectionTitle.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
         wrapper.appendChild(sectionTitle);
         wrapper.appendChild(buildSubSection("Props list", buildPropsSection(target, layout.contentW)));
-        wrapper.appendChild(buildSubSection("Props visual", yield buildVariantsSection(target, groupBy, excludeRules, propLocks, layout)));
+        const variants = yield buildVariantsSection(target, groupBy, excludeRules, propLocks, layout);
+        const visualTag = variants.comboCount > 0
+            ? makeTag(`${variants.comboCount} combinaison${variants.comboCount > 1 ? "s" : ""}`)
+            : undefined;
+        wrapper.appendChild(buildSubSection("Props visual", variants.node, visualTag));
         return wrapper;
     });
 }
-function buildSubSection(label, content) {
+function buildSubSection(label, content, tag) {
     const section = figma.createFrame();
     section.layoutMode = "VERTICAL";
     section.primaryAxisSizingMode = "AUTO";
@@ -928,9 +932,51 @@ function buildSubSection(label, content) {
     h.lineHeight = { value: 24, unit: "PIXELS" };
     h.characters = label;
     h.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
-    section.appendChild(h);
+    if (tag) {
+        const headerRow = figma.createFrame();
+        headerRow.name = "SubSectionHeader";
+        headerRow.layoutMode = "HORIZONTAL";
+        headerRow.primaryAxisSizingMode = "AUTO";
+        headerRow.counterAxisSizingMode = "AUTO";
+        headerRow.itemSpacing = 8;
+        headerRow.counterAxisAlignItems = "CENTER";
+        headerRow.fills = [];
+        headerRow.appendChild(h);
+        headerRow.appendChild(tag);
+        section.appendChild(headerRow);
+    }
+    else {
+        section.appendChild(h);
+    }
     section.appendChild(content);
     return section;
+}
+const TAG_PALETTE_BLUE = { bg: "#E6F2FD", fg: "#085FAC" };
+const TAG_PALETTE_GREEN = { bg: "#ECF7E8", fg: "#35821B" };
+const TAG_PALETTE_PURPLE = { bg: "#F2EFFC", fg: "#614CA2" };
+const TAG_PALETTE_ORANGE = { bg: "#FEF0E7", fg: "#B05112" };
+const TAG_PALETTE_CYAN = { bg: "#E6F9FF", fg: "#10718D" };
+function makeTag(label, palette = TAG_PALETTE_BLUE) {
+    const tag = figma.createFrame();
+    tag.name = "Tag";
+    tag.layoutMode = "HORIZONTAL";
+    tag.primaryAxisSizingMode = "AUTO";
+    tag.counterAxisSizingMode = "AUTO";
+    tag.paddingTop = 2;
+    tag.paddingBottom = 2;
+    tag.paddingLeft = 8;
+    tag.paddingRight = 8;
+    tag.cornerRadius = 6;
+    tag.counterAxisAlignItems = "CENTER";
+    tag.fills = [{ type: "SOLID", color: hex(palette.bg) }];
+    const t = figma.createText();
+    t.fontName = FONT.bodyMed;
+    t.fontSize = 12;
+    t.lineHeight = { value: 18, unit: "PIXELS" };
+    t.characters = label;
+    t.fills = [{ type: "SOLID", color: hex(palette.fg) }];
+    tag.appendChild(t);
+    return tag;
 }
 function buildTokensSection(target) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -976,11 +1022,14 @@ function buildVariantsSection(target, groupBy, excludeRules, propLocks, layout) 
         const defs = target.componentPropertyDefinitions;
         const allAxes = yield eligibleAxes(defs);
         if (allAxes.length === 0) {
-            return textFrame("Aucune propriété de type VARIANT, BOOLEAN ou INSTANCE_SWAP exploitable comme axe.");
+            return {
+                node: textFrame("Aucune propriété de type VARIANT, BOOLEAN ou INSTANCE_SWAP exploitable comme axe."),
+                comboCount: 0,
+            };
         }
         const base = getBaseComponent(target);
         if (!base)
-            return textFrame("Composant de base introuvable.");
+            return { node: textFrame("Composant de base introuvable."), comboCount: 0 };
         allAxes.sort((a, b) => b.options.length - a.options.length);
         // Validate combinations BEFORE creating any instance:
         // - COMPONENT_SET: lookup variant child via index → skip non-existent
@@ -1008,37 +1057,12 @@ function buildVariantsSection(target, groupBy, excludeRules, propLocks, layout) 
         const cards = yield buildAllAdminCards(combos, base, layout, boolishAxes);
         // Assemble layout from pre-built cards (sync, fast)
         const contentNode = buildAdminLayoutFromCards(combos, cards, validGroupBy, 0, layout);
-        const skipped = totalEnumerated - combos.length - excluded;
-        const captionParts = [];
-        captionParts.push(`${combos.length} combinaison${combos.length > 1 ? "s" : ""}`);
-        if (skipped > 0)
-            captionParts.push(`(${skipped} n'existent pas)`);
-        if (excluded > 0)
-            captionParts.push(`(${excluded} exclues)`);
-        captionParts.push(`Axes : ${allAxes.map((a) => `${a.name} (${a.propType.toLowerCase()})`).join(", ")}`);
-        if (validGroupBy.length > 0) {
-            captionParts.push(`Tri : ${validGroupBy.join(" › ")}`);
-        }
-        const lockedNames = Object.keys(propLocks).filter((n) => allAxes.some((a) => a.name === n));
-        if (lockedNames.length > 0) {
-            captionParts.push(`Verrouillés : ${lockedNames.map((n) => `${n}=${propLocks[n]}`).join(", ")}`);
-        }
-        const wrapper = figma.createFrame();
-        wrapper.layoutMode = "VERTICAL";
-        wrapper.primaryAxisSizingMode = "AUTO";
-        wrapper.counterAxisSizingMode = "AUTO";
-        wrapper.layoutAlign = "STRETCH";
-        wrapper.itemSpacing = 16;
-        wrapper.fills = [];
-        const caption = figma.createText();
-        caption.fontName = FONT.body;
-        caption.fontSize = 12;
-        caption.lineHeight = { value: 14, unit: "PIXELS" };
-        caption.characters = captionParts.join(" · ");
-        caption.fills = [{ type: "SOLID", color: COLOR.refBodyText }];
-        wrapper.appendChild(caption);
-        wrapper.appendChild(contentNode);
-        return wrapper;
+        // The caption (axes / sort / locks / skipped) used to live here; the section
+        // now exposes only the combo count, surfaced as a tag next to the title by
+        // the caller (see buildPropsAndMatrixContent).
+        void totalEnumerated;
+        void excluded;
+        return { node: contentNode, comboCount: combos.length };
     });
 }
 const MAX_CARDS_PER_ROW = 4;
