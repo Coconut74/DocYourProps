@@ -107,15 +107,41 @@ function cachedEnumerateValidCombinations(target, allAxes, excludeRules = [], pr
 const CONFIG_KEY_PREFIX = "docplugin:config:";
 function loadSavedConfig(targetId) {
     return __awaiter(this, void 0, void 0, function* () {
-        var _a;
         try {
             const raw = yield figma.clientStorage.getAsync(CONFIG_KEY_PREFIX + targetId);
-            return (_a = raw) !== null && _a !== void 0 ? _a : null;
+            if (!raw)
+                return null;
+            return migratePropLocks(raw);
         }
-        catch (_b) {
+        catch (_a) {
             return null;
         }
     });
+}
+// Migrate old single-string propLocks ({ axis: "M" }) to multi-value
+// ({ axis: ["M"] }). Keeps configs saved before the multi-select rollout usable.
+function migratePropLocks(config) {
+    const locks = config.propLocks;
+    if (!locks || typeof locks !== "object")
+        return config;
+    let needsMigration = false;
+    for (const k of Object.keys(locks)) {
+        if (typeof locks[k] === "string") {
+            needsMigration = true;
+            break;
+        }
+    }
+    if (!needsMigration)
+        return config;
+    const migrated = {};
+    for (const k of Object.keys(locks)) {
+        const v = locks[k];
+        if (typeof v === "string")
+            migrated[k] = v ? [v] : [];
+        else if (Array.isArray(v))
+            migrated[k] = v.filter((x) => typeof x === "string");
+    }
+    return Object.assign(Object.assign({}, config), { propLocks: migrated });
 }
 function saveConfig(targetId, options) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -1310,15 +1336,16 @@ function enumerateValidCombinations(target, allAxes, excludeRules = [], propLock
     const variantAxes = allAxes.filter((a) => a.propType === "VARIANT");
     const variantIndex = target.type === "COMPONENT_SET" ? buildVariantIndex(target) : null;
     const applicableByVariant = computeApplicableAxes(target, allAxes);
-    // Apply propLocks: locked axes have their options narrowed to a single entry,
-    // collapsing them in the cartesian product (combo payload still carries the
-    // locked value, so setProperties + the mini-card render normally).
+    // Apply propLocks: locked axes are filtered to only their allowed labels.
+    // Empty array = axis stays free. Locks pointing to labels that no longer
+    // exist are silently ignored.
     const effectiveAxes = allAxes.map((axis) => {
-        const lockedLabel = propLocks[axis.name];
-        if (!lockedLabel)
+        const allowed = propLocks[axis.name];
+        if (!allowed || allowed.length === 0)
             return axis;
-        const opt = axis.options.find((o) => o.label === lockedLabel);
-        return opt ? Object.assign(Object.assign({}, axis), { options: [opt] }) : axis; // ignore invalid lock
+        const allowedSet = new Set(allowed);
+        const filtered = axis.options.filter((o) => allowedSet.has(o.label));
+        return filtered.length > 0 ? Object.assign(Object.assign({}, axis), { options: filtered }) : axis;
     });
     // Pre-normalize rules: keep only non-empty ones (drop entries with empty value),
     // skip rules that have zero conditions (they would exclude everything).
