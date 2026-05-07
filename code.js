@@ -673,9 +673,10 @@ function makeAdminSheet(target, title, content) {
     const sheet = figma.createFrame();
     sheet.name = `Doc · ${title} · ${target.name}`;
     sheet.layoutMode = "VERTICAL";
+    // Both axes start AUTO so Figma computes the natural size from children.
+    // We FIX the width AFTER appendChild — see end of function.
     sheet.primaryAxisSizingMode = "AUTO";
-    sheet.counterAxisSizingMode = "FIXED";
-    sheet.resize(ADMIN_SHEET_WIDTH, 1);
+    sheet.counterAxisSizingMode = "AUTO";
     sheet.itemSpacing = 24;
     sheet.paddingTop = ADMIN_SHEET_PADDING;
     sheet.paddingBottom = ADMIN_SHEET_PADDING;
@@ -724,6 +725,11 @@ function makeAdminSheet(target, title, content) {
     ];
     sheet.appendChild(makeAdminSheetHeader(target.name, title));
     sheet.appendChild(content);
+    // Lock the width to 700 NOW that children are in place — AUTO already
+    // computed the natural height. STRETCH inside children (header / body) then
+    // expands them to the 636 content width on the next layout pass.
+    sheet.counterAxisSizingMode = "FIXED";
+    sheet.resize(ADMIN_SHEET_WIDTH, sheet.height);
     return sheet;
 }
 // 24px square containing a small "menu-slash" glyph in brand color, mimicking
@@ -750,9 +756,8 @@ function makeAdminSheetHeader(componentName, categoryTitle) {
     header.name = "FrameHeader";
     header.layoutMode = "VERTICAL";
     header.primaryAxisSizingMode = "AUTO";
-    header.counterAxisSizingMode = "FIXED";
+    header.counterAxisSizingMode = "AUTO";
     header.layoutAlign = "STRETCH";
-    header.resize(ADMIN_CONTENT_WIDTH, 1);
     header.itemSpacing = 32;
     header.fills = [];
     // ── Breadcrumb top row ───────────────────────────────────────────────────
@@ -807,17 +812,15 @@ function makeAdminSheetHeader(componentName, categoryTitle) {
     titleWrap.name = "Title";
     titleWrap.layoutMode = "VERTICAL";
     titleWrap.primaryAxisSizingMode = "AUTO";
-    titleWrap.counterAxisSizingMode = "FIXED";
+    titleWrap.counterAxisSizingMode = "AUTO";
     titleWrap.layoutAlign = "STRETCH";
-    titleWrap.resize(ADMIN_CONTENT_WIDTH, 1);
     titleWrap.paddingBottom = 16;
     titleWrap.itemSpacing = 8;
     titleWrap.fills = [];
     titleWrap.strokes = [{ type: "SOLID", color: COLOR.refTitleDivider }];
-    titleWrap.strokeWeight = 1;
     titleWrap.strokeAlign = "INSIDE";
-    titleWrap.strokeBottomWeight = 1;
     titleWrap.strokeTopWeight = 0;
+    titleWrap.strokeBottomWeight = 1;
     titleWrap.strokeLeftWeight = 0;
     titleWrap.strokeRightWeight = 0;
     const title = figma.createText();
@@ -851,17 +854,15 @@ function buildPropsAndMatrixContent(target, groupBy, excludeRules, propLocks) {
         wrapper.name = "Body";
         wrapper.layoutMode = "VERTICAL";
         wrapper.primaryAxisSizingMode = "AUTO";
-        wrapper.counterAxisSizingMode = "FIXED";
+        wrapper.counterAxisSizingMode = "AUTO";
         wrapper.layoutAlign = "STRETCH";
-        wrapper.resize(ADMIN_CONTENT_WIDTH, 1);
         wrapper.itemSpacing = 24;
         wrapper.paddingBottom = 24;
         wrapper.fills = [];
         wrapper.strokes = [{ type: "SOLID", color: COLOR.refTitleDivider }];
-        wrapper.strokeWeight = 1;
         wrapper.strokeAlign = "INSIDE";
-        wrapper.strokeBottomWeight = 1;
         wrapper.strokeTopWeight = 0;
+        wrapper.strokeBottomWeight = 1;
         wrapper.strokeLeftWeight = 0;
         wrapper.strokeRightWeight = 0;
         // Component name as section title (24px Medium)
@@ -881,9 +882,8 @@ function buildSubSection(label, content) {
     const section = figma.createFrame();
     section.layoutMode = "VERTICAL";
     section.primaryAxisSizingMode = "AUTO";
-    section.counterAxisSizingMode = "FIXED";
+    section.counterAxisSizingMode = "AUTO";
     section.layoutAlign = "STRETCH";
-    section.resize(ADMIN_CONTENT_WIDTH, 1);
     section.itemSpacing = 16;
     section.fills = [];
     const h = figma.createText();
@@ -984,9 +984,8 @@ function buildVariantsSection(target, groupBy, excludeRules, propLocks) {
         const wrapper = figma.createFrame();
         wrapper.layoutMode = "VERTICAL";
         wrapper.primaryAxisSizingMode = "AUTO";
-        wrapper.counterAxisSizingMode = "FIXED";
+        wrapper.counterAxisSizingMode = "AUTO";
         wrapper.layoutAlign = "STRETCH";
-        wrapper.resize(ADMIN_CONTENT_WIDTH, 1);
         wrapper.itemSpacing = 16;
         wrapper.fills = [];
         const caption = figma.createText();
@@ -1503,9 +1502,8 @@ function buildAdminLayoutFromCards(combos, cards, groupBy, depth) {
     const wrapper = figma.createFrame();
     wrapper.layoutMode = "VERTICAL";
     wrapper.primaryAxisSizingMode = "AUTO";
-    wrapper.counterAxisSizingMode = "FIXED";
+    wrapper.counterAxisSizingMode = "AUTO";
     wrapper.layoutAlign = "STRETCH";
-    wrapper.resize(ADMIN_CONTENT_WIDTH, 1);
     wrapper.itemSpacing = depth === 0 ? 24 : 16;
     wrapper.fills = [];
     for (const [value, g] of groups) {
@@ -1514,9 +1512,8 @@ function buildAdminLayoutFromCards(combos, cards, groupBy, depth) {
         const sub = figma.createFrame();
         sub.layoutMode = "VERTICAL";
         sub.primaryAxisSizingMode = "AUTO";
-        sub.counterAxisSizingMode = "FIXED";
+        sub.counterAxisSizingMode = "AUTO";
         sub.layoutAlign = "STRETCH";
-        sub.resize(ADMIN_CONTENT_WIDTH, 1);
         sub.itemSpacing = 12;
         sub.fills = [];
         const header = figma.createText();
@@ -1772,8 +1769,7 @@ function makeAdminTable(headers, widths, rows) {
     table.name = "PropsTable";
     table.layoutMode = "VERTICAL";
     table.primaryAxisSizingMode = "AUTO";
-    table.counterAxisSizingMode = "FIXED";
-    table.resize(totalW, 1);
+    table.counterAxisSizingMode = "AUTO";
     table.itemSpacing = 0;
     table.cornerRadius = 8;
     table.clipsContent = true;
@@ -1842,19 +1838,22 @@ function makeAdminBodyRow(cells, widths, totalW) {
     return row;
 }
 function makeAdminBodyCell(content, width) {
+    // VERTICAL layout (matches the elegant cell pattern, which is known to work
+    // with auto-height): primary = height (AUTO grows with content), counter =
+    // width (FIXED at `width` via resize). layoutAlign STRETCH equalizes heights
+    // across the row.
     const cell = figma.createFrame();
     cell.name = "BodyCell";
-    cell.layoutMode = "HORIZONTAL";
-    cell.primaryAxisSizingMode = "FIXED";
-    cell.counterAxisSizingMode = "AUTO";
-    cell.layoutAlign = "STRETCH";
+    cell.layoutMode = "VERTICAL";
+    cell.primaryAxisSizingMode = "AUTO";
+    cell.counterAxisSizingMode = "FIXED";
     cell.resize(width, 1);
+    cell.layoutAlign = "STRETCH";
     cell.paddingTop = 12;
     cell.paddingBottom = 12;
     cell.paddingLeft = 16;
     cell.paddingRight = 16;
     cell.itemSpacing = 8;
-    cell.counterAxisAlignItems = "MIN";
     cell.fills = [{ type: "SOLID", color: COLOR.refBodyCellBg }];
     if (typeof content === "string") {
         const t = figma.createText();
@@ -1865,7 +1864,6 @@ function makeAdminBodyCell(content, width) {
         t.fills = [{ type: "SOLID", color: COLOR.refBodyText }];
         t.textAutoResize = "HEIGHT";
         t.resize(width - 32, t.height);
-        t.layoutGrow = 1;
         cell.appendChild(t);
     }
     else {
