@@ -72,13 +72,21 @@ const PROP_COL_WIDTHS = [126, 260, 125, 125];
 const PROP_COL_HEADERS = ["Propriété", "Description", "Type", "Valeurs"];
 const PROP_DESCRIPTION_PLACEHOLDER = "À compléter";
 
-const ADMIN_SHEET_WIDTH = 700;
+const ADMIN_SHEET_WIDTH_DEFAULT = 700;
 const ADMIN_SHEET_PADDING = 32;
-const ADMIN_CONTENT_WIDTH = ADMIN_SHEET_WIDTH - ADMIN_SHEET_PADDING * 2; // 636
-const ADMIN_CARD_W = 201;
-const ADMIN_CARD_H = 146;
-const ADMIN_CARD_VISUAL_W = 185;
-const ADMIN_CARD_VISUAL_H = 85;
+const ADMIN_CONTENT_WIDTH_DEFAULT = ADMIN_SHEET_WIDTH_DEFAULT - ADMIN_SHEET_PADDING * 2; // 636
+
+// Admin combination card layout (osmose.proginov.com reference).
+// Card adapts to component size — see computeAdminCardLayout().
+const ADMIN_CARD_MIN_W = 120;
+const ADMIN_CARD_PADDING = 8;
+const ADMIN_CARD_GAP = 8;
+const ADMIN_GRID_GAP = 16;
+const ADMIN_CARDS_PER_ROW = 3;
+const ADMIN_VISUAL_PADDING = 16;
+const ADMIN_VISUAL_MIN_H = 60;
+const ADMIN_PROP_ROW_HEIGHT = 32;
+const ADMIN_PROP_ROW_GAP = 4;
 const TOKEN_COL_WIDTHS = [320, 140, 200];
 const TOKEN_COL_HEADERS = ["Variable", "Type", "Collection"];
 
@@ -128,6 +136,14 @@ const COLOR = {
   refTitleDivider: hex("#CCCCCC"),
   refCardBg: hex("#F3F6F9"),
   refCardLabel: hex("#506177"),
+  // Redesigned matrix card (Pnv compact spec)
+  refMatrixCardBg: hex("#E6F2FD"),
+  refMatrixRowBg: hex("#FFFFFF"),
+  refMatrixRowName: hex("#393939"),
+  refMatrixRowValue: hex("#808080"),
+  refMatrixSwitchOn: hex("#007DEB"),
+  refMatrixSwitchOff: hex("#CCCCCC"),
+  refMatrixSwitchThumb: hex("#FFFFFF"),
   refCellTextStrong: hex("#242424"),
   refChipBoolBg: hex("#E6F4FF"),
   refChipBoolText: hex("#007DEB"),
@@ -355,11 +371,11 @@ function stripPropKey(key: string): string {
 function formatValuesDisplay(p: PropInfo): string {
   switch (p.type) {
     case "BOOLEAN":
-      return `true / false (défaut : ${p.defaultValue})`;
+      return "true / false";
     case "TEXT":
-      return `Texte libre (défaut : "${p.defaultValue}")`;
+      return "Texte libre";
     case "VARIANT":
-      return `${(p.variantOptions ?? []).join(", ")} (défaut : ${p.defaultValue})`;
+      return (p.variantOptions ?? []).join(", ");
     case "INSTANCE_SWAP":
       return "Instance de composant";
     default:
@@ -371,13 +387,15 @@ async function buildSheets(target: DocTarget, options: DocOptions): Promise<Fram
   const sheets: FrameNode[] = [];
 
   if (options.props && options.variants) {
+    const layout = computeAdminCardLayout(target);
     const content = await buildPropsAndMatrixContent(
       target,
       options.groupBy ?? [],
       options.excludeRules ?? [],
-      options.propLocks ?? {}
+      options.propLocks ?? {},
+      layout
     );
-    sheets.push(makeAdminSheet(target, "Propriétés", content));
+    sheets.push(makeAdminSheet(target, "Propriétés", content, layout.sheetW));
   } else if (options.props) {
     sheets.push(makeAdminSheet(target, "Propriétés", buildPropsSection(target)));
   }
@@ -830,7 +848,13 @@ function makeSheetHeader(componentName: string, categoryTitle: string): FrameNod
 
 // ─── Admin-style sheet (osmose.proginov.com reference) ────────────────────
 
-function makeAdminSheet(target: DocTarget, title: string, content: SceneNode): FrameNode {
+function makeAdminSheet(
+  target: DocTarget,
+  title: string,
+  content: SceneNode,
+  sheetWidth: number = ADMIN_SHEET_WIDTH_DEFAULT
+): FrameNode {
+  const contentW = sheetWidth - ADMIN_SHEET_PADDING * 2;
   const sheet = figma.createFrame();
   sheet.name = `Doc · ${title} · ${target.name}`;
   sheet.layoutMode = "VERTICAL";
@@ -885,14 +909,14 @@ function makeAdminSheet(target: DocTarget, title: string, content: SceneNode): F
     },
   ];
 
-  sheet.appendChild(makeAdminSheetHeader(target.name, title));
+  sheet.appendChild(makeAdminSheetHeader(target.name, title, contentW));
   sheet.appendChild(content);
 
-  // Lock the width to 700 NOW that children are in place — AUTO already
-  // computed the natural height. STRETCH inside children (header / body) then
-  // expands them to the 636 content width on the next layout pass.
+  // Lock the width NOW that children are in place — AUTO already computed the
+  // natural height. STRETCH inside children expands them to the content width
+  // on the next layout pass.
   sheet.counterAxisSizingMode = "FIXED";
-  sheet.resize(ADMIN_SHEET_WIDTH, sheet.height);
+  sheet.resize(sheetWidth, sheet.height);
   return sheet;
 }
 
@@ -917,7 +941,11 @@ function makeBreadcrumbIcon(): FrameNode {
   return wrap;
 }
 
-function makeAdminSheetHeader(componentName: string, categoryTitle: string): FrameNode {
+function makeAdminSheetHeader(
+  componentName: string,
+  categoryTitle: string,
+  contentWidth: number = ADMIN_CONTENT_WIDTH_DEFAULT
+): FrameNode {
   const header = figma.createFrame();
   header.name = "FrameHeader";
   header.layoutMode = "VERTICAL";
@@ -934,7 +962,7 @@ function makeAdminSheetHeader(componentName: string, categoryTitle: string): Fra
   top.primaryAxisSizingMode = "FIXED";
   top.counterAxisSizingMode = "AUTO";
   top.layoutAlign = "STRETCH";
-  top.resize(ADMIN_CONTENT_WIDTH, 24);
+  top.resize(contentWidth, 24);
   top.primaryAxisAlignItems = "SPACE_BETWEEN";
   top.counterAxisAlignItems = "CENTER";
   top.itemSpacing = 8;
@@ -1019,15 +1047,15 @@ function buildPropsSection(target: DocTarget): SceneNode {
   return makeAdminTable(
     PROP_COL_HEADERS,
     PROP_COL_WIDTHS,
-    props.map((p) => {
-      const v = valuesAsItems(p);
-      return [
-        p.name,
-        PROP_DESCRIPTION_PLACEHOLDER,
-        makeTypeChip(p.type),
-        makeBulletList(v.items, v.defaultIndex),
-      ] as AdminCellContent[];
-    })
+    props.map(
+      (p) =>
+        [
+          p.name,
+          PROP_DESCRIPTION_PLACEHOLDER,
+          makeTypeChip(p.type),
+          makeBulletList(valuesAsItems(p)),
+        ] as AdminCellContent[]
+    )
   );
 }
 
@@ -1035,7 +1063,8 @@ async function buildPropsAndMatrixContent(
   target: DocTarget,
   groupBy: string[],
   excludeRules: ExclusionRule[],
-  propLocks: PropLocks
+  propLocks: PropLocks,
+  layout: AdminCardLayout
 ): Promise<SceneNode> {
   const wrapper = figma.createFrame();
   wrapper.name = "Body";
@@ -1066,7 +1095,7 @@ async function buildPropsAndMatrixContent(
   wrapper.appendChild(
     buildSubSection(
       "Props visual",
-      await buildVariantsSection(target, groupBy, excludeRules, propLocks)
+      await buildVariantsSection(target, groupBy, excludeRules, propLocks, layout)
     )
   );
   return wrapper;
@@ -1141,7 +1170,8 @@ async function buildVariantsSection(
   target: DocTarget,
   groupBy: string[],
   excludeRules: ExclusionRule[],
-  propLocks: PropLocks
+  propLocks: PropLocks,
+  layout: AdminCardLayout
 ): Promise<SceneNode> {
   const defs = target.componentPropertyDefinitions;
   const allAxes = await eligibleAxes(defs);
@@ -1182,11 +1212,17 @@ async function buildVariantsSection(
     allAxes.some((a) => a.name === name)
   );
 
+  // Boolean-like axes get a switch glyph (BOOLEAN type or yes/no, on/off, true/false labels).
+  const boolishAxes = new Set<string>();
+  for (const a of allAxes) {
+    if (a.propType === "BOOLEAN" || isBoolishOptions(a.options)) boolishAxes.add(a.name);
+  }
+
   // Build all cards in async-batched fashion (yields UI thread every CARD_BATCH_SIZE)
-  const cards = await buildAllAdminCards(combos, base);
+  const cards = await buildAllAdminCards(combos, base, layout, boolishAxes);
 
   // Assemble layout from pre-built cards (sync, fast)
-  const contentNode = buildAdminLayoutFromCards(combos, cards, validGroupBy, 0);
+  const contentNode = buildAdminLayoutFromCards(combos, cards, validGroupBy, 0, layout);
 
   const skipped = totalEnumerated - combos.length - excluded;
   const captionParts: string[] = [];
@@ -1652,13 +1688,51 @@ function totalCombinationCount(axes: VariantAxis[]): number {
   return axes.reduce((acc, a) => acc * a.options.length, 1);
 }
 
-// ─── Admin-style combination card (osmose.proginov.com reference) ─────────
-// Card 201×146 fixed, bg #F3F6F9, padding 8, gap 8, radius 12.
-// Visual area 185×85 fixed, bg #FFFFFF, radius 8 — live instance centered.
-// Label below: "PropName = Value" Roboto 14 / 400 / #506177.
+// ─── Admin-style combination card (Pnv compact reference) ─────────────────
+// Card adapts to component size: visual area is sized to fit the largest
+// instance (max width × max height + breathing room), and the card stretches
+// to enclose visual + vertical list of prop rows. Min card width 120.
+type AdminCardLayout = {
+  cardW: number;       // outer width of one card
+  visualW: number;     // inner visual area width (= cardW - 2*padding)
+  visualH: number;     // inner visual area height
+  contentW: number;    // sheet content width = ADMIN_CARDS_PER_ROW cards + gaps
+  sheetW: number;      // sheet outer width = contentW + 2*sheet padding
+};
+
+function computeAdminCardLayout(target: DocTarget): AdminCardLayout {
+  let maxW = 0;
+  let maxH = 0;
+  if (target.type === "COMPONENT_SET") {
+    for (const c of target.children) {
+      if (c.type === "COMPONENT") {
+        maxW = Math.max(maxW, c.width);
+        maxH = Math.max(maxH, c.height);
+      }
+    }
+  } else {
+    maxW = target.width;
+    maxH = target.height;
+  }
+  const desiredVisualW = Math.round(maxW + ADMIN_VISUAL_PADDING);
+  const cardW = Math.max(
+    ADMIN_CARD_MIN_W,
+    desiredVisualW + ADMIN_CARD_PADDING * 2
+  );
+  const visualW = cardW - ADMIN_CARD_PADDING * 2;
+  const visualH = Math.max(ADMIN_VISUAL_MIN_H, Math.round(maxH + ADMIN_VISUAL_PADDING));
+
+  const rowW = ADMIN_CARDS_PER_ROW * cardW + (ADMIN_CARDS_PER_ROW - 1) * ADMIN_GRID_GAP;
+  const contentW = Math.max(ADMIN_CONTENT_WIDTH_DEFAULT, rowW);
+  const sheetW = contentW + ADMIN_SHEET_PADDING * 2;
+  return { cardW, visualW, visualH, contentW, sheetW };
+}
+
 function makeAdminCombinationCard(
   combo: IndexedCombination,
-  base: ComponentNode
+  base: ComponentNode,
+  layout: AdminCardLayout,
+  boolishAxes: Set<string>
 ): FrameNode {
   const inst = combo.variantSource
     ? combo.variantSource.createInstance()
@@ -1673,61 +1747,156 @@ function makeAdminCombinationCard(
     }
   }
 
+  const labelCount = combo.labels.length;
+  const propsAreaH =
+    labelCount === 0
+      ? 0
+      : labelCount * ADMIN_PROP_ROW_HEIGHT + (labelCount - 1) * ADMIN_PROP_ROW_GAP;
+  const cardH =
+    ADMIN_CARD_PADDING * 2 +
+    layout.visualH +
+    (labelCount > 0 ? ADMIN_CARD_GAP + propsAreaH : 0);
+
   const card = figma.createFrame();
-  card.name = combo.labels.length
+  card.name = labelCount
     ? combo.labels.map((l) => `${l.axisName}=${l.valueLabel}`).join(" · ")
     : "Variante";
   card.layoutMode = "VERTICAL";
   card.primaryAxisSizingMode = "FIXED";
   card.counterAxisSizingMode = "FIXED";
-  card.resize(ADMIN_CARD_W, ADMIN_CARD_H);
-  card.paddingTop = 8;
-  card.paddingBottom = 8;
-  card.paddingLeft = 8;
-  card.paddingRight = 8;
-  card.itemSpacing = 8;
+  card.resize(layout.cardW, cardH);
+  card.paddingTop = ADMIN_CARD_PADDING;
+  card.paddingBottom = ADMIN_CARD_PADDING;
+  card.paddingLeft = ADMIN_CARD_PADDING;
+  card.paddingRight = ADMIN_CARD_PADDING;
+  card.itemSpacing = ADMIN_CARD_GAP;
   card.counterAxisAlignItems = "CENTER";
-  card.fills = [{ type: "SOLID", color: COLOR.refCardBg }];
+  card.fills = [{ type: "SOLID", color: COLOR.refMatrixCardBg }];
   card.cornerRadius = 12;
   card.clipsContent = true;
 
   const visual = figma.createFrame();
   visual.name = "Visual";
-  visual.resize(ADMIN_CARD_VISUAL_W, ADMIN_CARD_VISUAL_H);
+  visual.resize(layout.visualW, layout.visualH);
   visual.fills = [{ type: "SOLID", color: COLOR.refSheetBg }];
   visual.cornerRadius = 8;
   visual.clipsContent = true;
   visual.appendChild(inst);
-  inst.x = Math.round((ADMIN_CARD_VISUAL_W - inst.width) / 2);
-  inst.y = Math.round((ADMIN_CARD_VISUAL_H - inst.height) / 2);
+  inst.x = Math.round((layout.visualW - inst.width) / 2);
+  inst.y = Math.round((layout.visualH - inst.height) / 2);
   card.appendChild(visual);
 
-  const label = figma.createText();
-  label.name = "Label";
-  label.fontName = FONT.body;
-  label.fontSize = 14;
-  label.lineHeight = { value: 20, unit: "PIXELS" };
-  label.characters = combo.labels.length
-    ? combo.labels.map((l) => `${l.axisName} = ${l.valueLabel}`).join(" / ")
-    : "—";
-  label.fills = [{ type: "SOLID", color: COLOR.refCardLabel }];
-  label.textAlignHorizontal = "CENTER";
-  label.textAutoResize = "HEIGHT";
-  label.resize(ADMIN_CARD_VISUAL_W, label.height);
-  card.appendChild(label);
+  if (labelCount > 0) {
+    const propsArea = figma.createFrame();
+    propsArea.name = "Props";
+    propsArea.layoutMode = "VERTICAL";
+    propsArea.primaryAxisSizingMode = "FIXED";
+    propsArea.counterAxisSizingMode = "FIXED";
+    propsArea.resize(layout.visualW, propsAreaH);
+    propsArea.itemSpacing = ADMIN_PROP_ROW_GAP;
+    propsArea.fills = [];
+
+    for (const lbl of combo.labels) {
+      // For "—" (non-applicable on this variant), force text rendering — a
+      // switch in "off" state would be misleading.
+      const renderAsBool =
+        boolishAxes.has(lbl.axisName) && lbl.valueLabel !== "—";
+      propsArea.appendChild(
+        makeAdminPropRow(lbl.axisName, lbl.valueLabel, renderAsBool, layout.visualW)
+      );
+    }
+    card.appendChild(propsArea);
+  }
 
   return card;
 }
 
+function makeAdminPropRow(
+  name: string,
+  value: string,
+  isBool: boolean,
+  width: number
+): FrameNode {
+  const row = figma.createFrame();
+  row.name = `${name}=${value}`;
+  row.layoutMode = "HORIZONTAL";
+  row.primaryAxisSizingMode = "FIXED";
+  row.counterAxisSizingMode = "FIXED";
+  row.resize(width, ADMIN_PROP_ROW_HEIGHT);
+  row.paddingTop = 8;
+  row.paddingBottom = 8;
+  row.paddingLeft = 15;
+  row.paddingRight = 15;
+  row.itemSpacing = 8;
+  row.counterAxisAlignItems = "CENTER";
+  row.cornerRadius = 6;
+  row.fills = [{ type: "SOLID", color: COLOR.refMatrixRowBg }];
+
+  // Boolean props are prefixed with "has a " per spec.
+  const displayName = isBool ? `has a ${name}` : name;
+
+  const nameText = figma.createText();
+  nameText.fontName = FONT.body;
+  nameText.fontSize = 14;
+  nameText.lineHeight = { value: 24, unit: "PIXELS" };
+  nameText.characters = displayName;
+  nameText.fills = [{ type: "SOLID", color: COLOR.refMatrixRowName }];
+  nameText.layoutGrow = 1;
+  nameText.textAutoResize = "HEIGHT";
+  row.appendChild(nameText);
+
+  if (isBool) {
+    row.appendChild(makeAdminSwitch(isBoolishOnValue(value)));
+  } else {
+    const valText = figma.createText();
+    valText.fontName = FONT.bodyMed;
+    valText.fontSize = 14;
+    valText.lineHeight = { value: 24, unit: "PIXELS" };
+    valText.characters = value;
+    valText.fills = [{ type: "SOLID", color: COLOR.refMatrixRowValue }];
+    valText.textAlignHorizontal = "RIGHT";
+    valText.layoutGrow = 1;
+    valText.textAutoResize = "HEIGHT";
+    row.appendChild(valText);
+  }
+  return row;
+}
+
+// Switch glyph per Pnv spec: 28×16 pill, blue when on / grey when off,
+// 10×10 white thumb at left=4 (off) or left=14 (on).
+function makeAdminSwitch(isOn: boolean): FrameNode {
+  const wrap = figma.createFrame();
+  wrap.name = "Switch";
+  wrap.resize(28, 16);
+  wrap.cornerRadius = 11;
+  wrap.fills = [
+    {
+      type: "SOLID",
+      color: isOn ? COLOR.refMatrixSwitchOn : COLOR.refMatrixSwitchOff,
+    },
+  ];
+  wrap.clipsContent = false;
+
+  const thumb = figma.createEllipse();
+  thumb.resize(10, 10);
+  thumb.fills = [{ type: "SOLID", color: COLOR.refMatrixSwitchThumb }];
+  thumb.x = isOn ? 14 : 4;
+  thumb.y = 3;
+  wrap.appendChild(thumb);
+  return wrap;
+}
+
 async function buildAllAdminCards(
   combos: IndexedCombination[],
-  base: ComponentNode
+  base: ComponentNode,
+  layout: AdminCardLayout,
+  boolishAxes: Set<string>
 ): Promise<FrameNode[]> {
   const cards: FrameNode[] = [];
   for (let i = 0; i < combos.length; i += CARD_BATCH_SIZE) {
     const end = Math.min(i + CARD_BATCH_SIZE, combos.length);
     for (let j = i; j < end; j++) {
-      cards.push(makeAdminCombinationCard(combos[j], base));
+      cards.push(makeAdminCombinationCard(combos[j], base, layout, boolishAxes));
     }
     if (end < combos.length) {
       figma.notify(`Génération… ${end}/${combos.length}`, { timeout: 800 });
@@ -1737,9 +1906,9 @@ async function buildAllAdminCards(
   return cards;
 }
 
-// Flat grid of admin cards, wrapping at 3 cards per row inside the 636px
-// content width. All cards are FIXED 201×146 — no AUTO/FIXED flip needed.
-function buildAdminFlatGrid(cards: FrameNode[]): FrameNode {
+// Flat grid of admin cards with WRAP, sized to the sheet content width.
+// Cards have FIXED width = layout.cardW (max 3 per row).
+function buildAdminFlatGrid(cards: FrameNode[], layout: AdminCardLayout): FrameNode {
   const grid = figma.createFrame();
   grid.name = "CardGrid";
   grid.layoutMode = "HORIZONTAL";
@@ -1747,9 +1916,9 @@ function buildAdminFlatGrid(cards: FrameNode[]): FrameNode {
   grid.primaryAxisSizingMode = "FIXED";
   grid.counterAxisSizingMode = "AUTO";
   grid.layoutAlign = "STRETCH";
-  grid.resize(ADMIN_CONTENT_WIDTH, ADMIN_CARD_H);
-  grid.itemSpacing = 16;
-  grid.counterAxisSpacing = 16;
+  grid.resize(layout.contentW, 1);
+  grid.itemSpacing = ADMIN_GRID_GAP;
+  grid.counterAxisSpacing = ADMIN_GRID_GAP;
   grid.fills = [];
   for (const card of cards) grid.appendChild(card);
   return grid;
@@ -1761,10 +1930,11 @@ function buildAdminLayoutFromCards(
   combos: IndexedCombination[],
   cards: FrameNode[],
   groupBy: string[],
-  depth: number
+  depth: number,
+  layout: AdminCardLayout
 ): FrameNode {
   if (groupBy.length === 0 || combos.length === 0) {
-    return buildAdminFlatGrid(cards);
+    return buildAdminFlatGrid(cards, layout);
   }
 
   const [first, ...rest] = groupBy;
@@ -1810,7 +1980,7 @@ function buildAdminLayoutFromCards(
     header.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
     sub.appendChild(header);
 
-    sub.appendChild(buildAdminLayoutFromCards(g.combos, g.cards, rest, depth + 1));
+    sub.appendChild(buildAdminLayoutFromCards(g.combos, g.cards, rest, depth + 1, layout));
     wrapper.appendChild(sub);
   }
 
@@ -2296,9 +2466,8 @@ function makeTypeChip(type: ComponentPropertyType): FrameNode {
   return chip;
 }
 
-// Vertical bullet list. defaultIndex (≥0) renders that item in accent color +
-// medium weight to mark it as the default value.
-function makeBulletList(items: string[], defaultIndex: number): FrameNode {
+// Vertical bullet list — values render uniformly (default value not emphasized).
+function makeBulletList(items: string[]): FrameNode {
   const list = figma.createFrame();
   list.name = "Values";
   list.layoutMode = "VERTICAL";
@@ -2319,7 +2488,6 @@ function makeBulletList(items: string[], defaultIndex: number): FrameNode {
   }
 
   for (let i = 0; i < items.length; i++) {
-    const isDefault = i === defaultIndex;
     const row = figma.createFrame();
     row.layoutMode = "HORIZONTAL";
     row.primaryAxisSizingMode = "AUTO";
@@ -2329,23 +2497,19 @@ function makeBulletList(items: string[], defaultIndex: number): FrameNode {
     row.fills = [];
 
     const bullet = figma.createText();
-    bullet.fontName = isDefault ? FONT.bodyMed : FONT.body;
+    bullet.fontName = FONT.body;
     bullet.fontSize = 12;
     bullet.lineHeight = { value: 14, unit: "PIXELS" };
     bullet.characters = "•";
-    bullet.fills = [
-      { type: "SOLID", color: isDefault ? COLOR.refAccent : COLOR.refBodyText },
-    ];
+    bullet.fills = [{ type: "SOLID", color: COLOR.refBodyText }];
     row.appendChild(bullet);
 
     const t = figma.createText();
-    t.fontName = isDefault ? FONT.bodyMed : FONT.body;
+    t.fontName = FONT.body;
     t.fontSize = 12;
     t.lineHeight = { value: 14, unit: "PIXELS" };
     t.characters = items[i];
-    t.fills = [
-      { type: "SOLID", color: isDefault ? COLOR.refAccent : COLOR.refBodyText },
-    ];
+    t.fills = [{ type: "SOLID", color: COLOR.refBodyText }];
     row.appendChild(t);
 
     list.appendChild(row);
@@ -2353,31 +2517,18 @@ function makeBulletList(items: string[], defaultIndex: number): FrameNode {
   return list;
 }
 
-type ValuesDisplay = { items: string[]; defaultIndex: number };
-
-function valuesAsItems(p: PropInfo): ValuesDisplay {
+function valuesAsItems(p: PropInfo): string[] {
   switch (p.type) {
     case "BOOLEAN":
-      return {
-        items: ["true", "false"],
-        defaultIndex: p.defaultValue === true ? 0 : 1,
-      };
+      return ["true", "false"];
     case "TEXT":
-      return {
-        items: [`"${String(p.defaultValue)}"`],
-        defaultIndex: 0,
-      };
-    case "VARIANT": {
-      const items = p.variantOptions ?? [];
-      return {
-        items,
-        defaultIndex: items.findIndex((o) => o === String(p.defaultValue)),
-      };
-    }
+      return [`"${String(p.defaultValue)}"`];
+    case "VARIANT":
+      return p.variantOptions ?? [];
     case "INSTANCE_SWAP":
-      return { items: ["Instance par défaut"], defaultIndex: 0 };
+      return ["Instance"];
     default:
-      return { items: [], defaultIndex: -1 };
+      return [];
   }
 }
 
