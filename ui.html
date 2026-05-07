@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>DocPlugin</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 12px;
+        background: var(--figma-color-bg, #fff);
+        color: var(--figma-color-text, #1e1e1e);
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      /* ── Header ─────────────────────────────────────────── */
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--figma-color-border, #e6e6e6);
+        flex-shrink: 0;
+      }
+      .logo {
+        width: 22px;
+        height: 22px;
+        background: var(--figma-color-bg-brand, #0d99ff);
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .title {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        flex: 1;
+      }
+
+      /* ── Body ────────────────────────────────────────────── */
+      .body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 14px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        min-height: 0;
+      }
+
+      /* ── Empty state ─────────────────────────────────────── */
+      .empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        text-align: center;
+        padding: 28px 16px;
+        border: 1.5px dashed var(--figma-color-border, #e6e6e6);
+        border-radius: 10px;
+      }
+      .empty-hint {
+        font-size: 11px;
+        color: var(--figma-color-text-secondary, #888);
+        line-height: 1.6;
+      }
+
+      /* ── Component card ──────────────────────────────────── */
+      .component-card {
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .preview-img {
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        min-height: 88px;
+        border-bottom: 1px solid var(--figma-color-border, #e6e6e6);
+      }
+      .preview-img img {
+        max-width: 100%;
+        max-height: 110px;
+        display: block;
+      }
+      .component-meta {
+        padding: 9px 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .component-name {
+        font-size: 12px;
+        font-weight: 600;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .badge {
+        font-size: 10px;
+        font-weight: 500;
+        color: var(--figma-color-text-secondary, #888);
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        padding: 2px 8px;
+        border-radius: 100px;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      /* ── Options ─────────────────────────────────────────── */
+      .section-title {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--figma-color-text-secondary, #888);
+        margin-bottom: 4px;
+      }
+      .options { display: flex; flex-direction: column; gap: 1px; }
+      .option {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background 0.1s;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      .option:hover:not(.disabled) {
+        background: var(--figma-color-bg-hover, #f5f5f5);
+      }
+      .option.disabled {
+        opacity: 0.38;
+        cursor: not-allowed;
+      }
+      .option-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--figma-color-text-secondary, #888);
+      }
+      .option-label .label-text {
+        font-size: 12px;
+        color: var(--figma-color-text, #1e1e1e);
+      }
+      .count-tag {
+        font-size: 10px;
+        font-weight: 500;
+        color: var(--figma-color-text-secondary, #888);
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        padding: 1px 7px;
+        border-radius: 100px;
+        flex-shrink: 0;
+      }
+      .count-tag[hidden] { display: none; }
+
+      /* ── Group-by section ───────────────────────────────── */
+      #group-by-section[hidden] { display: none; }
+      .hint {
+        font-size: 10px;
+        color: var(--figma-color-text-secondary, #888);
+        margin: -2px 0 8px;
+      }
+      .axes-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .axis-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 11px;
+        border-radius: 100px;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        color: var(--figma-color-text, #1e1e1e);
+        font-size: 11px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      .axis-chip:hover:not(.selected) { opacity: 0.78; }
+      .axis-chip.selected {
+        background: var(--figma-color-bg-brand, #0d99ff);
+        color: #fff;
+        padding-left: 5px;
+      }
+      .axis-chip .order-num {
+        display: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.28);
+        color: #fff;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 600;
+      }
+      .axis-chip.selected .order-num { display: inline-flex; }
+
+      /* ── Exclusions section ─────────────────────────────── */
+      #exclusions-section[hidden] { display: none; }
+      .rules-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .rule-card {
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        border-radius: 8px;
+        padding: 8px 10px;
+        position: relative;
+      }
+      .rule-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      .rule-title {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--figma-color-text-secondary, #888);
+      }
+      .rule-delete {
+        background: transparent;
+        border: none;
+        color: var(--figma-color-text-secondary, #888);
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 14px;
+        line-height: 1;
+        border-radius: 4px;
+      }
+      .rule-delete:hover { color: var(--figma-color-text, #1e1e1e); background: rgba(0,0,0,0.06); }
+      .rule-conditions {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .rule-condition {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+      }
+      .rule-condition-label {
+        flex: 0 0 90px;
+        color: var(--figma-color-text-secondary, #888);
+        text-overflow: ellipsis;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      .rule-condition select {
+        flex: 1;
+        font-family: inherit;
+        font-size: 11px;
+        background: var(--figma-color-bg, #fff);
+        border: 1px solid var(--figma-color-border, #d9d9d9);
+        border-radius: 5px;
+        padding: 3px 6px;
+        color: var(--figma-color-text, #1e1e1e);
+        cursor: pointer;
+      }
+      .rule-condition select:focus { outline: 1px solid var(--figma-color-bg-brand, #0d99ff); outline-offset: -1px; }
+      .add-rule-btn {
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 500;
+        background: transparent;
+        border: 1px dashed var(--figma-color-border, #d9d9d9);
+        color: var(--figma-color-text-secondary, #888);
+        padding: 6px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        width: 100%;
+      }
+      .add-rule-btn:hover {
+        background: var(--figma-color-bg-hover, #f5f5f5);
+        color: var(--figma-color-text, #1e1e1e);
+      }
+
+      /* ── Locks section ──────────────────────────────────── */
+      #locks-section[hidden] { display: none; }
+      .locks-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .lock-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+      }
+      .lock-axis {
+        flex: 0 0 100px;
+        color: var(--figma-color-text-secondary, #888);
+        text-overflow: ellipsis;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      .lock-row select {
+        flex: 1;
+        font-family: inherit;
+        font-size: 11px;
+        background: var(--figma-color-bg, #fff);
+        border: 1px solid var(--figma-color-border, #d9d9d9);
+        border-radius: 5px;
+        padding: 3px 6px;
+        color: var(--figma-color-text, #1e1e1e);
+        cursor: pointer;
+      }
+      .lock-row select:focus {
+        outline: 1px solid var(--figma-color-bg-brand, #0d99ff);
+        outline-offset: -1px;
+      }
+      .lock-row.locked select {
+        border-color: var(--figma-color-bg-brand, #0d99ff);
+        color: var(--figma-color-bg-brand, #0d99ff);
+        font-weight: 500;
+      }
+
+      /* ── Toggle switch ───────────────────────────────────── */
+      .toggle {
+        position: relative;
+        width: 30px;
+        height: 17px;
+        flex-shrink: 0;
+      }
+      .toggle input {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+      }
+      .toggle-track {
+        position: absolute;
+        inset: 0;
+        border-radius: 100px;
+        background: var(--figma-color-border, #d9d9d9);
+        transition: background 0.18s;
+      }
+      .toggle input:checked ~ .toggle-track {
+        background: var(--figma-color-bg-brand, #0d99ff);
+      }
+      .toggle-thumb {
+        position: absolute;
+        width: 13px;
+        height: 13px;
+        top: 2px;
+        left: 2px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+        transition: transform 0.18s;
+        pointer-events: none;
+      }
+      .toggle input:checked ~ .toggle-thumb {
+        transform: translateX(13px);
+      }
+
+      /* ── Footer ──────────────────────────────────────────── */
+      .footer {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 16px;
+        border-top: 1px solid var(--figma-color-border, #e6e6e6);
+        flex-shrink: 0;
+      }
+      button {
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 500;
+        padding: 6px 12px;
+        border-radius: 7px;
+        border: none;
+        cursor: pointer;
+        line-height: 1.4;
+        white-space: nowrap;
+        transition: opacity 0.12s;
+      }
+      button:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+        pointer-events: none;
+      }
+      .btn-ghost {
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        color: var(--figma-color-text, #1e1e1e);
+      }
+      .btn-ghost:hover { opacity: 0.72; }
+      .btn-primary {
+        background: var(--figma-color-bg-brand, #0d99ff);
+        color: #fff;
+        flex: 1;
+      }
+      .btn-primary:hover:not(:disabled) { opacity: 0.85; }
+    </style>
+  </head>
+  <body>
+
+    <div class="header">
+      <div class="logo">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <rect x="1.5" y="1.5" width="3.8" height="3.8" rx="0.9" fill="white"/>
+          <rect x="6.7" y="1.5" width="3.8" height="3.8" rx="0.9" fill="white" opacity="0.55"/>
+          <rect x="1.5" y="6.7" width="3.8" height="3.8" rx="0.9" fill="white" opacity="0.55"/>
+          <rect x="6.7" y="6.7" width="3.8" height="3.8" rx="0.9" fill="white"/>
+        </svg>
+      </div>
+      <span class="title">DocPlugin</span>
+    </div>
+
+    <div class="body">
+      <div id="content"></div>
+
+      <div>
+        <div class="section-title">Inclure dans la doc</div>
+        <div class="options">
+
+          <div class="option" id="row-props">
+            <div class="option-label">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <rect x="1" y="2.5" width="12" height="1.5" rx="0.75"/>
+                <rect x="1" y="6.25" width="8.5" height="1.5" rx="0.75"/>
+                <rect x="1" y="10" width="10" height="1.5" rx="0.75"/>
+              </svg>
+              <span class="label-text">Propriétés</span>
+            </div>
+            <div class="toggle">
+              <input type="checkbox" id="opt-props" checked />
+              <div class="toggle-track"></div>
+              <div class="toggle-thumb"></div>
+            </div>
+          </div>
+
+          <div class="option" id="row-tokens">
+            <div class="option-label">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <circle cx="7" cy="7" r="2.6"/>
+                <path d="M7 1.5A5.5 5.5 0 1 1 1.5 7" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+              </svg>
+              <span class="label-text">Variables liées</span>
+            </div>
+            <div class="toggle">
+              <input type="checkbox" id="opt-tokens" checked />
+              <div class="toggle-track"></div>
+              <div class="toggle-thumb"></div>
+            </div>
+          </div>
+
+          <div class="option disabled" id="row-variants">
+            <div class="option-label">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <rect x="1" y="1" width="5" height="5" rx="1.2"/>
+                <rect x="8" y="1" width="5" height="5" rx="1.2"/>
+                <rect x="1" y="8" width="5" height="5" rx="1.2"/>
+                <rect x="8" y="8" width="5" height="5" rx="1.2"/>
+              </svg>
+              <span class="label-text">Matrice des props</span>
+              <span class="count-tag" id="count-tag" hidden></span>
+            </div>
+            <div class="toggle">
+              <input type="checkbox" id="opt-variants" checked disabled />
+              <div class="toggle-track"></div>
+              <div class="toggle-thumb"></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div id="group-by-section" hidden>
+        <div class="section-title">Trier par</div>
+        <div class="hint">Cliquez pour grouper les combinaisons (ordre = niveaux)</div>
+        <div class="axes-list" id="axes-list"></div>
+      </div>
+
+      <div id="exclusions-section" hidden>
+        <div class="section-title">Exclusions</div>
+        <div class="hint">Combinaisons à ne pas générer (chaque règle = ET ; plusieurs règles = OU)</div>
+        <div class="rules-list" id="rules-list"></div>
+        <button class="add-rule-btn" id="add-rule">+ Ajouter une exclusion</button>
+      </div>
+
+      <div id="locks-section" hidden>
+        <div class="section-title">Verrouiller</div>
+        <div class="hint">Fixer un axe à une valeur (retiré du produit cartésien)</div>
+        <div class="locks-list" id="locks-list"></div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <button class="btn-ghost" id="close">Fermer</button>
+      <button class="btn-ghost" id="export-pdf" disabled>PDF</button>
+      <button class="btn-primary" id="generate" disabled>Générer la doc</button>
+    </div>
+
+    <script>
+      const content = document.getElementById("content");
+      const generateBtn = document.getElementById("generate");
+      const exportPdfBtn = document.getElementById("export-pdf");
+      const variantsRow = document.getElementById("row-variants");
+      const variantsBox = document.getElementById("opt-variants");
+      const propsBox = document.getElementById("opt-props");
+      const countTag = document.getElementById("count-tag");
+      const groupBySection = document.getElementById("group-by-section");
+      const axesList = document.getElementById("axes-list");
+      const exclusionsSection = document.getElementById("exclusions-section");
+      const rulesList = document.getElementById("rules-list");
+      const addRuleBtn = document.getElementById("add-rule");
+      const locksSection = document.getElementById("locks-section");
+      const locksList = document.getElementById("locks-list");
+      const tokensBox = document.getElementById("opt-tokens");
+
+      let availableAxes = [];
+      let availableAxisValues = {}; // { axisName: [valueLabels...] }
+      let groupByOrder = [];
+      // exclusionRules : Array<{ [axisName]: valueLabel }>. "" / undefined = (toutes)
+      let exclusionRules = [];
+      // propLocks : { [axisName]: lockedValueLabel }. Absent / "" = libre
+      let propLocks = {};
+      // Last reported total combinations (cartesian post-dedup) — used to recompute on lock change
+      let baseCombinationCount = 0;
+
+      // Click-to-toggle for all option rows
+      ["row-props", "row-tokens", "row-variants"].forEach((id) => {
+        const row = document.getElementById(id);
+        const cb = row.querySelector('input[type="checkbox"]');
+        row.addEventListener("click", () => {
+          if (!cb.disabled) {
+            cb.checked = !cb.checked;
+            updateGroupBySectionVisibility();
+            updateExclusionsSectionVisibility();
+            updateLocksSectionVisibility();
+          }
+        });
+      });
+
+      addRuleBtn.addEventListener("click", () => {
+        exclusionRules.push({});
+        renderRules();
+      });
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"]/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+        );
+      }
+
+      function setVariantsAvailable(available) {
+        variantsBox.disabled = !available;
+        if (!available) {
+          variantsBox.checked = false;
+          variantsRow.classList.add("disabled");
+        } else {
+          variantsBox.checked = true;
+          variantsRow.classList.remove("disabled");
+        }
+      }
+
+      function updateCountTag(count) {
+        if (count > 0) {
+          countTag.textContent = String(count);
+          countTag.hidden = false;
+        } else {
+          countTag.hidden = true;
+        }
+      }
+
+      function rebuildAxesList(axes, axisValues) {
+        availableAxes = axes;
+        availableAxisValues = axisValues || {};
+        groupByOrder = [];
+        exclusionRules = [];
+        propLocks = {};
+        axesList.innerHTML = "";
+        for (const axis of axes) {
+          const chip = document.createElement("div");
+          chip.className = "axis-chip";
+          chip.dataset.axis = axis;
+          chip.innerHTML = `<span class="order-num"></span><span class="axis-name"></span>`;
+          chip.querySelector(".axis-name").textContent = axis;
+          chip.addEventListener("click", () => toggleAxisInGroupBy(axis));
+          axesList.appendChild(chip);
+        }
+        renderRules();
+        renderLocks();
+      }
+
+      function renderRules() {
+        rulesList.innerHTML = "";
+        exclusionRules.forEach((rule, ruleIdx) => {
+          const card = document.createElement("div");
+          card.className = "rule-card";
+
+          const headerEl = document.createElement("div");
+          headerEl.className = "rule-card-header";
+          const title = document.createElement("span");
+          title.className = "rule-title";
+          title.textContent = `Règle ${ruleIdx + 1}`;
+          headerEl.appendChild(title);
+
+          const del = document.createElement("button");
+          del.className = "rule-delete";
+          del.textContent = "×";
+          del.title = "Supprimer cette règle";
+          del.addEventListener("click", () => {
+            exclusionRules.splice(ruleIdx, 1);
+            renderRules();
+          });
+          headerEl.appendChild(del);
+          card.appendChild(headerEl);
+
+          const conditions = document.createElement("div");
+          conditions.className = "rule-conditions";
+          for (const axis of availableAxes) {
+            const row = document.createElement("div");
+            row.className = "rule-condition";
+
+            const label = document.createElement("span");
+            label.className = "rule-condition-label";
+            label.textContent = axis;
+            label.title = axis;
+            row.appendChild(label);
+
+            const select = document.createElement("select");
+            const anyOpt = document.createElement("option");
+            anyOpt.value = "";
+            anyOpt.textContent = "(toutes)";
+            select.appendChild(anyOpt);
+            for (const v of availableAxisValues[axis] || []) {
+              const opt = document.createElement("option");
+              opt.value = v;
+              opt.textContent = v;
+              select.appendChild(opt);
+            }
+            select.value = rule[axis] || "";
+            select.addEventListener("change", () => {
+              if (select.value === "") delete rule[axis];
+              else rule[axis] = select.value;
+            });
+            row.appendChild(select);
+
+            conditions.appendChild(row);
+          }
+          card.appendChild(conditions);
+          rulesList.appendChild(card);
+        });
+      }
+
+      function toggleAxisInGroupBy(axisName) {
+        const idx = groupByOrder.indexOf(axisName);
+        if (idx >= 0) groupByOrder.splice(idx, 1);
+        else groupByOrder.push(axisName);
+        updateChipsDisplay();
+      }
+
+      function updateChipsDisplay() {
+        document.querySelectorAll(".axis-chip").forEach((chip) => {
+          const idx = groupByOrder.indexOf(chip.dataset.axis);
+          if (idx >= 0) {
+            chip.classList.add("selected");
+            chip.querySelector(".order-num").textContent = String(idx + 1);
+          } else {
+            chip.classList.remove("selected");
+          }
+        });
+      }
+
+      function updateGroupBySectionVisibility() {
+        const variantsOn = !variantsBox.disabled && variantsBox.checked;
+        const propsOn = propsBox.checked;
+        const enoughAxes = availableAxes.length >= 2;
+        groupBySection.hidden = !(variantsOn && propsOn && enoughAxes);
+      }
+
+      function updateExclusionsSectionVisibility() {
+        const variantsOn = !variantsBox.disabled && variantsBox.checked;
+        const propsOn = propsBox.checked;
+        const hasAxes = availableAxes.length >= 1;
+        exclusionsSection.hidden = !(variantsOn && propsOn && hasAxes);
+      }
+
+      function updateLocksSectionVisibility() {
+        const variantsOn = !variantsBox.disabled && variantsBox.checked;
+        const propsOn = propsBox.checked;
+        const hasAxes = availableAxes.length >= 1;
+        locksSection.hidden = !(variantsOn && propsOn && hasAxes);
+      }
+
+      function renderLocks() {
+        locksList.innerHTML = "";
+        for (const axis of availableAxes) {
+          const row = document.createElement("div");
+          row.className = "lock-row";
+          if (propLocks[axis]) row.classList.add("locked");
+
+          const label = document.createElement("span");
+          label.className = "lock-axis";
+          label.textContent = axis;
+          label.title = axis;
+          row.appendChild(label);
+
+          const select = document.createElement("select");
+          const freeOpt = document.createElement("option");
+          freeOpt.value = "";
+          freeOpt.textContent = "(libre)";
+          select.appendChild(freeOpt);
+          for (const v of availableAxisValues[axis] || []) {
+            const opt = document.createElement("option");
+            opt.value = v;
+            opt.textContent = v;
+            select.appendChild(opt);
+          }
+          select.value = propLocks[axis] || "";
+          select.addEventListener("change", () => {
+            if (select.value === "") delete propLocks[axis];
+            else propLocks[axis] = select.value;
+            row.classList.toggle("locked", !!propLocks[axis]);
+            recomputeCount();
+          });
+          row.appendChild(select);
+          locksList.appendChild(row);
+        }
+      }
+
+      // Recompute count locally when locks change. Approximation:
+      // (baseCount / product-of-locked-axis-cardinalities). This matches the
+      // backend math when all locked axes are independent of dedup, which is the
+      // common case. Falls back to baseCount if math gets weird.
+      function recomputeCount() {
+        let count = baseCombinationCount;
+        for (const axisName of Object.keys(propLocks)) {
+          const card = (availableAxisValues[axisName] || []).length;
+          if (card > 0) count = Math.round(count / card);
+        }
+        updateCountTag(count);
+      }
+
+      function renderEmpty() {
+        content.innerHTML = `
+          <div class="empty">
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <rect x="3" y="3" width="11" height="11" rx="2.5" fill="var(--figma-color-border,#d9d9d9)"/>
+              <rect x="18" y="3" width="11" height="11" rx="2.5" fill="var(--figma-color-border,#d9d9d9)" opacity=".45"/>
+              <rect x="3" y="18" width="11" height="11" rx="2.5" fill="var(--figma-color-border,#d9d9d9)" opacity=".45"/>
+              <rect x="18" y="18" width="11" height="11" rx="2.5" fill="var(--figma-color-border,#d9d9d9)"/>
+            </svg>
+            <p class="empty-hint">Sélectionnez un composant,<br>un set de variants ou une instance.</p>
+          </div>`;
+        generateBtn.disabled = true;
+        exportPdfBtn.disabled = true;
+        setVariantsAvailable(false);
+        baseCombinationCount = 0;
+        updateCountTag(0);
+        rebuildAxesList([], {});
+        updateGroupBySectionVisibility();
+        updateExclusionsSectionVisibility();
+        updateLocksSectionVisibility();
+      }
+
+      function renderTarget(target) {
+        const img = target.previewBase64
+          ? `<img src="data:image/png;base64,${target.previewBase64}" alt="" />`
+          : `<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+               <rect x="3" y="3" width="18" height="18" rx="3" stroke="var(--figma-color-border,#d9d9d9)" stroke-width="1.5"/>
+             </svg>`;
+        const kindLabel = target.kind === "COMPONENT_SET" ? "Set" : "Composant";
+        const n = target.props.length;
+        content.innerHTML = `
+          <div class="component-card">
+            <div class="preview-img">${img}</div>
+            <div class="component-meta">
+              <span class="component-name">${escapeHtml(target.name)}</span>
+              <span class="badge">${kindLabel} · ${n} prop${n !== 1 ? "s" : ""}</span>
+            </div>
+          </div>`;
+        generateBtn.disabled = false;
+        exportPdfBtn.disabled = false;
+        setVariantsAvailable(target.combinationCount > 0);
+        baseCombinationCount = target.combinationCount || 0;
+        updateCountTag(baseCombinationCount);
+        rebuildAxesList(target.axes || [], target.axisValues || {});
+        applySavedConfig(target.savedConfig);
+        updateGroupBySectionVisibility();
+        updateExclusionsSectionVisibility();
+        updateLocksSectionVisibility();
+      }
+
+      // Restore previously saved options for this component (filtering out
+      // axes/values that no longer exist if the component was edited).
+      function applySavedConfig(saved) {
+        if (!saved) return;
+        if (saved.options) {
+          if (typeof saved.options.props === "boolean") propsBox.checked = saved.options.props;
+          if (typeof saved.options.tokens === "boolean") tokensBox.checked = saved.options.tokens;
+          if (typeof saved.options.variants === "boolean" && !variantsBox.disabled) {
+            variantsBox.checked = saved.options.variants;
+          }
+        }
+        if (Array.isArray(saved.groupBy)) {
+          groupByOrder = saved.groupBy.filter((n) => availableAxes.includes(n));
+          updateChipsDisplay();
+        }
+        if (Array.isArray(saved.excludeRules)) {
+          exclusionRules = saved.excludeRules
+            .map((rule) => {
+              const r = {};
+              for (const k of Object.keys(rule || {})) {
+                if (
+                  availableAxes.includes(k) &&
+                  (availableAxisValues[k] || []).includes(rule[k])
+                ) {
+                  r[k] = rule[k];
+                }
+              }
+              return r;
+            })
+            .filter((r) => Object.keys(r).length > 0);
+          renderRules();
+        }
+        if (saved.propLocks && typeof saved.propLocks === "object") {
+          propLocks = {};
+          for (const k of Object.keys(saved.propLocks)) {
+            if (
+              availableAxes.includes(k) &&
+              (availableAxisValues[k] || []).includes(saved.propLocks[k])
+            ) {
+              propLocks[k] = saved.propLocks[k];
+            }
+          }
+          renderLocks();
+          recomputeCount();
+        }
+      }
+
+      window.onmessage = (event) => {
+        const msg = event.data && event.data.pluginMessage;
+        if (!msg) return;
+        if (msg.type === "selection") {
+          if (msg.target) renderTarget(msg.target);
+          else renderEmpty();
+        } else if (msg.type === "pdf-export") {
+          const pdf = buildMultiPagePdf(msg.jpegs);
+          const blob = new Blob([pdf], { type: "application/pdf" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = msg.filename || "documentation.pdf";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }
+      };
+
+      function getOptions() {
+        return {
+          props: document.getElementById("opt-props").checked,
+          tokens: document.getElementById("opt-tokens").checked,
+          variants: !variantsBox.disabled && variantsBox.checked,
+          groupBy: groupByOrder.slice(),
+          // Drop empty rules (no conditions selected)
+          excludeRules: exclusionRules
+            .map((r) => Object.assign({}, r))
+            .filter((r) => Object.keys(r).length > 0),
+          propLocks: Object.assign({}, propLocks),
+        };
+      }
+
+      document.getElementById("generate").addEventListener("click", () => {
+        parent.postMessage({ pluginMessage: { type: "generate-doc", options: getOptions() } }, "*");
+      });
+
+      document.getElementById("export-pdf").addEventListener("click", () => {
+        parent.postMessage({ pluginMessage: { type: "export-pdf", options: getOptions() } }, "*");
+      });
+
+      document.getElementById("close").addEventListener("click", () => {
+        parent.postMessage({ pluginMessage: { type: "close" } }, "*");
+      });
+
+      // ── PDF builder (pure JS, no deps) ───────────────────────────────────────
+      function buildMultiPagePdf(jpegs) {
+        const PW = 595, PH = 842;
+        const enc = new TextEncoder();
+        const chunks = [];
+        const xrefOffset = {};
+        let pos = 0;
+
+        function write(str) {
+          const b = enc.encode(str);
+          chunks.push(b);
+          pos += b.length;
+        }
+        function writeBytes(bytes) { chunks.push(bytes); pos += bytes.length; }
+        function startObj(id) { xrefOffset[id] = pos; write(`${id} 0 obj\n`); }
+        function endObj() { write("endobj\n"); }
+
+        const n = jpegs.length;
+        const pgId = (i) => 3 + i * 3;
+        const imgId = (i) => 4 + i * 3;
+        const csId = (i) => 5 + i * 3;
+        const total = 2 + n * 3;
+
+        write("%PDF-1.4\n");
+        startObj(1); write("<< /Type /Catalog /Pages 2 0 R >>\n"); endObj();
+        startObj(2);
+        write(`<< /Type /Pages /Kids [${jpegs.map((_, i) => `${pgId(i)} 0 R`).join(" ")}] /Count ${n} >>\n`);
+        endObj();
+
+        for (let i = 0; i < n; i++) {
+          const { base64, width, height } = jpegs[i];
+          const jpegBytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+          const contentStr = `q ${PW} 0 0 ${PH} 0 0 cm /Im${i} Do Q`;
+          const contentBytes = enc.encode(contentStr);
+
+          startObj(pgId(i));
+          write(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PW} ${PH}]\n`);
+          write(`/Resources << /XObject << /Im${i} ${imgId(i)} 0 R >> >>\n`);
+          write(`/Contents ${csId(i)} 0 R >>\n`);
+          endObj();
+
+          startObj(imgId(i));
+          write(`<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height}\n`);
+          write(`/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\n`);
+          write("stream\n"); writeBytes(jpegBytes); write("\nendstream\n");
+          endObj();
+
+          startObj(csId(i));
+          write(`<< /Length ${contentBytes.length} >>\nstream\n`);
+          writeBytes(contentBytes); write("\nendstream\n");
+          endObj();
+        }
+
+        const xrefStart = pos;
+        write(`xref\n0 ${total + 1}\n`);
+        write("0000000000 65535 f \n");
+        for (let id = 1; id <= total; id++) {
+          write(`${String(xrefOffset[id] ?? 0).padStart(10, "0")} 00000 n \n`);
+        }
+        write(`trailer\n<< /Size ${total + 1} /Root 1 0 R >>\n`);
+        write(`startxref\n${xrefStart}\n%%EOF\n`);
+
+        const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+        const result = new Uint8Array(totalLen);
+        let offset = 0;
+        for (const c of chunks) { result.set(c, offset); offset += c.length; }
+        return result;
+      }
+
+      renderEmpty();
+    </script>
+  </body>
+</html>
