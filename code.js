@@ -8,7 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-const PROP_COL_WIDTHS = [126, 260, 125, 125];
+const PROP_COL_WIDTHS = [142, 212, 141, 141];
 const PROP_COL_HEADERS = ["Propriété", "Description", "Type", "Valeurs"];
 const PROP_DESCRIPTION_PLACEHOLDER = "À compléter";
 const ADMIN_SHEET_WIDTH_DEFAULT = 700;
@@ -25,7 +25,7 @@ const ADMIN_VISUAL_PADDING = 16;
 const ADMIN_VISUAL_MIN_H = 100;
 const ADMIN_PROP_ROW_HEIGHT = 32;
 const ADMIN_PROP_ROW_GAP = 4;
-const TOKEN_COL_WIDTHS = [320, 140, 200];
+const TOKEN_COL_WIDTHS = [296, 140, 200]; // sum = 636 (admin content width)
 const TOKEN_COL_HEADERS = ["Variable", "Type", "Collection"];
 const SHEET_GAP = 32;
 const CARD_BATCH_SIZE = 50;
@@ -35,7 +35,7 @@ const PDF_H = 842;
 const PDF_MARGIN = 40;
 const PDF_CONTENT_W = PDF_W - PDF_MARGIN * 2; // 515
 const PDF_CARD_GAP = 12;
-const PDF_PROP_COL_WIDTHS_A4 = [100, 175, 100, 140]; // sum = 515 (Propriété, Description, Type, Valeurs)
+const PDF_PROP_COL_WIDTHS_A4 = [116, 127, 116, 156]; // sum = 515 (Propriété, Description, Type, Valeurs)
 const PDF_TOKEN_COL_WIDTHS_A4 = [240, 110, 165]; // sum = 515
 function hex(h) {
     const v = h.replace("#", "");
@@ -312,7 +312,7 @@ function buildSheets(target, options) {
             sheets.push(makeAdminSheet(target, "Propriétés", buildPropsSection(target)));
         }
         if (options.tokens) {
-            sheets.push(makeSheet(target, "Variables liées", yield buildTokensSection(target)));
+            sheets.push(makeAdminSheet(target, "Variables liées", yield buildTokensSection(target)));
         }
         return sheets;
     });
@@ -749,24 +749,13 @@ function makeAdminSheet(target, title, content, sheetWidth = ADMIN_SHEET_WIDTH_D
     sheet.resize(sheetWidth, sheet.height);
     return sheet;
 }
-// 24px square containing a small "menu-slash" glyph in brand color, mimicking
-// the reference. Drawn with a vector node so it survives PNG/JPEG export.
+// 24×24 brand glyph — two parallel slanted bars in #0C4790. Imported from
+// SVG so it survives PNG/JPEG export and matches the design 1:1.
 function makeBreadcrumbIcon() {
-    const wrap = figma.createFrame();
-    wrap.name = "Icon";
-    wrap.resize(24, 24);
-    wrap.fills = [];
-    wrap.clipsContent = false;
-    // Tilted slash 24x24 — 3 dots stacked on a diagonal, simple geometric glyph.
-    for (let i = 0; i < 3; i++) {
-        const dot = figma.createEllipse();
-        dot.resize(4, 4);
-        dot.x = 6 + i * 4;
-        dot.y = 14 - i * 4;
-        dot.fills = [{ type: "SOLID", color: COLOR.refBrand }];
-        wrap.appendChild(dot);
-    }
-    return wrap;
+    const svg = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7.23114 18.4368H3.84808L8.22284 5.56299H11.4968L7.23114 18.4368Z" fill="#0C4790"/><path d="M15.8862 18.4368H12.5038L16.8793 5.56299H20.1518L15.8862 18.4368Z" fill="#0C4790"/></svg>`;
+    const node = figma.createNodeFromSvg(svg);
+    node.name = "Icon";
+    return node;
 }
 function makeAdminSheetHeader(componentName, categoryTitle, contentWidth = ADMIN_CONTENT_WIDTH_DEFAULT) {
     const header = figma.createFrame();
@@ -962,7 +951,7 @@ function buildTokensSection(target) {
             return textFrame("Variables liées détectées mais non résolvables (librairie non chargée).");
         }
         items.sort((a, b) => a.name.localeCompare(b.name));
-        return makeElegantTable(TOKEN_COL_HEADERS, TOKEN_COL_WIDTHS, items.map((i) => [i.name, i.type, i.collection]));
+        return makeAdminTable(TOKEN_COL_HEADERS, TOKEN_COL_WIDTHS, items.map((i) => [i.name, i.type, i.collection]));
     });
 }
 function buildVariantsSection(target, groupBy, excludeRules, propLocks, layout) {
