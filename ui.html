@@ -55,6 +55,39 @@
         min-height: 0;
       }
 
+      /* ── View routing ───────────────────────────────────── */
+      .view { display: none; }
+      .view.view-active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+      /* ── Settings view header (back arrow + title) ──────── */
+      .settings-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--figma-color-border, #e6e6e6);
+        flex-shrink: 0;
+      }
+      .back-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        color: var(--figma-color-text, #1e1e1e);
+        padding: 0;
+      }
+      .back-btn:hover { background: var(--figma-color-bg-hover, #f5f5f5); }
+      .settings-title {
+        font-size: 12px;
+        font-weight: 600;
+        flex: 1;
+      }
+
       /* ── Empty state ─────────────────────────────────────── */
       .empty {
         display: flex;
@@ -167,6 +200,42 @@
         flex-shrink: 0;
       }
       .count-tag[hidden] { display: none; }
+
+      /* ── Gear button (per-section settings) ─────────────── */
+      .gear-btn {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        border-radius: 5px;
+        cursor: pointer;
+        color: var(--figma-color-text-secondary, #888);
+        flex-shrink: 0;
+      }
+      .gear-btn:hover { background: var(--figma-color-bg-hover, #f5f5f5); color: var(--figma-color-text, #1e1e1e); }
+      .gear-btn[hidden] { display: none; }
+      .gear-dot {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        width: 6px;
+        height: 6px;
+        background: var(--figma-color-bg-brand, #0d99ff);
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      .gear-dot[hidden] { display: none; }
+      .option-trailing {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
 
       /* ── Group-by section ───────────────────────────────── */
       #group-by-section[hidden] { display: none; }
@@ -300,45 +369,49 @@
         color: var(--figma-color-text, #1e1e1e);
       }
 
-      /* ── Locks section ──────────────────────────────────── */
+      /* ── Locks section (multi-select chips) ─────────────── */
       #locks-section[hidden] { display: none; }
       .locks-list {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 10px;
       }
       .lock-row {
         display: flex;
-        align-items: center;
-        gap: 8px;
+        flex-direction: column;
+        gap: 6px;
         font-size: 11px;
       }
       .lock-axis {
-        flex: 0 0 100px;
         color: var(--figma-color-text-secondary, #888);
+        font-weight: 500;
         text-overflow: ellipsis;
         overflow: hidden;
         white-space: nowrap;
       }
-      .lock-row select {
-        flex: 1;
-        font-family: inherit;
-        font-size: 11px;
-        background: var(--figma-color-bg, #fff);
-        border: 1px solid var(--figma-color-border, #d9d9d9);
-        border-radius: 5px;
-        padding: 3px 6px;
+      .lock-values {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .lock-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 10px;
+        border-radius: 100px;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
         color: var(--figma-color-text, #1e1e1e);
-        cursor: pointer;
-      }
-      .lock-row select:focus {
-        outline: 1px solid var(--figma-color-bg-brand, #0d99ff);
-        outline-offset: -1px;
-      }
-      .lock-row.locked select {
-        border-color: var(--figma-color-bg-brand, #0d99ff);
-        color: var(--figma-color-bg-brand, #0d99ff);
+        font-size: 11px;
         font-weight: 500;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      .lock-chip:hover:not(.selected) { opacity: 0.78; }
+      .lock-chip.selected {
+        background: var(--figma-color-bg-brand, #0d99ff);
+        color: #fff;
       }
 
       /* ── Toggle switch ───────────────────────────────────── */
@@ -418,6 +491,16 @@
         flex: 1;
       }
       .btn-primary:hover:not(:disabled) { opacity: 0.85; }
+
+      .settings-footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        padding: 10px 16px;
+        border-top: 1px solid var(--figma-color-border, #e6e6e6);
+        flex-shrink: 0;
+      }
     </style>
   </head>
   <body>
@@ -434,89 +517,118 @@
       <span class="title">DocPlugin</span>
     </div>
 
-    <div class="body">
-      <div id="content"></div>
+    <div id="view-main" class="view view-active">
+      <div class="body">
+        <div id="content"></div>
 
-      <div>
-        <div class="section-title">Inclure dans la doc</div>
-        <div class="options">
+        <div>
+          <div class="section-title">Inclure dans la doc</div>
+          <div class="options">
 
-          <div class="option" id="row-props">
-            <div class="option-label">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <rect x="1" y="2.5" width="12" height="1.5" rx="0.75"/>
-                <rect x="1" y="6.25" width="8.5" height="1.5" rx="0.75"/>
-                <rect x="1" y="10" width="10" height="1.5" rx="0.75"/>
-              </svg>
-              <span class="label-text">Propriétés</span>
+            <div class="option" id="row-props">
+              <div class="option-label">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                  <rect x="1" y="2.5" width="12" height="1.5" rx="0.75"/>
+                  <rect x="1" y="6.25" width="8.5" height="1.5" rx="0.75"/>
+                  <rect x="1" y="10" width="10" height="1.5" rx="0.75"/>
+                </svg>
+                <span class="label-text">Propriétés</span>
+              </div>
+              <div class="toggle">
+                <input type="checkbox" id="opt-props" checked />
+                <div class="toggle-track"></div>
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
-            <div class="toggle">
-              <input type="checkbox" id="opt-props" checked />
-              <div class="toggle-track"></div>
-              <div class="toggle-thumb"></div>
+
+            <div class="option" id="row-tokens">
+              <div class="option-label">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                  <circle cx="7" cy="7" r="2.6"/>
+                  <path d="M7 1.5A5.5 5.5 0 1 1 1.5 7" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+                </svg>
+                <span class="label-text">Variables liées</span>
+              </div>
+              <div class="toggle">
+                <input type="checkbox" id="opt-tokens" checked />
+                <div class="toggle-track"></div>
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
+
+            <div class="option disabled" id="row-variants">
+              <div class="option-label">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                  <rect x="1" y="1" width="5" height="5" rx="1.2"/>
+                  <rect x="8" y="1" width="5" height="5" rx="1.2"/>
+                  <rect x="1" y="8" width="5" height="5" rx="1.2"/>
+                  <rect x="8" y="8" width="5" height="5" rx="1.2"/>
+                </svg>
+                <span class="label-text">Matrice des props</span>
+                <span class="count-tag" id="count-tag" hidden></span>
+              </div>
+              <div class="option-trailing">
+                <button class="gear-btn" id="btn-matrix-settings" title="Paramètres de la matrice" hidden>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="7" cy="7" r="1.8"/>
+                    <path d="M11.4 8.4l.9.5-1 1.7-1-.4a4 4 0 0 1-1.3.7l-.1 1H6.1l-.1-1a4 4 0 0 1-1.3-.7l-1 .4-1-1.7.9-.5a4 4 0 0 1 0-1.4l-.9-.5 1-1.7 1 .4a4 4 0 0 1 1.3-.7l.1-1h1.8l.1 1a4 4 0 0 1 1.3.7l1-.4 1 1.7-.9.5a4 4 0 0 1 0 1.4z"/>
+                  </svg>
+                  <span class="gear-dot" id="gear-dot-matrix" hidden></span>
+                </button>
+                <div class="toggle">
+                  <input type="checkbox" id="opt-variants" checked disabled />
+                  <div class="toggle-track"></div>
+                  <div class="toggle-thumb"></div>
+                </div>
+              </div>
+            </div>
+
           </div>
-
-          <div class="option" id="row-tokens">
-            <div class="option-label">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <circle cx="7" cy="7" r="2.6"/>
-                <path d="M7 1.5A5.5 5.5 0 1 1 1.5 7" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-              </svg>
-              <span class="label-text">Variables liées</span>
-            </div>
-            <div class="toggle">
-              <input type="checkbox" id="opt-tokens" checked />
-              <div class="toggle-track"></div>
-              <div class="toggle-thumb"></div>
-            </div>
-          </div>
-
-          <div class="option disabled" id="row-variants">
-            <div class="option-label">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <rect x="1" y="1" width="5" height="5" rx="1.2"/>
-                <rect x="8" y="1" width="5" height="5" rx="1.2"/>
-                <rect x="1" y="8" width="5" height="5" rx="1.2"/>
-                <rect x="8" y="8" width="5" height="5" rx="1.2"/>
-              </svg>
-              <span class="label-text">Matrice des props</span>
-              <span class="count-tag" id="count-tag" hidden></span>
-            </div>
-            <div class="toggle">
-              <input type="checkbox" id="opt-variants" checked disabled />
-              <div class="toggle-track"></div>
-              <div class="toggle-thumb"></div>
-            </div>
-          </div>
-
         </div>
       </div>
 
-      <div id="group-by-section" hidden>
-        <div class="section-title">Trier par</div>
-        <div class="hint">Cliquez pour grouper les combinaisons (ordre = niveaux)</div>
-        <div class="axes-list" id="axes-list"></div>
-      </div>
-
-      <div id="exclusions-section" hidden>
-        <div class="section-title">Exclusions</div>
-        <div class="hint">Combinaisons à ne pas générer (chaque règle = ET ; plusieurs règles = OU)</div>
-        <div class="rules-list" id="rules-list"></div>
-        <button class="add-rule-btn" id="add-rule">+ Ajouter une exclusion</button>
-      </div>
-
-      <div id="locks-section" hidden>
-        <div class="section-title">Verrouiller</div>
-        <div class="hint">Fixer un axe à une valeur (retiré du produit cartésien)</div>
-        <div class="locks-list" id="locks-list"></div>
+      <div class="footer">
+        <button class="btn-ghost" id="close">Fermer</button>
+        <button class="btn-ghost" id="export-pdf" disabled>PDF</button>
+        <button class="btn-primary" id="generate" disabled>Générer la doc</button>
       </div>
     </div>
 
-    <div class="footer">
-      <button class="btn-ghost" id="close">Fermer</button>
-      <button class="btn-ghost" id="export-pdf" disabled>PDF</button>
-      <button class="btn-primary" id="generate" disabled>Générer la doc</button>
+    <div id="view-settings-matrix" class="view">
+      <div class="settings-header">
+        <button class="back-btn" id="settings-back" title="Retour">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 2.5L4.5 7 9 11.5"/>
+          </svg>
+        </button>
+        <span class="settings-title">Paramètres — Matrice des props</span>
+      </div>
+
+      <div class="body">
+        <div id="group-by-section" hidden>
+          <div class="section-title">Trier par</div>
+          <div class="hint">Cliquez pour grouper les combinaisons (ordre = niveaux)</div>
+          <div class="axes-list" id="axes-list"></div>
+        </div>
+
+        <div id="exclusions-section" hidden>
+          <div class="section-title">Exclusions</div>
+          <div class="hint">Combinaisons à ne pas générer (chaque règle = ET ; plusieurs règles = OU)</div>
+          <div class="rules-list" id="rules-list"></div>
+          <button class="add-rule-btn" id="add-rule">+ Ajouter une exclusion</button>
+        </div>
+
+        <div id="locks-section" hidden>
+          <div class="section-title">Verrouiller</div>
+          <div class="hint">Cochez les valeurs à conserver pour chaque axe (vide = libre)</div>
+          <div class="locks-list" id="locks-list"></div>
+        </div>
+      </div>
+
+      <div class="settings-footer">
+        <button class="btn-ghost" id="settings-cancel">Annuler</button>
+        <button class="btn-primary" id="settings-confirm">Valider</button>
+      </div>
     </div>
 
     <script>
@@ -535,33 +647,57 @@
       const locksSection = document.getElementById("locks-section");
       const locksList = document.getElementById("locks-list");
       const tokensBox = document.getElementById("opt-tokens");
+      const matrixSettingsBtn = document.getElementById("btn-matrix-settings");
+      const gearDotMatrix = document.getElementById("gear-dot-matrix");
+      const viewMain = document.getElementById("view-main");
+      const viewSettingsMatrix = document.getElementById("view-settings-matrix");
+      const settingsBackBtn = document.getElementById("settings-back");
+      const settingsCancelBtn = document.getElementById("settings-cancel");
+      const settingsConfirmBtn = document.getElementById("settings-confirm");
 
       let availableAxes = [];
       let availableAxisValues = {}; // { axisName: [valueLabels...] }
-      let groupByOrder = [];
-      // exclusionRules : Array<{ [axisName]: valueLabel }>. "" / undefined = (toutes)
-      let exclusionRules = [];
-      // propLocks : { [axisName]: lockedValueLabel }. Absent / "" = libre
-      let propLocks = {};
-      // Last reported total combinations (cartesian post-dedup) — used to recompute on lock change
-      let baseCombinationCount = 0;
 
-      // Click-to-toggle for all option rows
+      // Applied (validated) state — used by Generate / PDF.
+      let groupByOrder = [];
+      let exclusionRules = [];      // Array<{ [axisName]: valueLabel }>. Empty value = (toutes)
+      let propLocks = {};           // { [axisName]: string[] } — empty array / absent = libre
+      let baseCombinationCount = 0; // Last reported total combinations (cartesian post-dedup)
+
+      // Pending state — populated when entering settings, applied on Valider, dropped on Annuler.
+      let pendingGroupByOrder = null;
+      let pendingExclusionRules = null;
+      let pendingPropLocks = null;
+
+      // Returns the currently-edited state (pending if in settings view, else applied).
+      function activeGroupBy() { return pendingGroupByOrder ?? groupByOrder; }
+      function activeRules() { return pendingExclusionRules ?? exclusionRules; }
+      function activeLocks() { return pendingPropLocks ?? propLocks; }
+
+      // Click-to-toggle for all option rows. Clicks on the gear button are intercepted
+      // (stopPropagation) so they don't toggle the row.
       ["row-props", "row-tokens", "row-variants"].forEach((id) => {
         const row = document.getElementById(id);
         const cb = row.querySelector('input[type="checkbox"]');
-        row.addEventListener("click", () => {
+        row.addEventListener("click", (ev) => {
+          if (ev.target.closest(".gear-btn")) return;
           if (!cb.disabled) {
             cb.checked = !cb.checked;
-            updateGroupBySectionVisibility();
-            updateExclusionsSectionVisibility();
-            updateLocksSectionVisibility();
+            updateMatrixGearVisibility();
           }
         });
       });
 
+      matrixSettingsBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        openMatrixSettings();
+      });
+      settingsBackBtn.addEventListener("click", cancelMatrixSettings);
+      settingsCancelBtn.addEventListener("click", cancelMatrixSettings);
+      settingsConfirmBtn.addEventListener("click", confirmMatrixSettings);
+
       addRuleBtn.addEventListener("click", () => {
-        exclusionRules.push({});
+        activeRules().push({});
         renderRules();
       });
 
@@ -597,6 +733,9 @@
         groupByOrder = [];
         exclusionRules = [];
         propLocks = {};
+        pendingGroupByOrder = null;
+        pendingExclusionRules = null;
+        pendingPropLocks = null;
         axesList.innerHTML = "";
         for (const axis of axes) {
           const chip = document.createElement("div");
@@ -612,8 +751,9 @@
       }
 
       function renderRules() {
+        const rules = activeRules();
         rulesList.innerHTML = "";
-        exclusionRules.forEach((rule, ruleIdx) => {
+        rules.forEach((rule, ruleIdx) => {
           const card = document.createElement("div");
           card.className = "rule-card";
 
@@ -629,7 +769,7 @@
           del.textContent = "×";
           del.title = "Supprimer cette règle";
           del.addEventListener("click", () => {
-            exclusionRules.splice(ruleIdx, 1);
+            activeRules().splice(ruleIdx, 1);
             renderRules();
           });
           headerEl.appendChild(del);
@@ -673,15 +813,17 @@
       }
 
       function toggleAxisInGroupBy(axisName) {
-        const idx = groupByOrder.indexOf(axisName);
-        if (idx >= 0) groupByOrder.splice(idx, 1);
-        else groupByOrder.push(axisName);
+        const order = activeGroupBy();
+        const idx = order.indexOf(axisName);
+        if (idx >= 0) order.splice(idx, 1);
+        else order.push(axisName);
         updateChipsDisplay();
       }
 
       function updateChipsDisplay() {
+        const order = activeGroupBy();
         document.querySelectorAll(".axis-chip").forEach((chip) => {
-          const idx = groupByOrder.indexOf(chip.dataset.axis);
+          const idx = order.indexOf(chip.dataset.axis);
           if (idx >= 0) {
             chip.classList.add("selected");
             chip.querySelector(".order-num").textContent = String(idx + 1);
@@ -691,33 +833,23 @@
         });
       }
 
+      // Section visibility inside the settings view depends only on axis count.
       function updateGroupBySectionVisibility() {
-        const variantsOn = !variantsBox.disabled && variantsBox.checked;
-        const propsOn = propsBox.checked;
-        const enoughAxes = availableAxes.length >= 2;
-        groupBySection.hidden = !(variantsOn && propsOn && enoughAxes);
+        groupBySection.hidden = availableAxes.length < 2;
       }
-
       function updateExclusionsSectionVisibility() {
-        const variantsOn = !variantsBox.disabled && variantsBox.checked;
-        const propsOn = propsBox.checked;
-        const hasAxes = availableAxes.length >= 1;
-        exclusionsSection.hidden = !(variantsOn && propsOn && hasAxes);
+        exclusionsSection.hidden = availableAxes.length < 1;
       }
-
       function updateLocksSectionVisibility() {
-        const variantsOn = !variantsBox.disabled && variantsBox.checked;
-        const propsOn = propsBox.checked;
-        const hasAxes = availableAxes.length >= 1;
-        locksSection.hidden = !(variantsOn && propsOn && hasAxes);
+        locksSection.hidden = availableAxes.length < 1;
       }
 
       function renderLocks() {
+        const locks = activeLocks();
         locksList.innerHTML = "";
         for (const axis of availableAxes) {
           const row = document.createElement("div");
           row.className = "lock-row";
-          if (propLocks[axis]) row.classList.add("locked");
 
           const label = document.createElement("span");
           label.className = "lock-axis";
@@ -725,40 +857,119 @@
           label.title = axis;
           row.appendChild(label);
 
-          const select = document.createElement("select");
-          const freeOpt = document.createElement("option");
-          freeOpt.value = "";
-          freeOpt.textContent = "(libre)";
-          select.appendChild(freeOpt);
+          const values = document.createElement("div");
+          values.className = "lock-values";
+          const selected = new Set(locks[axis] || []);
           for (const v of availableAxisValues[axis] || []) {
-            const opt = document.createElement("option");
-            opt.value = v;
-            opt.textContent = v;
-            select.appendChild(opt);
+            const chip = document.createElement("div");
+            chip.className = "lock-chip";
+            chip.textContent = v;
+            if (selected.has(v)) chip.classList.add("selected");
+            chip.addEventListener("click", () => {
+              const currentLocks = activeLocks();
+              const arr = currentLocks[axis] ? currentLocks[axis].slice() : [];
+              const i = arr.indexOf(v);
+              if (i >= 0) arr.splice(i, 1);
+              else arr.push(v);
+              if (arr.length === 0) delete currentLocks[axis];
+              else currentLocks[axis] = arr;
+              chip.classList.toggle("selected");
+              recomputeCount();
+            });
+            values.appendChild(chip);
           }
-          select.value = propLocks[axis] || "";
-          select.addEventListener("change", () => {
-            if (select.value === "") delete propLocks[axis];
-            else propLocks[axis] = select.value;
-            row.classList.toggle("locked", !!propLocks[axis]);
-            recomputeCount();
-          });
-          row.appendChild(select);
+          row.appendChild(values);
           locksList.appendChild(row);
         }
       }
 
-      // Recompute count locally when locks change. Approximation:
-      // (baseCount / product-of-locked-axis-cardinalities). This matches the
-      // backend math when all locked axes are independent of dedup, which is the
-      // common case. Falls back to baseCount if math gets weird.
+      // Recompute count locally when locks change. Approximation: scale by
+      // (kept-values / total-values) for each locked axis. Matches the backend
+      // math when locked axes are independent of dedup (common case).
       function recomputeCount() {
+        const locks = activeLocks();
         let count = baseCombinationCount;
-        for (const axisName of Object.keys(propLocks)) {
-          const card = (availableAxisValues[axisName] || []).length;
-          if (card > 0) count = Math.round(count / card);
+        for (const axisName of Object.keys(locks)) {
+          const total = (availableAxisValues[axisName] || []).length;
+          const kept = (locks[axisName] || []).length;
+          if (total > 0 && kept > 0) count = Math.round((count * kept) / total);
         }
         updateCountTag(count);
+      }
+
+      function hasActiveMatrixSettings() {
+        return (
+          groupByOrder.length > 0 ||
+          exclusionRules.some((r) => Object.keys(r).length > 0) ||
+          Object.values(propLocks).some((arr) => Array.isArray(arr) && arr.length > 0)
+        );
+      }
+
+      function updateGearDot() {
+        gearDotMatrix.hidden = !hasActiveMatrixSettings();
+      }
+
+      function updateMatrixGearVisibility() {
+        const matrixAvailable = !variantsBox.disabled && availableAxes.length >= 1;
+        matrixSettingsBtn.hidden = !matrixAvailable;
+        if (!matrixAvailable) gearDotMatrix.hidden = true;
+        else updateGearDot();
+      }
+
+      function showView(name) {
+        viewMain.classList.toggle("view-active", name === "main");
+        viewSettingsMatrix.classList.toggle("view-active", name === "settings-matrix");
+      }
+
+      function cloneRules(rules) {
+        return rules.map((r) => Object.assign({}, r));
+      }
+      function cloneLocks(locks) {
+        const out = {};
+        for (const k of Object.keys(locks)) out[k] = (locks[k] || []).slice();
+        return out;
+      }
+
+      function openMatrixSettings() {
+        pendingGroupByOrder = groupByOrder.slice();
+        pendingExclusionRules = cloneRules(exclusionRules);
+        pendingPropLocks = cloneLocks(propLocks);
+        renderRules();
+        renderLocks();
+        updateChipsDisplay();
+        updateGroupBySectionVisibility();
+        updateExclusionsSectionVisibility();
+        updateLocksSectionVisibility();
+        recomputeCount();
+        showView("settings-matrix");
+      }
+
+      function confirmMatrixSettings() {
+        if (pendingGroupByOrder !== null) groupByOrder = pendingGroupByOrder;
+        if (pendingExclusionRules !== null) {
+          exclusionRules = pendingExclusionRules.filter((r) => Object.keys(r).length > 0);
+        }
+        if (pendingPropLocks !== null) propLocks = pendingPropLocks;
+        pendingGroupByOrder = null;
+        pendingExclusionRules = null;
+        pendingPropLocks = null;
+        renderRules();
+        renderLocks();
+        updateChipsDisplay();
+        recomputeCount();
+        updateGearDot();
+        showView("main");
+      }
+
+      function cancelMatrixSettings() {
+        pendingGroupByOrder = null;
+        pendingExclusionRules = null;
+        pendingPropLocks = null;
+        renderRules();
+        renderLocks();
+        updateChipsDisplay();
+        recomputeCount();
+        showView("main");
       }
 
       function renderEmpty() {
@@ -781,6 +992,8 @@
         updateGroupBySectionVisibility();
         updateExclusionsSectionVisibility();
         updateLocksSectionVisibility();
+        updateMatrixGearVisibility();
+        showView("main");
       }
 
       function renderTarget(target) {
@@ -809,6 +1022,8 @@
         updateGroupBySectionVisibility();
         updateExclusionsSectionVisibility();
         updateLocksSectionVisibility();
+        updateMatrixGearVisibility();
+        showView("main");
       }
 
       // Restore previously saved options for this component (filtering out
@@ -846,16 +1061,18 @@
         if (saved.propLocks && typeof saved.propLocks === "object") {
           propLocks = {};
           for (const k of Object.keys(saved.propLocks)) {
-            if (
-              availableAxes.includes(k) &&
-              (availableAxisValues[k] || []).includes(saved.propLocks[k])
-            ) {
-              propLocks[k] = saved.propLocks[k];
-            }
+            if (!availableAxes.includes(k)) continue;
+            const raw = saved.propLocks[k];
+            // Migrate legacy single-string format → array.
+            const arr = typeof raw === "string" ? (raw ? [raw] : []) : (Array.isArray(raw) ? raw : []);
+            const known = (availableAxisValues[k] || []);
+            const filtered = arr.filter((v) => known.includes(v));
+            if (filtered.length > 0) propLocks[k] = filtered;
           }
           renderLocks();
           recomputeCount();
         }
+        updateGearDot();
       }
 
       window.onmessage = (event) => {
@@ -879,6 +1096,10 @@
       };
 
       function getOptions() {
+        const locksOut = {};
+        for (const k of Object.keys(propLocks)) {
+          if ((propLocks[k] || []).length > 0) locksOut[k] = propLocks[k].slice();
+        }
         return {
           props: document.getElementById("opt-props").checked,
           tokens: document.getElementById("opt-tokens").checked,
@@ -888,7 +1109,7 @@
           excludeRules: exclusionRules
             .map((r) => Object.assign({}, r))
             .filter((r) => Object.keys(r).length > 0),
-          propLocks: Object.assign({}, propLocks),
+          propLocks: locksOut,
         };
       }
 

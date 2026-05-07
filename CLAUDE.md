@@ -103,7 +103,20 @@ Communication :
 
 - `manifest.json` — `editorType: ["figma"]`, `main: code.js`, `ui: ui.html`. `networkAccess` est verrouillé sur `none` ; l'élargir explicitement si on appelle une API.
 - `code.ts` — point d'entrée sandbox. Toute action sur le document Figma passe par ici.
-- `ui.html` — UI 360×520. Styles utilisent les variables `--figma-color-*` pour suivre le thème. JS inline.
+- `ui.html` — UI 360×540. Deux vues (`#view-main` / `#view-settings-matrix`) togglées via la classe `.view-active` ; pas de routing — un seul `view` actif à la fois. Styles utilisent les variables `--figma-color-*` pour suivre le thème. JS inline.
+
+### UI : architecture deux écrans
+
+- **Écran principal (`#view-main`)** : preview composant + liste des sections (Propriétés / Variables liées / Matrice des props). Chaque ligne de section peut héberger un bouton engrenage (`.gear-btn`) entre le label et le toggle, qui ouvre une vue de paramétrage spécialisée. Pour l'instant seule "Matrice des props" en a un (`#btn-matrix-settings`). Une pastille bleue (`.gear-dot`) s'affiche sur l'engrenage quand un paramétrage non-default est appliqué (groupBy / exclusions / locks). Le bouton est masqué quand la section n'a pas de paramétrage disponible (matrice : axes < 1 ou variants désactivé). Le bouton est cliquable même quand le toggle est OFF — clic sur l'engrenage utilise `stopPropagation` pour ne pas toggler la row.
+- **Écran paramétrage matrice (`#view-settings-matrix`)** : header avec bouton retour (←) + titre, body avec les zones `Trier par` / `Exclusions` / `Verrouiller`, footer avec boutons `Annuler` / `Valider`.
+- **Édition non-destructive** : ouvrir l'écran de paramétrage clone l'état appliqué dans `pendingGroupByOrder` / `pendingExclusionRules` / `pendingPropLocks`. Les helpers `activeGroupBy()` / `activeRules()` / `activeLocks()` retournent le state pending si présent, sinon le state appliqué — toutes les fonctions de rendu et de modification l'utilisent. `Valider` copie pending → applied + persiste. `Annuler` (et le bouton retour) jette pending et revient au main. Une nouvelle sélection de composant force aussi un retour au main.
+
+### UI : multi-sélection des verrous
+
+- `propLocks` (côté UI et côté `code.ts`) est un `Record<string, string[]>` : pour chaque axe, la liste des labels autorisés. Tableau vide ou clé absente = axe libre (cartésien complet). Tableau non vide = on filtre l'axe à ces valeurs uniquement.
+- Rendu : un `.lock-row` par axe, avec une liste de chips `.lock-chip` toggleables (style calqué sur `.axis-chip`). Clic = ajout/retrait dans le tableau de cet axe.
+- Migration : `loadSavedConfig` (code.ts) appelle `migratePropLocks` qui détecte l'ancien format `{ axis: "M" }` et le promeut en `{ axis: ["M"] }`. Côté UI, `applySavedConfig` fait la même conversion défensive. Aucune action utilisateur requise.
+- Pipeline : `enumerateValidCombinations` (~ligne 1610 de `code.ts`) filtre les `axis.options` pour ne garder que les labels présents dans `propLocks[axis.name]` ; le reste du pipeline (cartésien lazy, dedup, indexing variants) ne change pas.
 - `tsconfig.json` — **`lib: ["es6"]` est obligatoire** : les `lib` DOM par défaut entrent en conflit avec `@figma/plugin-typings` (redéclaration de `console`, `fetch`). Ne pas remettre `dom` ici.
 
 ## Conventions
