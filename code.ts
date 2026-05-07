@@ -78,13 +78,13 @@ const ADMIN_CONTENT_WIDTH_DEFAULT = ADMIN_SHEET_WIDTH_DEFAULT - ADMIN_SHEET_PADD
 
 // Admin combination card layout (osmose.proginov.com reference).
 // Card adapts to component size — see computeAdminCardLayout().
-const ADMIN_CARD_MIN_W = 120;
+const ADMIN_CARD_MIN_W = 240;
 const ADMIN_CARD_PADDING = 8;
 const ADMIN_CARD_GAP = 8;
 const ADMIN_GRID_GAP = 16;
 const ADMIN_CARDS_PER_ROW = 3;
 const ADMIN_VISUAL_PADDING = 16;
-const ADMIN_VISUAL_MIN_H = 60;
+const ADMIN_VISUAL_MIN_H = 100;
 const ADMIN_PROP_ROW_HEIGHT = 32;
 const ADMIN_PROP_ROW_GAP = 4;
 const TOKEN_COL_WIDTHS = [320, 140, 200];
@@ -601,7 +601,7 @@ function buildPdfPropsPage(target: DocTarget): FrameNode {
     const table = makeElegantTable(
       PROP_COL_HEADERS,
       PDF_PROP_COL_WIDTHS_A4,
-      props.map((p) => [p.name, PROP_DESCRIPTION_PLACEHOLDER, p.type, formatValuesDisplay(p)])
+      props.map((p) => [displayPropName(p), PROP_DESCRIPTION_PLACEHOLDER, p.type, formatValuesDisplay(p)])
     );
     page.appendChild(table);
     table.x = PDF_MARGIN;
@@ -1041,6 +1041,22 @@ function makeAdminSheetHeader(
   return header;
 }
 
+// A prop is "boolean-like" if it's a real BOOLEAN, or a VARIANT with two
+// values matching true/false, on/off, yes/no (any casing). Such props get a
+// "Has a " prefix in display contexts.
+function isPropBoolish(p: PropInfo): boolean {
+  if (p.type === "BOOLEAN") return true;
+  if (p.type === "VARIANT") {
+    const opts = (p.variantOptions ?? []).map((v) => ({ label: v, value: v }));
+    return isBoolishOptions(opts);
+  }
+  return false;
+}
+
+function displayPropName(p: PropInfo): string {
+  return isPropBoolish(p) ? `Has a ${p.name}` : p.name;
+}
+
 function buildPropsSection(target: DocTarget): SceneNode {
   const props = extractProps(target);
   if (props.length === 0) return textFrame("Aucune propriété détectée.");
@@ -1050,7 +1066,7 @@ function buildPropsSection(target: DocTarget): SceneNode {
     props.map(
       (p) =>
         [
-          p.name,
+          displayPropName(p),
           PROP_DESCRIPTION_PLACEHOLDER,
           makeTypeChip(p.type),
           makeBulletList(valuesAsItems(p)),
@@ -1837,8 +1853,8 @@ function makeAdminPropRow(
   row.cornerRadius = 6;
   row.fills = [{ type: "SOLID", color: COLOR.refMatrixRowBg }];
 
-  // Boolean props are prefixed with "has a " per spec.
-  const displayName = isBool ? `has a ${name}` : name;
+  // Boolean props are prefixed with "Has a " per spec.
+  const displayName = isBool ? `Has a ${name}` : name;
 
   const nameText = figma.createText();
   nameText.fontName = FONT.body;
