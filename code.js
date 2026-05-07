@@ -1509,6 +1509,11 @@ function makeAdminPropRow(name, value, isBool, width) {
     row.paddingLeft = 15;
     row.paddingRight = 15;
     row.itemSpacing = 8;
+    // SPACE_BETWEEN pushes name to the left and value/switch to the right
+    // without layoutGrow on text nodes — combining layoutGrow with
+    // textAutoResize="HEIGHT" inside a fully FIXED row can produce 1px-tall
+    // text nodes during Figma's first layout pass.
+    row.primaryAxisAlignItems = "SPACE_BETWEEN";
     row.counterAxisAlignItems = "CENTER";
     row.cornerRadius = 6;
     row.fills = [{ type: "SOLID", color: COLOR.refMatrixRowBg }];
@@ -1520,8 +1525,6 @@ function makeAdminPropRow(name, value, isBool, width) {
     nameText.lineHeight = { value: 24, unit: "PIXELS" };
     nameText.characters = displayName;
     nameText.fills = [{ type: "SOLID", color: COLOR.refMatrixRowName }];
-    nameText.layoutGrow = 1;
-    nameText.textAutoResize = "HEIGHT";
     row.appendChild(nameText);
     if (isBool) {
         row.appendChild(makeAdminSwitch(isBoolishOnValue(value)));
@@ -1534,8 +1537,6 @@ function makeAdminPropRow(name, value, isBool, width) {
         valText.characters = value;
         valText.fills = [{ type: "SOLID", color: COLOR.refMatrixRowValue }];
         valText.textAlignHorizontal = "RIGHT";
-        valText.layoutGrow = 1;
-        valText.textAutoResize = "HEIGHT";
         row.appendChild(valText);
     }
     return row;
@@ -1580,20 +1581,24 @@ function buildAllAdminCards(combos, base, layout, boolishAxes) {
 }
 // Flat grid of admin cards with WRAP, sized to the sheet content width.
 // Cards have FIXED width = layout.cardW (max 3 per row).
+// Bug guard: WRAP frames must be created with counter=FIXED + non-zero height,
+// then flipped to AUTO after children are appended — otherwise Figma's WRAP
+// reflow can collapse the grid (and sometimes children) to 1px.
 function buildAdminFlatGrid(cards, layout) {
     const grid = figma.createFrame();
     grid.name = "CardGrid";
     grid.layoutMode = "HORIZONTAL";
     grid.layoutWrap = "WRAP";
     grid.primaryAxisSizingMode = "FIXED";
-    grid.counterAxisSizingMode = "AUTO";
+    grid.counterAxisSizingMode = "FIXED";
     grid.layoutAlign = "STRETCH";
-    grid.resize(layout.contentW, 1);
+    grid.resize(layout.contentW, 200);
     grid.itemSpacing = ADMIN_GRID_GAP;
     grid.counterAxisSpacing = ADMIN_GRID_GAP;
     grid.fills = [];
     for (const card of cards)
         grid.appendChild(card);
+    grid.counterAxisSizingMode = "AUTO";
     return grid;
 }
 // Admin variant of buildLayoutFromCards. Same grouping logic, but admin
