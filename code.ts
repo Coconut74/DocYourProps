@@ -549,38 +549,20 @@ function makePdfPage(): FrameNode {
   return page;
 }
 
-function makePdfHeader(componentName: string, sectionTitle: string): FrameNode {
-  const header = figma.createFrame();
-  header.layoutMode = "VERTICAL";
-  header.primaryAxisSizingMode = "FIXED";
-  header.counterAxisSizingMode = "FIXED";
-  header.resize(PDF_CONTENT_W, 100);
-  header.itemSpacing = 4;
-  header.fills = [];
-
-  const nameText = figma.createText();
-  nameText.fontName = { family: "Inter", style: "Regular" };
-  nameText.fontSize = 10;
-  nameText.characters = componentName;
-  nameText.fills = [{ type: "SOLID", color: COLOR.textMuted }];
-  nameText.letterSpacing = { value: 2, unit: "PERCENT" };
-  nameText.textAutoResize = "HEIGHT";
-  nameText.resize(PDF_CONTENT_W, 14);
-  header.appendChild(nameText);
-
-  const titleText = figma.createText();
-  titleText.fontName = { family: "Inter", style: "Semi Bold" };
-  titleText.fontSize = 22;
-  titleText.characters = sectionTitle;
-  titleText.fills = [{ type: "SOLID", color: COLOR.textPrimary }];
-  titleText.lineHeight = { value: 110, unit: "PERCENT" };
-  titleText.textAutoResize = "HEIGHT";
-  titleText.resize(PDF_CONTENT_W, 26);
-  header.appendChild(titleText);
-
-  header.primaryAxisSizingMode = "AUTO";
-  return header;
+// PDF page header — same admin layout as the on-canvas sheet (breadcrumb +
+// title + bottom divider), constrained to PDF_CONTENT_W. An optional tag
+// renders next to the title (used for the combo count on the matrix pages).
+function makePdfHeader(
+  componentName: string,
+  sectionTitle: string,
+  tag?: SceneNode
+): FrameNode {
+  return makeAdminSheetHeader(componentName, sectionTitle, PDF_CONTENT_W, tag);
 }
+
+// Gap between the admin header (which has a built-in 16px paddingBottom on
+// its title row + divider) and the page body content.
+const PDF_BODY_GAP = 24;
 
 function buildPdfPropsPage(target: DocTarget): FrameNode {
   const page = makePdfPage();
@@ -590,18 +572,21 @@ function buildPdfPropsPage(target: DocTarget): FrameNode {
   header.x = PDF_MARGIN;
   header.y = PDF_MARGIN;
 
-  const div = thinDivider(PDF_CONTENT_W, COLOR.dividerStrong);
-  page.appendChild(div);
-  div.x = PDF_MARGIN;
-  div.y = PDF_MARGIN + header.height + 14;
-
-  const contentY = div.y + 1 + 12;
+  const contentY = PDF_MARGIN + header.height + PDF_BODY_GAP;
   const props = extractProps(target);
   if (props.length > 0) {
-    const table = makeElegantTable(
+    const table = makeAdminTable(
       PROP_COL_HEADERS,
       PDF_PROP_COL_WIDTHS_A4,
-      props.map((p) => [displayPropName(p), PROP_DESCRIPTION_PLACEHOLDER, p.type, formatValuesDisplay(p)])
+      props.map(
+        (p) =>
+          [
+            displayPropName(p),
+            PROP_DESCRIPTION_PLACEHOLDER,
+            makeTypeChip(p.type),
+            makeBulletList(valuesAsItems(p)),
+          ] as AdminCellContent[]
+      )
     );
     page.appendChild(table);
     table.x = PDF_MARGIN;
@@ -652,12 +637,12 @@ async function buildPdfCombinationsPages(
     );
   }
 
-  const visualSize = computeVisualSize(target);
-  const pdfCardW = Math.min(Math.max(240, visualSize.w), PDF_CONTENT_W);
-  const pdfVisualH = visualSize.h;
-  const pdfCardsPerRow = Math.max(
+  // Same admin card style as on-canvas, but cards-per-row is derived from the
+  // fixed PDF content width (515) instead of fixed at 3.
+  const layout = computeAdminCardLayoutForFixedWidth(target, PDF_CONTENT_W);
+  const cardsPerRow = Math.max(
     1,
-    Math.floor((PDF_CONTENT_W + PDF_CARD_GAP) / (pdfCardW + PDF_CARD_GAP))
+    Math.floor((layout.contentW + ADMIN_GRID_GAP) / (layout.cardW + ADMIN_GRID_GAP))
   );
 
   const boolishAxes = new Set<string>();
@@ -665,57 +650,37 @@ async function buildPdfCombinationsPages(
     if (a.propType === "BOOLEAN" || isBoolishOptions(a.options)) boolishAxes.add(a.name);
   }
 
-  const miniH = MINI_CARD_HEIGHT;
-  const validCards = await buildAllCards(
-    combos,
-    base,
-    pdfCardW,
-    pdfVisualH,
-    miniH,
-    boolishAxes
-  );
+  const validCards = await buildAllAdminCards(combos, base, layout, boolishAxes);
+  if (validCards.length === 0) return [emptyPage()];
 
-  // Card height is now actually computed (analytical) — read from first card
-  // for page-break math. All cards have identical height since they share
-  // structure (visual + divider + propsArea sized analytically).
+  // Card height is identical for every card (shared visualH + propsAreaH).
   const cardH = validCards[0].height;
-  const contentStartY = PDF_MARGIN + 71;
   const contentMaxY = PDF_H - PDF_MARGIN - 16;
-  const rowsPerPage = Math.max(1, Math.floor((contentMaxY - contentStartY) / (cardH + PDF_CARD_GAP)));
-  const cardsPerPage = rowsPerPage * pdfCardsPerRow;
-  const totalPages = Math.ceil(validCards.length / cardsPerPage);
+  const tagLabel = `${combos.length} combinaison${combos.length > 1 ? "s" : ""}`;
 
   const pages: FrameNode[] = [];
-
-  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
-    const batch = validCards.slice(pageIdx * cardsPerPage, (pageIdx + 1) * cardsPerPage);
+  let cardIndex = 0;
+  while (cardIndex < validCards.length) {
     const page = makePdfPage();
 
-    const title = totalPages > 1
-      ? `Combinaisons (${pageIdx + 1}/${totalPages})`
-      : "Combinaisons";
-    const header = makePdfHeader(target.name, title);
+    // Tag rendered on every page — the count is constant across pages.
+    const header = makePdfHeader(target.name, "Combinaisons", makeTag(tagLabel));
     page.appendChild(header);
     header.x = PDF_MARGIN;
     header.y = PDF_MARGIN;
 
-    const div = thinDivider(PDF_CONTENT_W, COLOR.dividerStrong);
-    page.appendChild(div);
-    div.x = PDF_MARGIN;
-    div.y = PDF_MARGIN + header.height + 14;
+    let currentY = PDF_MARGIN + header.height + PDF_BODY_GAP;
 
-    let currentY = div.y + 1 + 12;
-
-    for (let r = 0; r < batch.length; r += pdfCardsPerRow) {
-      const rowCards = batch.slice(r, r + pdfCardsPerRow);
+    while (cardIndex < validCards.length && currentY + cardH <= contentMaxY) {
       let cardX = PDF_MARGIN;
-      for (const card of rowCards) {
+      for (let i = 0; i < cardsPerRow && cardIndex < validCards.length; i++, cardIndex++) {
+        const card = validCards[cardIndex];
         page.appendChild(card);
         card.x = cardX;
         card.y = currentY;
-        cardX += pdfCardW + PDF_CARD_GAP;
+        cardX += layout.cardW + ADMIN_GRID_GAP;
       }
-      currentY += cardH + PDF_CARD_GAP;
+      currentY += cardH + ADMIN_GRID_GAP;
     }
 
     pages.push(page);
@@ -732,12 +697,7 @@ async function buildPdfTokensPage(target: DocTarget): Promise<FrameNode[]> {
   header.x = PDF_MARGIN;
   header.y = PDF_MARGIN;
 
-  const div = thinDivider(PDF_CONTENT_W, COLOR.dividerStrong);
-  page.appendChild(div);
-  div.x = PDF_MARGIN;
-  div.y = PDF_MARGIN + header.height + 14;
-
-  const contentY = div.y + 1 + 12;
+  const contentY = PDF_MARGIN + header.height + PDF_BODY_GAP;
 
   const nodes = getInspectableNodes(target);
   const ids = new Set<string>();
@@ -745,10 +705,11 @@ async function buildPdfTokensPage(target: DocTarget): Promise<FrameNode[]> {
 
   if (ids.size === 0) {
     const t = figma.createText();
-    t.fontName = { family: "Inter", style: "Regular" };
+    t.fontName = FONT.body;
     t.fontSize = 12;
+    t.lineHeight = { value: 18, unit: "PIXELS" };
     t.characters = "Aucune variable liée détectée.";
-    t.fills = [{ type: "SOLID", color: COLOR.textSecondary }];
+    t.fills = [{ type: "SOLID", color: COLOR.refBodyText }];
     page.appendChild(t);
     t.x = PDF_MARGIN;
     t.y = contentY;
@@ -772,10 +733,10 @@ async function buildPdfTokensPage(target: DocTarget): Promise<FrameNode[]> {
   items.sort((a, b) => a.name.localeCompare(b.name));
 
   if (items.length > 0) {
-    const table = makeElegantTable(
+    const table = makeAdminTable(
       TOKEN_COL_HEADERS,
       PDF_TOKEN_COL_WIDTHS_A4,
-      items.map((i) => [i.name, i.type, i.collection])
+      items.map((i) => [i.name, i.type, i.collection] as AdminCellContent[])
     );
     page.appendChild(table);
     table.x = PDF_MARGIN;
@@ -932,7 +893,8 @@ function makeBreadcrumbIcon(): FrameNode {
 function makeAdminSheetHeader(
   componentName: string,
   categoryTitle: string,
-  contentWidth: number = ADMIN_CONTENT_WIDTH_DEFAULT
+  contentWidth: number = ADMIN_CONTENT_WIDTH_DEFAULT,
+  tag?: SceneNode
 ): FrameNode {
   const header = figma.createFrame();
   header.name = "FrameHeader";
@@ -1021,8 +983,23 @@ function makeAdminSheetHeader(
   title.lineHeight = { value: 38, unit: "PIXELS" };
   title.characters = categoryTitle;
   title.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
-  title.layoutAlign = "STRETCH";
-  titleWrap.appendChild(title);
+
+  if (tag) {
+    const titleRow = figma.createFrame();
+    titleRow.name = "TitleRow";
+    titleRow.layoutMode = "HORIZONTAL";
+    titleRow.primaryAxisSizingMode = "AUTO";
+    titleRow.counterAxisSizingMode = "AUTO";
+    titleRow.itemSpacing = 12;
+    titleRow.counterAxisAlignItems = "CENTER";
+    titleRow.fills = [];
+    titleRow.appendChild(title);
+    titleRow.appendChild(tag);
+    titleWrap.appendChild(titleRow);
+  } else {
+    title.layoutAlign = "STRETCH";
+    titleWrap.appendChild(title);
+  }
 
   header.appendChild(titleWrap);
 
@@ -1777,6 +1754,48 @@ function computeAdminCardLayout(target: DocTarget): AdminCardLayout {
   const contentW = Math.max(ADMIN_CONTENT_WIDTH_DEFAULT, rowW);
   const sheetW = contentW + ADMIN_SHEET_PADDING * 2;
   return { cardW, visualW, visualH, contentW, sheetW };
+}
+
+// Admin card layout for a fixed content width (used by PDF pages where the
+// page width is constrained). Cards-per-row is *derived* from contentW + the
+// component's natural minimum card width — opposite of the canvas variant
+// where the sheet grows to fit ADMIN_CARDS_PER_ROW cards.
+function computeAdminCardLayoutForFixedWidth(
+  target: DocTarget,
+  contentW: number
+): AdminCardLayout {
+  let maxW = 0;
+  let maxH = 0;
+  if (target.type === "COMPONENT_SET") {
+    for (const c of target.children) {
+      if (c.type === "COMPONENT") {
+        maxW = Math.max(maxW, c.width);
+        maxH = Math.max(maxH, c.height);
+      }
+    }
+  } else {
+    maxW = target.width;
+    maxH = target.height;
+  }
+  const minCardW = Math.max(
+    ADMIN_CARD_MIN_W,
+    Math.round(maxW + ADMIN_VISUAL_PADDING) + ADMIN_CARD_PADDING * 2
+  );
+  // Pick the largest cards-per-row that fits, capped at ADMIN_CARDS_PER_ROW.
+  let cardsPerRow = 1;
+  for (let n = ADMIN_CARDS_PER_ROW; n >= 1; n--) {
+    const total = n * minCardW + (n - 1) * ADMIN_GRID_GAP;
+    if (total <= contentW) {
+      cardsPerRow = n;
+      break;
+    }
+  }
+  const cardW = Math.floor(
+    (contentW - (cardsPerRow - 1) * ADMIN_GRID_GAP) / cardsPerRow
+  );
+  const visualW = cardW - ADMIN_CARD_PADDING * 2;
+  const visualH = Math.max(ADMIN_VISUAL_MIN_H, Math.round(maxH + ADMIN_VISUAL_PADDING));
+  return { cardW, visualW, visualH, contentW, sheetW: contentW + ADMIN_SHEET_PADDING * 2 };
 }
 
 function makeAdminCombinationCard(

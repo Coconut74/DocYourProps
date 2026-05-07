@@ -35,7 +35,12 @@ Fonts (`loadFonts`) : on tente `Colfax` (titres) et `Roboto` (table) en plus d'`
 
 **`makeTag(label, palette?)`** rend un chip pill (radius 6, padding 2/8, Roboto Medium 12 / line-height 18). 5 palettes pré-définies dans `TAG_PALETTE_*` : `BLUE` (`#E6F2FD` / `#085FAC` — défaut), `GREEN` (`#ECF7E8` / `#35821B`), `PURPLE` (`#F2EFFC` / `#614CA2`), `ORANGE` (`#FEF0E7` / `#B05112`), `CYAN` (`#E6F9FF` / `#10718D`).
 
-**PDF (`exportAsPdf`)** : pages A4 avec `makePdfHeader` style "elegant" + `makeElegantTable` 4 colonnes (`PDF_PROP_COL_WIDTHS_A4 = [100, 175, 100, 140]`) — la colonne Description y est aussi présente avec le même placeholder. Les pages Combinaisons utilisent toujours l'ancien `makeCombinationCard` (mini-cards) et restent indépendantes du restyle on-canvas.
+**PDF (`exportAsPdf`)** : pages A4 (515pt de contenu) en **style admin** depuis le restyle. `makePdfHeader` délègue à `makeAdminSheetHeader(...PDF_CONTENT_W, tag?)` → mêmes breadcrumb / `osmose.proginov.com` / titre 32px + bottom divider que les fiches canvas. Gap header→body = `PDF_BODY_GAP = 24`. Les pages utilisent :
+- **Propriétés** : `makeAdminTable` avec `PDF_PROP_COL_WIDTHS_A4 = [116, 127, 116, 156]`, cellules type = `makeTypeChip`, valeurs = `makeBulletList(valuesAsItems(p))`, prefix `displayPropName` pour les booleans.
+- **Variables liées** : `makeAdminTable` avec `PDF_TOKEN_COL_WIDTHS_A4`.
+- **Combinaisons** : `makeAdminCombinationCard` (mêmes cards qu'on-canvas — visual + props rows + switch). Layout calculé via `computeAdminCardLayoutForFixedWidth(target, PDF_CONTENT_W)` qui dérive `cardsPerRow` (max `ADMIN_CARDS_PER_ROW`) du `contentW` constraint au lieu de fixer 3 cards/row. Tag « X combinaisons » (palette BLUE) à côté du titre sur chaque page.
+
+`makeElegantTable`, `makeCombinationCard` et `buildAllCards` (pipeline elegant historique) sont devenus dead code après le restyle PDF — laissés en place pour le moment.
 
 ### Logique matrice
 
