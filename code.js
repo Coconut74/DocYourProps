@@ -8,8 +8,16 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-const PROP_COL_WIDTHS = [220, 160, 360];
-const PROP_COL_HEADERS = ["Propriété", "Type", "Valeurs possibles"];
+const PROP_COL_WIDTHS = [126, 260, 125, 125];
+const PROP_COL_HEADERS = ["Propriété", "Description", "Type", "Valeurs"];
+const PROP_DESCRIPTION_PLACEHOLDER = "À compléter";
+const ADMIN_SHEET_WIDTH = 700;
+const ADMIN_SHEET_PADDING = 32;
+const ADMIN_CONTENT_WIDTH = ADMIN_SHEET_WIDTH - ADMIN_SHEET_PADDING * 2; // 636
+const ADMIN_CARD_W = 201;
+const ADMIN_CARD_H = 146;
+const ADMIN_CARD_VISUAL_W = 185;
+const ADMIN_CARD_VISUAL_H = 85;
 const TOKEN_COL_WIDTHS = [320, 140, 200];
 const TOKEN_COL_HEADERS = ["Variable", "Type", "Collection"];
 const SHEET_GAP = 32;
@@ -20,8 +28,16 @@ const PDF_H = 842;
 const PDF_MARGIN = 40;
 const PDF_CONTENT_W = PDF_W - PDF_MARGIN * 2; // 515
 const PDF_CARD_GAP = 12;
-const PDF_PROP_COL_WIDTHS_A4 = [150, 120, 245]; // sum = 515
+const PDF_PROP_COL_WIDTHS_A4 = [100, 175, 100, 140]; // sum = 515 (Propriété, Description, Type, Valeurs)
 const PDF_TOKEN_COL_WIDTHS_A4 = [240, 110, 165]; // sum = 515
+function hex(h) {
+    const v = h.replace("#", "");
+    return {
+        r: parseInt(v.slice(0, 2), 16) / 255,
+        g: parseInt(v.slice(2, 4), 16) / 255,
+        b: parseInt(v.slice(4, 6), 16) / 255,
+    };
+}
 const COLOR = {
     bg: { r: 1, g: 1, b: 1 },
     bgSubtle: { r: 0.985, g: 0.985, b: 0.99 },
@@ -33,6 +49,34 @@ const COLOR = {
     textBody: { r: 0.15, g: 0.15, b: 0.2 },
     textSecondary: { r: 0.4, g: 0.4, b: 0.45 },
     textMuted: { r: 0.55, g: 0.55, b: 0.6 },
+    // ─── osmose.proginov.com reference palette ────────────────────────────────
+    refSheetBg: hex("#FFFFFF"),
+    refTitlePrimary: hex("#393939"),
+    refBodyText: hex("#616161"),
+    refMutedText: hex("#999999"),
+    refBrand: hex("#0C4790"),
+    refAccent: hex("#007DEB"),
+    refHeaderCellBg: hex("#F2F2F2"),
+    refBodyCellBg: hex("#F7F7F7"),
+    refRowDivider: hex("#E6E6E6"),
+    refTitleDivider: hex("#CCCCCC"),
+    refCardBg: hex("#F3F6F9"),
+    refCardLabel: hex("#506177"),
+    refCellTextStrong: hex("#242424"),
+    refChipBoolBg: hex("#E6F4FF"),
+    refChipBoolText: hex("#007DEB"),
+    refChipVariantBg: hex("#E0EFFF"),
+    refChipVariantText: hex("#0C4790"),
+    refChipTextBg: hex("#EFEFEF"),
+    refChipTextText: hex("#616161"),
+    refChipSwapBg: hex("#EAF4F0"),
+    refChipSwapText: hex("#1E7F5C"),
+};
+const FONT = {
+    title: { family: "Inter", style: "Regular" },
+    titleMed: { family: "Inter", style: "Semi Bold" },
+    body: { family: "Inter", style: "Regular" },
+    bodyMed: { family: "Inter", style: "Semi Bold" },
 };
 let lastSheets = [];
 let combosCache = null;
@@ -246,10 +290,10 @@ function buildSheets(target, options) {
         const sheets = [];
         if (options.props && options.variants) {
             const content = yield buildPropsAndMatrixContent(target, (_a = options.groupBy) !== null && _a !== void 0 ? _a : [], (_b = options.excludeRules) !== null && _b !== void 0 ? _b : [], (_c = options.propLocks) !== null && _c !== void 0 ? _c : {});
-            sheets.push(makeSheet(target, "Propriétés", content));
+            sheets.push(makeAdminSheet(target, "Propriétés", content));
         }
         else if (options.props) {
-            sheets.push(makeSheet(target, "Propriétés", buildPropsSection(target)));
+            sheets.push(makeAdminSheet(target, "Propriétés", buildPropsSection(target)));
         }
         if (options.tokens) {
             sheets.push(makeSheet(target, "Variables liées", yield buildTokensSection(target)));
@@ -342,10 +386,40 @@ function exportAsPdf(target, options) {
         figma.notify("PDF prêt au téléchargement");
     });
 }
+function tryLoadFont(font) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            yield figma.loadFontAsync(font);
+            return true;
+        }
+        catch (_a) {
+            return false;
+        }
+    });
+}
 function loadFonts() {
     return __awaiter(this, void 0, void 0, function* () {
+        // Inter is the safe baseline — must succeed.
         yield figma.loadFontAsync({ family: "Inter", style: "Regular" });
         yield figma.loadFontAsync({ family: "Inter", style: "Semi Bold" });
+        // Try the reference fonts (Colfax for titles, Roboto for table body).
+        // Each weight is independent: a half-loaded family still beats Inter.
+        const colfaxRegular = yield tryLoadFont({ family: "Colfax", style: "Regular" });
+        const colfaxMedium = yield tryLoadFont({ family: "Colfax", style: "Medium" });
+        const robotoRegular = yield tryLoadFont({ family: "Roboto", style: "Regular" });
+        const robotoMedium = yield tryLoadFont({ family: "Roboto", style: "Medium" });
+        FONT.title = colfaxRegular
+            ? { family: "Colfax", style: "Regular" }
+            : { family: "Inter", style: "Regular" };
+        FONT.titleMed = colfaxMedium
+            ? { family: "Colfax", style: "Medium" }
+            : { family: "Inter", style: "Semi Bold" };
+        FONT.body = robotoRegular
+            ? { family: "Roboto", style: "Regular" }
+            : { family: "Inter", style: "Regular" };
+        FONT.bodyMed = robotoMedium
+            ? { family: "Roboto", style: "Medium" }
+            : { family: "Inter", style: "Semi Bold" };
     });
 }
 // ─── PDF page builders ───────────────────────────────────────────────────────
@@ -398,7 +472,7 @@ function buildPdfPropsPage(target) {
     const contentY = div.y + 1 + 12;
     const props = extractProps(target);
     if (props.length > 0) {
-        const table = makeElegantTable(PROP_COL_HEADERS, PDF_PROP_COL_WIDTHS_A4, props.map((p) => [p.name, p.type, formatValuesDisplay(p)]));
+        const table = makeElegantTable(PROP_COL_HEADERS, PDF_PROP_COL_WIDTHS_A4, props.map((p) => [p.name, PROP_DESCRIPTION_PLACEHOLDER, p.type, formatValuesDisplay(p)]));
         page.appendChild(table);
         table.x = PDF_MARGIN;
         table.y = contentY;
@@ -594,22 +668,212 @@ function makeSheetHeader(componentName, categoryTitle) {
     header.appendChild(title);
     return header;
 }
+// ─── Admin-style sheet (osmose.proginov.com reference) ────────────────────
+function makeAdminSheet(target, title, content) {
+    const sheet = figma.createFrame();
+    sheet.name = `Doc · ${title} · ${target.name}`;
+    sheet.layoutMode = "VERTICAL";
+    sheet.primaryAxisSizingMode = "AUTO";
+    sheet.counterAxisSizingMode = "FIXED";
+    sheet.resize(ADMIN_SHEET_WIDTH, 1);
+    sheet.itemSpacing = 24;
+    sheet.paddingTop = ADMIN_SHEET_PADDING;
+    sheet.paddingBottom = ADMIN_SHEET_PADDING;
+    sheet.paddingLeft = ADMIN_SHEET_PADDING;
+    sheet.paddingRight = ADMIN_SHEET_PADDING;
+    sheet.fills = [{ type: "SOLID", color: COLOR.refSheetBg }];
+    sheet.cornerRadius = 12;
+    sheet.strokes = [];
+    sheet.effects = [
+        {
+            type: "DROP_SHADOW",
+            color: { r: 0, g: 0, b: 0, a: 0.02 },
+            offset: { x: 0, y: 7 },
+            radius: 3,
+            spread: 0,
+            visible: true,
+            blendMode: "NORMAL",
+        },
+        {
+            type: "DROP_SHADOW",
+            color: { r: 0, g: 0, b: 0, a: 0.06 },
+            offset: { x: 0, y: 4 },
+            radius: 2,
+            spread: 0,
+            visible: true,
+            blendMode: "NORMAL",
+        },
+        {
+            type: "DROP_SHADOW",
+            color: { r: 0, g: 0, b: 0, a: 0.10 },
+            offset: { x: 0, y: 2 },
+            radius: 2,
+            spread: 0,
+            visible: true,
+            blendMode: "NORMAL",
+        },
+        {
+            type: "DROP_SHADOW",
+            color: { r: 0, g: 0, b: 0, a: 0.12 },
+            offset: { x: 0, y: 0 },
+            radius: 1,
+            spread: 0,
+            visible: true,
+            blendMode: "NORMAL",
+        },
+    ];
+    sheet.appendChild(makeAdminSheetHeader(target.name, title));
+    sheet.appendChild(content);
+    return sheet;
+}
+// 24px square containing a small "menu-slash" glyph in brand color, mimicking
+// the reference. Drawn with a vector node so it survives PNG/JPEG export.
+function makeBreadcrumbIcon() {
+    const wrap = figma.createFrame();
+    wrap.name = "Icon";
+    wrap.resize(24, 24);
+    wrap.fills = [];
+    wrap.clipsContent = false;
+    // Tilted slash 24x24 — 3 dots stacked on a diagonal, simple geometric glyph.
+    for (let i = 0; i < 3; i++) {
+        const dot = figma.createEllipse();
+        dot.resize(4, 4);
+        dot.x = 6 + i * 4;
+        dot.y = 14 - i * 4;
+        dot.fills = [{ type: "SOLID", color: COLOR.refBrand }];
+        wrap.appendChild(dot);
+    }
+    return wrap;
+}
+function makeAdminSheetHeader(componentName, categoryTitle) {
+    const header = figma.createFrame();
+    header.name = "FrameHeader";
+    header.layoutMode = "VERTICAL";
+    header.primaryAxisSizingMode = "AUTO";
+    header.counterAxisSizingMode = "FIXED";
+    header.layoutAlign = "STRETCH";
+    header.resize(ADMIN_CONTENT_WIDTH, 1);
+    header.itemSpacing = 32;
+    header.fills = [];
+    // ── Breadcrumb top row ───────────────────────────────────────────────────
+    const top = figma.createFrame();
+    top.name = "FrameTop";
+    top.layoutMode = "HORIZONTAL";
+    top.primaryAxisSizingMode = "FIXED";
+    top.counterAxisSizingMode = "AUTO";
+    top.layoutAlign = "STRETCH";
+    top.resize(ADMIN_CONTENT_WIDTH, 24);
+    top.primaryAxisAlignItems = "SPACE_BETWEEN";
+    top.counterAxisAlignItems = "CENTER";
+    top.itemSpacing = 8;
+    top.fills = [];
+    // Left: icon + "PODS /" + componentName
+    const breadcrumb = figma.createFrame();
+    breadcrumb.name = "TitleBreadCrumb";
+    breadcrumb.layoutMode = "HORIZONTAL";
+    breadcrumb.primaryAxisSizingMode = "AUTO";
+    breadcrumb.counterAxisSizingMode = "AUTO";
+    breadcrumb.counterAxisAlignItems = "CENTER";
+    breadcrumb.itemSpacing = 4;
+    breadcrumb.fills = [];
+    breadcrumb.appendChild(makeBreadcrumbIcon());
+    const podsText = figma.createText();
+    podsText.fontName = FONT.title;
+    podsText.fontSize = 16;
+    podsText.lineHeight = { value: 24, unit: "PIXELS" };
+    podsText.characters = "PODS /";
+    podsText.fills = [{ type: "SOLID", color: COLOR.refMutedText }];
+    breadcrumb.appendChild(podsText);
+    const compText = figma.createText();
+    compText.fontName = FONT.titleMed;
+    compText.fontSize = 16;
+    compText.lineHeight = { value: 24, unit: "PIXELS" };
+    compText.characters = componentName;
+    compText.fills = [{ type: "SOLID", color: COLOR.refMutedText }];
+    breadcrumb.appendChild(compText);
+    top.appendChild(breadcrumb);
+    // Right: brand URL (text only — user attaches the hyperlink manually)
+    const url = figma.createText();
+    url.name = "Brand link";
+    url.fontName = FONT.title;
+    url.fontSize = 16;
+    url.lineHeight = { value: 19, unit: "PIXELS" };
+    url.characters = "osmose.proginov.com";
+    url.fills = [{ type: "SOLID", color: COLOR.refBrand }];
+    top.appendChild(url);
+    header.appendChild(top);
+    // ── Title row (text + bottom divider) ────────────────────────────────────
+    const titleWrap = figma.createFrame();
+    titleWrap.name = "Title";
+    titleWrap.layoutMode = "VERTICAL";
+    titleWrap.primaryAxisSizingMode = "AUTO";
+    titleWrap.counterAxisSizingMode = "FIXED";
+    titleWrap.layoutAlign = "STRETCH";
+    titleWrap.resize(ADMIN_CONTENT_WIDTH, 1);
+    titleWrap.paddingBottom = 16;
+    titleWrap.itemSpacing = 8;
+    titleWrap.fills = [];
+    titleWrap.strokes = [{ type: "SOLID", color: COLOR.refTitleDivider }];
+    titleWrap.strokeWeight = 1;
+    titleWrap.strokeAlign = "INSIDE";
+    titleWrap.strokeBottomWeight = 1;
+    titleWrap.strokeTopWeight = 0;
+    titleWrap.strokeLeftWeight = 0;
+    titleWrap.strokeRightWeight = 0;
+    const title = figma.createText();
+    title.fontName = FONT.titleMed;
+    title.fontSize = 32;
+    title.lineHeight = { value: 38, unit: "PIXELS" };
+    title.characters = categoryTitle;
+    title.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
+    title.layoutAlign = "STRETCH";
+    titleWrap.appendChild(title);
+    header.appendChild(titleWrap);
+    return header;
+}
 function buildPropsSection(target) {
     const props = extractProps(target);
     if (props.length === 0)
         return textFrame("Aucune propriété détectée.");
-    return makeElegantTable(PROP_COL_HEADERS, PROP_COL_WIDTHS, props.map((p) => [p.name, p.type, formatValuesDisplay(p)]));
+    return makeAdminTable(PROP_COL_HEADERS, PROP_COL_WIDTHS, props.map((p) => {
+        const v = valuesAsItems(p);
+        return [
+            p.name,
+            PROP_DESCRIPTION_PLACEHOLDER,
+            makeTypeChip(p.type),
+            makeBulletList(v.items, v.defaultIndex),
+        ];
+    }));
 }
 function buildPropsAndMatrixContent(target, groupBy, excludeRules, propLocks) {
     return __awaiter(this, void 0, void 0, function* () {
         const wrapper = figma.createFrame();
+        wrapper.name = "Body";
         wrapper.layoutMode = "VERTICAL";
         wrapper.primaryAxisSizingMode = "AUTO";
-        wrapper.counterAxisSizingMode = "AUTO";
-        wrapper.itemSpacing = 48;
+        wrapper.counterAxisSizingMode = "FIXED";
+        wrapper.layoutAlign = "STRETCH";
+        wrapper.resize(ADMIN_CONTENT_WIDTH, 1);
+        wrapper.itemSpacing = 24;
+        wrapper.paddingBottom = 24;
         wrapper.fills = [];
-        wrapper.appendChild(buildPropsSection(target));
-        wrapper.appendChild(buildSubSection("Combinaisons", yield buildVariantsSection(target, groupBy, excludeRules, propLocks)));
+        wrapper.strokes = [{ type: "SOLID", color: COLOR.refTitleDivider }];
+        wrapper.strokeWeight = 1;
+        wrapper.strokeAlign = "INSIDE";
+        wrapper.strokeBottomWeight = 1;
+        wrapper.strokeTopWeight = 0;
+        wrapper.strokeLeftWeight = 0;
+        wrapper.strokeRightWeight = 0;
+        // Component name as section title (24px Medium)
+        const sectionTitle = figma.createText();
+        sectionTitle.fontName = FONT.titleMed;
+        sectionTitle.fontSize = 24;
+        sectionTitle.lineHeight = { value: 29, unit: "PIXELS" };
+        sectionTitle.characters = target.name;
+        sectionTitle.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
+        wrapper.appendChild(sectionTitle);
+        wrapper.appendChild(buildSubSection("Props list", buildPropsSection(target)));
+        wrapper.appendChild(buildSubSection("Props visual", yield buildVariantsSection(target, groupBy, excludeRules, propLocks)));
         return wrapper;
     });
 }
@@ -617,14 +881,17 @@ function buildSubSection(label, content) {
     const section = figma.createFrame();
     section.layoutMode = "VERTICAL";
     section.primaryAxisSizingMode = "AUTO";
-    section.counterAxisSizingMode = "AUTO";
-    section.itemSpacing = 20;
+    section.counterAxisSizingMode = "FIXED";
+    section.layoutAlign = "STRETCH";
+    section.resize(ADMIN_CONTENT_WIDTH, 1);
+    section.itemSpacing = 16;
     section.fills = [];
     const h = figma.createText();
-    h.fontName = { family: "Inter", style: "Semi Bold" };
+    h.fontName = FONT.titleMed;
     h.fontSize = 20;
+    h.lineHeight = { value: 24, unit: "PIXELS" };
     h.characters = label;
-    h.fills = [{ type: "SOLID", color: COLOR.textPrimary }];
+    h.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
     section.appendChild(h);
     section.appendChild(content);
     return section;
@@ -694,22 +961,11 @@ function buildVariantsSection(target, groupBy, excludeRules, propLocks) {
                     ((_b = propOrderMap.get(b.axisName)) !== null && _b !== void 0 ? _b : 99);
             });
         }
-        const visualSize = computeVisualSize(target);
-        const cardW = Math.max(240, visualSize.w);
-        const visualH = visualSize.h;
         const validGroupBy = groupBy.filter((name) => allAxes.some((a) => a.name === name));
-        // Detect axes whose option pair is boolean-like (true/false, on/off, yes/no
-        // — case-insensitive). Their mini-cards render with a switch.
-        const boolishAxes = new Set();
-        for (const a of allAxes) {
-            if (a.propType === "BOOLEAN" || isBoolishOptions(a.options))
-                boolishAxes.add(a.name);
-        }
         // Build all cards in async-batched fashion (yields UI thread every CARD_BATCH_SIZE)
-        const miniH = MINI_CARD_HEIGHT;
-        const cards = yield buildAllCards(combos, base, cardW, visualH, miniH, boolishAxes);
+        const cards = yield buildAllAdminCards(combos, base);
         // Assemble layout from pre-built cards (sync, fast)
-        const contentNode = buildLayoutFromCards(combos, cards, validGroupBy, cardW, 0);
+        const contentNode = buildAdminLayoutFromCards(combos, cards, validGroupBy, 0);
         const skipped = totalEnumerated - combos.length - excluded;
         const captionParts = [];
         captionParts.push(`${combos.length} combinaison${combos.length > 1 ? "s" : ""}`);
@@ -728,14 +984,17 @@ function buildVariantsSection(target, groupBy, excludeRules, propLocks) {
         const wrapper = figma.createFrame();
         wrapper.layoutMode = "VERTICAL";
         wrapper.primaryAxisSizingMode = "AUTO";
-        wrapper.counterAxisSizingMode = "AUTO";
+        wrapper.counterAxisSizingMode = "FIXED";
+        wrapper.layoutAlign = "STRETCH";
+        wrapper.resize(ADMIN_CONTENT_WIDTH, 1);
         wrapper.itemSpacing = 16;
         wrapper.fills = [];
         const caption = figma.createText();
-        caption.fontName = { family: "Inter", style: "Regular" };
-        caption.fontSize = 11;
+        caption.fontName = FONT.body;
+        caption.fontSize = 12;
+        caption.lineHeight = { value: 14, unit: "PIXELS" };
         caption.characters = captionParts.join(" · ");
-        caption.fills = [{ type: "SOLID", color: COLOR.textSecondary }];
+        caption.fills = [{ type: "SOLID", color: COLOR.refBodyText }];
         wrapper.appendChild(caption);
         wrapper.appendChild(contentNode);
         return wrapper;
@@ -1129,6 +1388,149 @@ function* enumerateCombinations(axes) {
 function totalCombinationCount(axes) {
     return axes.reduce((acc, a) => acc * a.options.length, 1);
 }
+// ─── Admin-style combination card (osmose.proginov.com reference) ─────────
+// Card 201×146 fixed, bg #F3F6F9, padding 8, gap 8, radius 12.
+// Visual area 185×85 fixed, bg #FFFFFF, radius 8 — live instance centered.
+// Label below: "PropName = Value" Roboto 14 / 400 / #506177.
+function makeAdminCombinationCard(combo, base) {
+    const inst = combo.variantSource
+        ? combo.variantSource.createInstance()
+        : base.createInstance();
+    if (Object.keys(combo.setPropsPayload).length > 0) {
+        try {
+            inst.setProperties(combo.setPropsPayload);
+        }
+        catch (_a) {
+            // Defensive: BOOLEAN should always succeed; INSTANCE_SWAP can fail
+            // if a referenced component is unavailable. Keep the card.
+        }
+    }
+    const card = figma.createFrame();
+    card.name = combo.labels.length
+        ? combo.labels.map((l) => `${l.axisName}=${l.valueLabel}`).join(" · ")
+        : "Variante";
+    card.layoutMode = "VERTICAL";
+    card.primaryAxisSizingMode = "FIXED";
+    card.counterAxisSizingMode = "FIXED";
+    card.resize(ADMIN_CARD_W, ADMIN_CARD_H);
+    card.paddingTop = 8;
+    card.paddingBottom = 8;
+    card.paddingLeft = 8;
+    card.paddingRight = 8;
+    card.itemSpacing = 8;
+    card.counterAxisAlignItems = "CENTER";
+    card.fills = [{ type: "SOLID", color: COLOR.refCardBg }];
+    card.cornerRadius = 12;
+    card.clipsContent = true;
+    const visual = figma.createFrame();
+    visual.name = "Visual";
+    visual.resize(ADMIN_CARD_VISUAL_W, ADMIN_CARD_VISUAL_H);
+    visual.fills = [{ type: "SOLID", color: COLOR.refSheetBg }];
+    visual.cornerRadius = 8;
+    visual.clipsContent = true;
+    visual.appendChild(inst);
+    inst.x = Math.round((ADMIN_CARD_VISUAL_W - inst.width) / 2);
+    inst.y = Math.round((ADMIN_CARD_VISUAL_H - inst.height) / 2);
+    card.appendChild(visual);
+    const label = figma.createText();
+    label.name = "Label";
+    label.fontName = FONT.body;
+    label.fontSize = 14;
+    label.lineHeight = { value: 20, unit: "PIXELS" };
+    label.characters = combo.labels.length
+        ? combo.labels.map((l) => `${l.axisName} = ${l.valueLabel}`).join(" / ")
+        : "—";
+    label.fills = [{ type: "SOLID", color: COLOR.refCardLabel }];
+    label.textAlignHorizontal = "CENTER";
+    label.textAutoResize = "HEIGHT";
+    label.resize(ADMIN_CARD_VISUAL_W, label.height);
+    card.appendChild(label);
+    return card;
+}
+function buildAllAdminCards(combos, base) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const cards = [];
+        for (let i = 0; i < combos.length; i += CARD_BATCH_SIZE) {
+            const end = Math.min(i + CARD_BATCH_SIZE, combos.length);
+            for (let j = i; j < end; j++) {
+                cards.push(makeAdminCombinationCard(combos[j], base));
+            }
+            if (end < combos.length) {
+                figma.notify(`Génération… ${end}/${combos.length}`, { timeout: 800 });
+                yield new Promise((r) => setTimeout(r, 0));
+            }
+        }
+        return cards;
+    });
+}
+// Flat grid of admin cards, wrapping at 3 cards per row inside the 636px
+// content width. All cards are FIXED 201×146 — no AUTO/FIXED flip needed.
+function buildAdminFlatGrid(cards) {
+    const grid = figma.createFrame();
+    grid.name = "CardGrid";
+    grid.layoutMode = "HORIZONTAL";
+    grid.layoutWrap = "WRAP";
+    grid.primaryAxisSizingMode = "FIXED";
+    grid.counterAxisSizingMode = "AUTO";
+    grid.layoutAlign = "STRETCH";
+    grid.resize(ADMIN_CONTENT_WIDTH, ADMIN_CARD_H);
+    grid.itemSpacing = 16;
+    grid.counterAxisSpacing = 16;
+    grid.fills = [];
+    for (const card of cards)
+        grid.appendChild(card);
+    return grid;
+}
+// Admin variant of buildLayoutFromCards. Same grouping logic, but admin
+// typography (Colfax/Roboto with Inter fallback, ref color palette).
+function buildAdminLayoutFromCards(combos, cards, groupBy, depth) {
+    var _a;
+    if (groupBy.length === 0 || combos.length === 0) {
+        return buildAdminFlatGrid(cards);
+    }
+    const [first, ...rest] = groupBy;
+    const groups = new Map();
+    for (let i = 0; i < combos.length; i++) {
+        const value = (_a = combos[i].labelMap.get(first)) !== null && _a !== void 0 ? _a : "—";
+        let g = groups.get(value);
+        if (!g) {
+            g = { combos: [], cards: [] };
+            groups.set(value, g);
+        }
+        g.combos.push(combos[i]);
+        g.cards.push(cards[i]);
+    }
+    const wrapper = figma.createFrame();
+    wrapper.layoutMode = "VERTICAL";
+    wrapper.primaryAxisSizingMode = "AUTO";
+    wrapper.counterAxisSizingMode = "FIXED";
+    wrapper.layoutAlign = "STRETCH";
+    wrapper.resize(ADMIN_CONTENT_WIDTH, 1);
+    wrapper.itemSpacing = depth === 0 ? 24 : 16;
+    wrapper.fills = [];
+    for (const [value, g] of groups) {
+        if (g.cards.length === 0)
+            continue;
+        const sub = figma.createFrame();
+        sub.layoutMode = "VERTICAL";
+        sub.primaryAxisSizingMode = "AUTO";
+        sub.counterAxisSizingMode = "FIXED";
+        sub.layoutAlign = "STRETCH";
+        sub.resize(ADMIN_CONTENT_WIDTH, 1);
+        sub.itemSpacing = 12;
+        sub.fills = [];
+        const header = figma.createText();
+        header.fontName = FONT.titleMed;
+        header.fontSize = depth === 0 ? 16 : 14;
+        header.lineHeight = { value: 19, unit: "PIXELS" };
+        header.characters = `${first} = ${value}`;
+        header.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
+        sub.appendChild(header);
+        sub.appendChild(buildAdminLayoutFromCards(g.combos, g.cards, rest, depth + 1));
+        wrapper.appendChild(sub);
+    }
+    return wrapper;
+}
 function makeCombinationCard(combo, base, cardW, visualH, miniH, boolishAxes) {
     // Pre-validated combination: variantSource (if any) is already known to exist.
     // For COMPONENT_SET we instantiate the exact variant child — no setProperties
@@ -1363,6 +1765,241 @@ function thinDivider(width, color) {
     d.resize(width, 1);
     d.fills = [{ type: "SOLID", color }];
     return d;
+}
+function makeAdminTable(headers, widths, rows) {
+    const totalW = widths.reduce((a, b) => a + b, 0);
+    const table = figma.createFrame();
+    table.name = "PropsTable";
+    table.layoutMode = "VERTICAL";
+    table.primaryAxisSizingMode = "AUTO";
+    table.counterAxisSizingMode = "FIXED";
+    table.resize(totalW, 1);
+    table.itemSpacing = 0;
+    table.cornerRadius = 8;
+    table.clipsContent = true;
+    table.fills = [];
+    table.appendChild(makeAdminHeaderRow(headers, widths, totalW));
+    for (let i = 0; i < rows.length; i++) {
+        table.appendChild(makeAdminBodyRow(rows[i], widths, totalW));
+    }
+    return table;
+}
+function makeAdminHeaderRow(cells, widths, totalW) {
+    const row = figma.createFrame();
+    row.name = "PropsHeadTable";
+    row.layoutMode = "HORIZONTAL";
+    row.primaryAxisSizingMode = "FIXED";
+    row.counterAxisSizingMode = "FIXED";
+    row.resize(totalW, 48);
+    row.itemSpacing = 0;
+    row.fills = [];
+    for (let i = 0; i < cells.length; i++) {
+        const cell = figma.createFrame();
+        cell.name = "HeadCell";
+        cell.layoutMode = "HORIZONTAL";
+        cell.primaryAxisSizingMode = "FIXED";
+        cell.counterAxisSizingMode = "FIXED";
+        cell.resize(widths[i], 48);
+        cell.paddingTop = 16;
+        cell.paddingBottom = 16;
+        cell.paddingLeft = 16;
+        cell.paddingRight = 16;
+        cell.itemSpacing = 8;
+        cell.counterAxisAlignItems = "CENTER";
+        cell.fills = [{ type: "SOLID", color: COLOR.refHeaderCellBg }];
+        const t = figma.createText();
+        t.fontName = FONT.bodyMed;
+        t.fontSize = 14;
+        t.lineHeight = { value: 16, unit: "PIXELS" };
+        t.characters = cells[i];
+        t.fills = [{ type: "SOLID", color: COLOR.refCellTextStrong }];
+        t.layoutGrow = 1;
+        t.textAutoResize = "HEIGHT";
+        t.resize(widths[i] - 32, 16);
+        cell.appendChild(t);
+        row.appendChild(cell);
+    }
+    return row;
+}
+function makeAdminBodyRow(cells, widths, totalW) {
+    const row = figma.createFrame();
+    row.name = "PropsLineTable";
+    row.layoutMode = "HORIZONTAL";
+    row.primaryAxisSizingMode = "AUTO";
+    row.counterAxisSizingMode = "AUTO";
+    row.itemSpacing = 0;
+    row.fills = [];
+    row.strokes = [{ type: "SOLID", color: COLOR.refRowDivider }];
+    row.strokeWeight = 1;
+    row.strokeAlign = "INSIDE";
+    row.strokeBottomWeight = 1;
+    row.strokeTopWeight = 0;
+    row.strokeLeftWeight = 0;
+    row.strokeRightWeight = 0;
+    for (let i = 0; i < cells.length; i++) {
+        row.appendChild(makeAdminBodyCell(cells[i], widths[i]));
+    }
+    return row;
+}
+function makeAdminBodyCell(content, width) {
+    const cell = figma.createFrame();
+    cell.name = "BodyCell";
+    cell.layoutMode = "HORIZONTAL";
+    cell.primaryAxisSizingMode = "FIXED";
+    cell.counterAxisSizingMode = "AUTO";
+    cell.layoutAlign = "STRETCH";
+    cell.resize(width, 1);
+    cell.paddingTop = 12;
+    cell.paddingBottom = 12;
+    cell.paddingLeft = 16;
+    cell.paddingRight = 16;
+    cell.itemSpacing = 8;
+    cell.counterAxisAlignItems = "MIN";
+    cell.fills = [{ type: "SOLID", color: COLOR.refBodyCellBg }];
+    if (typeof content === "string") {
+        const t = figma.createText();
+        t.fontName = FONT.body;
+        t.fontSize = 12;
+        t.lineHeight = { value: 14, unit: "PIXELS" };
+        t.characters = content || "—";
+        t.fills = [{ type: "SOLID", color: COLOR.refBodyText }];
+        t.textAutoResize = "HEIGHT";
+        t.resize(width - 32, t.height);
+        t.layoutGrow = 1;
+        cell.appendChild(t);
+    }
+    else {
+        cell.appendChild(content);
+    }
+    return cell;
+}
+// Coloured chip used in the "Type" column.
+function makeTypeChip(type) {
+    let bg;
+    let fg;
+    let label;
+    switch (type) {
+        case "BOOLEAN":
+            bg = COLOR.refChipBoolBg;
+            fg = COLOR.refChipBoolText;
+            label = "Boolean";
+            break;
+        case "VARIANT":
+            bg = COLOR.refChipVariantBg;
+            fg = COLOR.refChipVariantText;
+            label = "Variant";
+            break;
+        case "TEXT":
+            bg = COLOR.refChipTextBg;
+            fg = COLOR.refChipTextText;
+            label = "Text";
+            break;
+        case "INSTANCE_SWAP":
+            bg = COLOR.refChipSwapBg;
+            fg = COLOR.refChipSwapText;
+            label = "Instance";
+            break;
+        default:
+            bg = COLOR.refChipTextBg;
+            fg = COLOR.refChipTextText;
+            label = String(type);
+    }
+    const chip = figma.createFrame();
+    chip.name = `Chip:${label}`;
+    chip.layoutMode = "HORIZONTAL";
+    chip.primaryAxisSizingMode = "AUTO";
+    chip.counterAxisSizingMode = "AUTO";
+    chip.paddingTop = 4;
+    chip.paddingBottom = 4;
+    chip.paddingLeft = 8;
+    chip.paddingRight = 8;
+    chip.cornerRadius = 4;
+    chip.fills = [{ type: "SOLID", color: bg }];
+    const t = figma.createText();
+    t.fontName = FONT.bodyMed;
+    t.fontSize = 11;
+    t.lineHeight = { value: 14, unit: "PIXELS" };
+    t.characters = label;
+    t.fills = [{ type: "SOLID", color: fg }];
+    chip.appendChild(t);
+    return chip;
+}
+// Vertical bullet list. defaultIndex (≥0) renders that item in accent color +
+// medium weight to mark it as the default value.
+function makeBulletList(items, defaultIndex) {
+    const list = figma.createFrame();
+    list.name = "Values";
+    list.layoutMode = "VERTICAL";
+    list.primaryAxisSizingMode = "AUTO";
+    list.counterAxisSizingMode = "AUTO";
+    list.itemSpacing = 4;
+    list.fills = [];
+    if (items.length === 0) {
+        const t = figma.createText();
+        t.fontName = FONT.body;
+        t.fontSize = 12;
+        t.lineHeight = { value: 14, unit: "PIXELS" };
+        t.characters = "—";
+        t.fills = [{ type: "SOLID", color: COLOR.refBodyText }];
+        list.appendChild(t);
+        return list;
+    }
+    for (let i = 0; i < items.length; i++) {
+        const isDefault = i === defaultIndex;
+        const row = figma.createFrame();
+        row.layoutMode = "HORIZONTAL";
+        row.primaryAxisSizingMode = "AUTO";
+        row.counterAxisSizingMode = "AUTO";
+        row.counterAxisAlignItems = "MIN";
+        row.itemSpacing = 6;
+        row.fills = [];
+        const bullet = figma.createText();
+        bullet.fontName = isDefault ? FONT.bodyMed : FONT.body;
+        bullet.fontSize = 12;
+        bullet.lineHeight = { value: 14, unit: "PIXELS" };
+        bullet.characters = "•";
+        bullet.fills = [
+            { type: "SOLID", color: isDefault ? COLOR.refAccent : COLOR.refBodyText },
+        ];
+        row.appendChild(bullet);
+        const t = figma.createText();
+        t.fontName = isDefault ? FONT.bodyMed : FONT.body;
+        t.fontSize = 12;
+        t.lineHeight = { value: 14, unit: "PIXELS" };
+        t.characters = items[i];
+        t.fills = [
+            { type: "SOLID", color: isDefault ? COLOR.refAccent : COLOR.refBodyText },
+        ];
+        row.appendChild(t);
+        list.appendChild(row);
+    }
+    return list;
+}
+function valuesAsItems(p) {
+    var _a;
+    switch (p.type) {
+        case "BOOLEAN":
+            return {
+                items: ["true", "false"],
+                defaultIndex: p.defaultValue === true ? 0 : 1,
+            };
+        case "TEXT":
+            return {
+                items: [`"${String(p.defaultValue)}"`],
+                defaultIndex: 0,
+            };
+        case "VARIANT": {
+            const items = (_a = p.variantOptions) !== null && _a !== void 0 ? _a : [];
+            return {
+                items,
+                defaultIndex: items.findIndex((o) => o === String(p.defaultValue)),
+            };
+        }
+        case "INSTANCE_SWAP":
+            return { items: ["Instance par défaut"], defaultIndex: 0 };
+        default:
+            return { items: [], defaultIndex: -1 };
+    }
 }
 function getInspectableNodes(target) {
     if (target.type === "COMPONENT_SET") {
