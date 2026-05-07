@@ -856,11 +856,28 @@ function isPropBoolish(p) {
 function displayPropName(p) {
     return isPropBoolish(p) ? `Has a ${p.name}` : p.name;
 }
-function buildPropsSection(target) {
+// Scale a fixed widths list to a target total while preserving proportions.
+// Last column absorbs the rounding remainder so the sum is exact.
+function scaleWidths(widths, targetTotal) {
+    const total = widths.reduce((a, b) => a + b, 0);
+    if (total === targetTotal)
+        return widths.slice();
+    const scaled = [];
+    let acc = 0;
+    for (let i = 0; i < widths.length - 1; i++) {
+        const w = Math.round((widths[i] * targetTotal) / total);
+        scaled.push(w);
+        acc += w;
+    }
+    scaled.push(targetTotal - acc);
+    return scaled;
+}
+function buildPropsSection(target, contentWidth = ADMIN_CONTENT_WIDTH_DEFAULT) {
     const props = extractProps(target);
     if (props.length === 0)
         return textFrame("Aucune propriété détectée.");
-    return makeAdminTable(PROP_COL_HEADERS, PROP_COL_WIDTHS, props.map((p) => [
+    const widths = scaleWidths(PROP_COL_WIDTHS, contentWidth);
+    return makeAdminTable(PROP_COL_HEADERS, widths, props.map((p) => [
         displayPropName(p),
         PROP_DESCRIPTION_PLACEHOLDER,
         makeTypeChip(p.type),
@@ -892,7 +909,7 @@ function buildPropsAndMatrixContent(target, groupBy, excludeRules, propLocks, la
         sectionTitle.characters = target.name;
         sectionTitle.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
         wrapper.appendChild(sectionTitle);
-        wrapper.appendChild(buildSubSection("Props list", buildPropsSection(target)));
+        wrapper.appendChild(buildSubSection("Props list", buildPropsSection(target, layout.contentW)));
         wrapper.appendChild(buildSubSection("Props visual", yield buildVariantsSection(target, groupBy, excludeRules, propLocks, layout)));
         return wrapper;
     });

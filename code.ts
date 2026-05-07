@@ -1045,12 +1045,32 @@ function displayPropName(p: PropInfo): string {
   return isPropBoolish(p) ? `Has a ${p.name}` : p.name;
 }
 
-function buildPropsSection(target: DocTarget): SceneNode {
+// Scale a fixed widths list to a target total while preserving proportions.
+// Last column absorbs the rounding remainder so the sum is exact.
+function scaleWidths(widths: number[], targetTotal: number): number[] {
+  const total = widths.reduce((a, b) => a + b, 0);
+  if (total === targetTotal) return widths.slice();
+  const scaled: number[] = [];
+  let acc = 0;
+  for (let i = 0; i < widths.length - 1; i++) {
+    const w = Math.round((widths[i] * targetTotal) / total);
+    scaled.push(w);
+    acc += w;
+  }
+  scaled.push(targetTotal - acc);
+  return scaled;
+}
+
+function buildPropsSection(
+  target: DocTarget,
+  contentWidth: number = ADMIN_CONTENT_WIDTH_DEFAULT
+): SceneNode {
   const props = extractProps(target);
   if (props.length === 0) return textFrame("Aucune propriété détectée.");
+  const widths = scaleWidths(PROP_COL_WIDTHS, contentWidth);
   return makeAdminTable(
     PROP_COL_HEADERS,
-    PROP_COL_WIDTHS,
+    widths,
     props.map(
       (p) =>
         [
@@ -1095,7 +1115,7 @@ async function buildPropsAndMatrixContent(
   sectionTitle.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
   wrapper.appendChild(sectionTitle);
 
-  wrapper.appendChild(buildSubSection("Props list", buildPropsSection(target)));
+  wrapper.appendChild(buildSubSection("Props list", buildPropsSection(target, layout.contentW)));
   wrapper.appendChild(
     buildSubSection(
       "Props visual",
