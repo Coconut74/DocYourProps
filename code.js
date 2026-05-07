@@ -85,7 +85,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
     var _a, _b;
     const defaultOptions = { props: true, tokens: true, variants: true };
     if (msg.type === "generate-doc") {
-        const target = resolveTarget();
+        const target = yield resolveTarget();
         if (!target) {
             figma.notify("Sélectionnez un composant.", { error: true });
             return;
@@ -101,7 +101,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         }
     }
     else if (msg.type === "export-pdf") {
-        const target = resolveTarget();
+        const target = yield resolveTarget();
         if (!target) {
             figma.notify("Sélectionnez un composant.", { error: true });
             return;
@@ -120,30 +120,32 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 function resolveTarget() {
-    const sel = figma.currentPage.selection;
-    if (sel.length !== 1)
-        return null;
-    const node = sel[0];
-    if (node.type === "COMPONENT_SET")
-        return node;
-    if (node.type === "COMPONENT") {
-        if (node.parent && node.parent.type === "COMPONENT_SET")
-            return node.parent;
-        return node;
-    }
-    if (node.type === "INSTANCE") {
-        const main = node.mainComponent;
-        if (main) {
-            if (main.parent && main.parent.type === "COMPONENT_SET")
-                return main.parent;
-            return main;
+    return __awaiter(this, void 0, void 0, function* () {
+        const sel = figma.currentPage.selection;
+        if (sel.length !== 1)
+            return null;
+        const node = sel[0];
+        if (node.type === "COMPONENT_SET")
+            return node;
+        if (node.type === "COMPONENT") {
+            if (node.parent && node.parent.type === "COMPONENT_SET")
+                return node.parent;
+            return node;
         }
-    }
-    return null;
+        if (node.type === "INSTANCE") {
+            const main = yield node.getMainComponentAsync();
+            if (main) {
+                if (main.parent && main.parent.type === "COMPONENT_SET")
+                    return main.parent;
+                return main;
+            }
+        }
+        return null;
+    });
 }
 function sendSelection() {
     return __awaiter(this, void 0, void 0, function* () {
-        const target = resolveTarget();
+        const target = yield resolveTarget();
         let payload = null;
         if (target) {
             let preview = null;

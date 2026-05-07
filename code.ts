@@ -160,7 +160,7 @@ void sendSelection();
 figma.ui.onmessage = async (msg: { type: string; options?: DocOptions }) => {
   const defaultOptions: DocOptions = { props: true, tokens: true, variants: true };
   if (msg.type === "generate-doc") {
-    const target = resolveTarget();
+    const target = await resolveTarget();
     if (!target) {
       figma.notify("Sélectionnez un composant.", { error: true });
       return;
@@ -174,7 +174,7 @@ figma.ui.onmessage = async (msg: { type: string; options?: DocOptions }) => {
       figma.notify(`Erreur: ${(e as Error).message}`, { error: true });
     }
   } else if (msg.type === "export-pdf") {
-    const target = resolveTarget();
+    const target = await resolveTarget();
     if (!target) {
       figma.notify("Sélectionnez un composant.", { error: true });
       return;
@@ -191,7 +191,7 @@ figma.ui.onmessage = async (msg: { type: string; options?: DocOptions }) => {
   }
 };
 
-function resolveTarget(): DocTarget | null {
+async function resolveTarget(): Promise<DocTarget | null> {
   const sel = figma.currentPage.selection;
   if (sel.length !== 1) return null;
   const node = sel[0];
@@ -201,7 +201,7 @@ function resolveTarget(): DocTarget | null {
     return node;
   }
   if (node.type === "INSTANCE") {
-    const main = node.mainComponent;
+    const main = await node.getMainComponentAsync();
     if (main) {
       if (main.parent && main.parent.type === "COMPONENT_SET") return main.parent;
       return main;
@@ -211,7 +211,7 @@ function resolveTarget(): DocTarget | null {
 }
 
 async function sendSelection(): Promise<void> {
-  const target = resolveTarget();
+  const target = await resolveTarget();
   let payload: SelectionPayload = null;
 
   if (target) {
