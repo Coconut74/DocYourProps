@@ -414,6 +414,65 @@
         color: #fff;
       }
 
+      /* ── Visual bg picker ───────────────────────────────── */
+      .visual-bg-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .visual-bg-swatch {
+        position: relative;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        border: 1px solid var(--figma-color-border, #d9d9d9);
+        cursor: pointer;
+        flex-shrink: 0;
+        overflow: hidden;
+        background-image:
+          linear-gradient(45deg, #ddd 25%, transparent 25%),
+          linear-gradient(-45deg, #ddd 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #ddd 75%),
+          linear-gradient(-45deg, transparent 75%, #ddd 75%);
+        background-size: 8px 8px;
+        background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+      }
+      .visual-bg-swatch-fill {
+        position: absolute;
+        inset: 0;
+      }
+      .visual-bg-swatch input[type="color"] {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
+        border: none;
+        background: transparent;
+      }
+      .visual-bg-hex {
+        flex: 1;
+        font-family: "SF Mono", Menlo, Consolas, monospace;
+        font-size: 11px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid var(--figma-color-border, #d9d9d9);
+        background: var(--figma-color-bg, #fff);
+        color: var(--figma-color-text, #1e1e1e);
+        text-transform: uppercase;
+        outline: none;
+      }
+      .visual-bg-hex:focus {
+        border-color: var(--figma-color-bg-brand, #0d99ff);
+      }
+      .visual-bg-reset {
+        background: transparent;
+        color: var(--figma-color-text-secondary, #757575);
+        padding: 6px 8px;
+      }
+      .visual-bg-reset:hover { color: var(--figma-color-text, #1e1e1e); }
+
       /* ── Toggle switch ───────────────────────────────────── */
       .toggle {
         position: relative;
@@ -623,6 +682,19 @@
           <div class="hint">Cochez les valeurs à conserver pour chaque axe (vide = libre)</div>
           <div class="locks-list" id="locks-list"></div>
         </div>
+
+        <div id="visual-bg-section">
+          <div class="section-title">Couleur de fond du visuel</div>
+          <div class="hint">Fond de la zone d'aperçu dans chaque card de la matrice.</div>
+          <div class="visual-bg-row">
+            <label class="visual-bg-swatch" title="Choisir une couleur (pipette disponible)">
+              <span class="visual-bg-swatch-fill" id="visual-bg-fill"></span>
+              <input type="color" id="visual-bg-color" value="#FFFFFF" />
+            </label>
+            <input type="text" class="visual-bg-hex" id="visual-bg-hex" maxlength="7" spellcheck="false" />
+            <button type="button" class="visual-bg-reset" id="visual-bg-reset" title="Réinitialiser au blanc">Reset</button>
+          </div>
+        </div>
       </div>
 
       <div class="settings-footer">
@@ -654,6 +726,17 @@
       const settingsBackBtn = document.getElementById("settings-back");
       const settingsCancelBtn = document.getElementById("settings-cancel");
       const settingsConfirmBtn = document.getElementById("settings-confirm");
+      const visualBgFill = document.getElementById("visual-bg-fill");
+      const visualBgColorInput = document.getElementById("visual-bg-color");
+      const visualBgHexInput = document.getElementById("visual-bg-hex");
+      const visualBgResetBtn = document.getElementById("visual-bg-reset");
+
+      const VISUAL_BG_DEFAULT = "#FFFFFF";
+      const HEX_RE = /^#?[0-9a-fA-F]{6}$/;
+      function normalizeHex(input) {
+        if (typeof input !== "string" || !HEX_RE.test(input)) return VISUAL_BG_DEFAULT;
+        return (input.startsWith("#") ? input : "#" + input).toUpperCase();
+      }
 
       let availableAxes = [];
       let availableAxisValues = {}; // { axisName: [valueLabels...] }
@@ -662,17 +745,20 @@
       let groupByOrder = [];
       let exclusionRules = [];      // Array<{ [axisName]: valueLabel }>. Empty value = (toutes)
       let propLocks = {};           // { [axisName]: string[] } — empty array / absent = libre
+      let matrixVisualBg = VISUAL_BG_DEFAULT;
       let baseCombinationCount = 0; // Last reported total combinations (cartesian post-dedup)
 
       // Pending state — populated when entering settings, applied on Valider, dropped on Annuler.
       let pendingGroupByOrder = null;
       let pendingExclusionRules = null;
       let pendingPropLocks = null;
+      let pendingMatrixVisualBg = null;
 
       // Returns the currently-edited state (pending if in settings view, else applied).
       function activeGroupBy() { return pendingGroupByOrder ?? groupByOrder; }
       function activeRules() { return pendingExclusionRules ?? exclusionRules; }
       function activeLocks() { return pendingPropLocks ?? propLocks; }
+      function activeVisualBg() { return pendingMatrixVisualBg ?? matrixVisualBg; }
 
       // Click-to-toggle for all option rows. Clicks on the gear button are intercepted
       // (stopPropagation) so they don't toggle the row.
@@ -695,6 +781,33 @@
       settingsBackBtn.addEventListener("click", cancelMatrixSettings);
       settingsCancelBtn.addEventListener("click", cancelMatrixSettings);
       settingsConfirmBtn.addEventListener("click", confirmMatrixSettings);
+
+      // Visual bg picker — three inputs that stay in sync.
+      // The native <input type="color"> includes the OS color picker
+      // (with eyedropper on Chrome / Edge / Firefox).
+      function setPendingVisualBg(value, opts) {
+        const next = normalizeHex(value);
+        pendingMatrixVisualBg = next;
+        renderVisualBgInputs(opts);
+      }
+      function renderVisualBgInputs(opts) {
+        const v = activeVisualBg();
+        visualBgFill.style.background = v;
+        if (visualBgColorInput.value.toUpperCase() !== v) visualBgColorInput.value = v;
+        if (!opts || !opts.skipHexInput) visualBgHexInput.value = v;
+      }
+      visualBgColorInput.addEventListener("input", (ev) => setPendingVisualBg(ev.target.value));
+      visualBgHexInput.addEventListener("input", (ev) => {
+        const raw = ev.target.value.trim();
+        // Accept partial typing without overwriting the user's input.
+        if (HEX_RE.test(raw)) setPendingVisualBg(raw, { skipHexInput: true });
+      });
+      visualBgHexInput.addEventListener("blur", (ev) => {
+        // On blur, normalize whatever was typed (snaps to default if invalid).
+        setPendingVisualBg(ev.target.value);
+      });
+      visualBgResetBtn.addEventListener("click", () => setPendingVisualBg(VISUAL_BG_DEFAULT));
+      renderVisualBgInputs();
 
       addRuleBtn.addEventListener("click", () => {
         activeRules().push({});
@@ -733,9 +846,12 @@
         groupByOrder = [];
         exclusionRules = [];
         propLocks = {};
+        matrixVisualBg = VISUAL_BG_DEFAULT;
         pendingGroupByOrder = null;
         pendingExclusionRules = null;
         pendingPropLocks = null;
+        pendingMatrixVisualBg = null;
+        renderVisualBgInputs();
         axesList.innerHTML = "";
         for (const axis of axes) {
           const chip = document.createElement("div");
@@ -901,7 +1017,8 @@
         return (
           groupByOrder.length > 0 ||
           exclusionRules.some((r) => Object.keys(r).length > 0) ||
-          Object.values(propLocks).some((arr) => Array.isArray(arr) && arr.length > 0)
+          Object.values(propLocks).some((arr) => Array.isArray(arr) && arr.length > 0) ||
+          matrixVisualBg !== VISUAL_BG_DEFAULT
         );
       }
 
@@ -934,8 +1051,10 @@
         pendingGroupByOrder = groupByOrder.slice();
         pendingExclusionRules = cloneRules(exclusionRules);
         pendingPropLocks = cloneLocks(propLocks);
+        pendingMatrixVisualBg = matrixVisualBg;
         renderRules();
         renderLocks();
+        renderVisualBgInputs();
         updateChipsDisplay();
         updateGroupBySectionVisibility();
         updateExclusionsSectionVisibility();
@@ -950,11 +1069,14 @@
           exclusionRules = pendingExclusionRules.filter((r) => Object.keys(r).length > 0);
         }
         if (pendingPropLocks !== null) propLocks = pendingPropLocks;
+        if (pendingMatrixVisualBg !== null) matrixVisualBg = pendingMatrixVisualBg;
         pendingGroupByOrder = null;
         pendingExclusionRules = null;
         pendingPropLocks = null;
+        pendingMatrixVisualBg = null;
         renderRules();
         renderLocks();
+        renderVisualBgInputs();
         updateChipsDisplay();
         recomputeCount();
         updateGearDot();
@@ -965,8 +1087,10 @@
         pendingGroupByOrder = null;
         pendingExclusionRules = null;
         pendingPropLocks = null;
+        pendingMatrixVisualBg = null;
         renderRules();
         renderLocks();
+        renderVisualBgInputs();
         updateChipsDisplay();
         recomputeCount();
         showView("main");
@@ -1072,6 +1196,10 @@
           renderLocks();
           recomputeCount();
         }
+        if (typeof saved.matrixVisualBg === "string") {
+          matrixVisualBg = normalizeHex(saved.matrixVisualBg);
+          renderVisualBgInputs();
+        }
         updateGearDot();
       }
 
@@ -1110,6 +1238,7 @@
             .map((r) => Object.assign({}, r))
             .filter((r) => Object.keys(r).length > 0),
           propLocks: locksOut,
+          matrixVisualBg: matrixVisualBg,
         };
       }
 

@@ -15,6 +15,9 @@ type DocOptions = {
   groupBy?: string[];
   excludeRules?: ExclusionRule[];
   propLocks?: PropLocks;
+  // Hex string ("#RRGGBB") for the visual area background inside matrix cards.
+  // Falls back to white when missing or invalid.
+  matrixVisualBg?: string;
 };
 
 // Persisted per-component config — restored when the user reselects a component.
@@ -23,6 +26,7 @@ type SavedConfig = {
   groupBy: string[];
   excludeRules: ExclusionRule[];
   propLocks: PropLocks;
+  matrixVisualBg?: string;
 };
 
 type PropInfo = {
@@ -111,6 +115,13 @@ function hex(h: string): RGB {
   };
 }
 
+const VISUAL_BG_DEFAULT = "#FFFFFF";
+const HEX_RE = /^#?[0-9a-fA-F]{6}$/;
+function normalizeHex(input: string | undefined | null): string {
+  if (typeof input !== "string" || !HEX_RE.test(input)) return VISUAL_BG_DEFAULT;
+  return input.startsWith("#") ? input.toUpperCase() : "#" + input.toUpperCase();
+}
+
 const COLOR = {
   bg: { r: 1, g: 1, b: 1 },
   bgSubtle: { r: 0.985, g: 0.985, b: 0.99 },
@@ -145,14 +156,6 @@ const COLOR = {
   refMatrixSwitchOff: hex("#CCCCCC"),
   refMatrixSwitchThumb: hex("#FFFFFF"),
   refCellTextStrong: hex("#242424"),
-  refChipBoolBg: hex("#E6F4FF"),
-  refChipBoolText: hex("#007DEB"),
-  refChipVariantBg: hex("#E0EFFF"),
-  refChipVariantText: hex("#0C4790"),
-  refChipTextBg: hex("#EFEFEF"),
-  refChipTextText: hex("#616161"),
-  refChipSwapBg: hex("#EAF4F0"),
-  refChipSwapText: hex("#1E7F5C"),
 };
 
 // Fallback-aware font cache. Filled by loadFonts() so render code can call
@@ -236,6 +239,7 @@ async function saveConfig(targetId: string, options: DocOptions): Promise<void> 
     groupBy: options.groupBy ?? [],
     excludeRules: options.excludeRules ?? [],
     propLocks: options.propLocks ?? {},
+    matrixVisualBg: options.matrixVisualBg,
   };
   try {
     await figma.clientStorage.setAsync(CONFIG_KEY_PREFIX + targetId, config);
@@ -408,6 +412,7 @@ function formatValuesDisplay(p: PropInfo): string {
 
 async function buildSheets(target: DocTarget, options: DocOptions): Promise<FrameNode[]> {
   const sheets: FrameNode[] = [];
+  const visualBg = normalizeHex(options.matrixVisualBg);
 
   if (options.props && options.variants) {
     const layout = computeAdminCardLayout(target);
@@ -416,7 +421,8 @@ async function buildSheets(target: DocTarget, options: DocOptions): Promise<Fram
       options.groupBy ?? [],
       options.excludeRules ?? [],
       options.propLocks ?? {},
-      layout
+      layout,
+      visualBg
     );
     sheets.push(makeAdminSheet(target, "Propriétés", content, layout.sheetW));
   } else if (options.props) {
@@ -483,7 +489,8 @@ async function exportAsPdf(target: DocTarget, options: DocOptions): Promise<void
       ...(await buildPdfCombinationsPages(
         target,
         options.excludeRules ?? [],
-        options.propLocks ?? {}
+        options.propLocks ?? {},
+        normalizeHex(options.matrixVisualBg)
       ))
     );
   if (options.tokens) pdfPages.push(...await buildPdfTokensPage(target));
@@ -622,7 +629,8 @@ function buildPdfPropsPage(target: DocTarget): FrameNode {
 async function buildPdfCombinationsPages(
   target: DocTarget,
   excludeRules: ExclusionRule[],
-  propLocks: PropLocks
+  propLocks: PropLocks,
+  visualBg: string
 ): Promise<FrameNode[]> {
   const defs = target.componentPropertyDefinitions;
   const allAxes = await eligibleAxes(defs);
@@ -673,7 +681,7 @@ async function buildPdfCombinationsPages(
     if (a.propType === "BOOLEAN" || isBoolishOptions(a.options)) boolishAxes.add(a.name);
   }
 
-  const validCards = await buildAllAdminCards(combos, base, layout, boolishAxes);
+  const validCards = await buildAllAdminCards(combos, base, layout, boolishAxes, visualBg);
   if (validCards.length === 0) return [emptyPage()];
 
   // Card height is identical for every card (shared visualH + propsAreaH).
@@ -1088,7 +1096,8 @@ async function buildPropsAndMatrixContent(
   groupBy: string[],
   excludeRules: ExclusionRule[],
   propLocks: PropLocks,
-  layout: AdminCardLayout
+  layout: AdminCardLayout,
+  visualBg: string
 ): Promise<SceneNode> {
   const wrapper = figma.createFrame();
   wrapper.name = "Body";
@@ -1116,7 +1125,7 @@ async function buildPropsAndMatrixContent(
   wrapper.appendChild(sectionTitle);
 
   wrapper.appendChild(buildSubSection("Props list", buildPropsSection(target, layout.contentW)));
-  const variants = await buildVariantsSection(target, groupBy, excludeRules, propLocks, layout);
+  const variants = await buildVariantsSection(target, groupBy, excludeRules, propLocks, layout, visualBg);
   const visualTag =
     variants.comboCount > 0
       ? makeTag(`${variants.comboCount} combinaison${variants.comboCount > 1 ? "s" : ""}`)
@@ -1250,7 +1259,8 @@ async function buildVariantsSection(
   groupBy: string[],
   excludeRules: ExclusionRule[],
   propLocks: PropLocks,
-  layout: AdminCardLayout
+  layout: AdminCardLayout,
+  visualBg: string
 ): Promise<VariantsSectionResult> {
   const defs = target.componentPropertyDefinitions;
   const allAxes = await eligibleAxes(defs);
@@ -1301,7 +1311,7 @@ async function buildVariantsSection(
   }
 
   // Build all cards in async-batched fashion (yields UI thread every CARD_BATCH_SIZE)
-  const cards = await buildAllAdminCards(combos, base, layout, boolishAxes);
+  const cards = await buildAllAdminCards(combos, base, layout, boolishAxes, visualBg);
 
   // Assemble layout from pre-built cards (sync, fast)
   const contentNode = buildAdminLayoutFromCards(combos, cards, validGroupBy, 0, layout);
@@ -1826,7 +1836,8 @@ function makeAdminCombinationCard(
   combo: IndexedCombination,
   base: ComponentNode,
   layout: AdminCardLayout,
-  boolishAxes: Set<string>
+  boolishAxes: Set<string>,
+  visualBg: string
 ): FrameNode {
   const inst = combo.variantSource
     ? combo.variantSource.createInstance()
@@ -1872,7 +1883,7 @@ function makeAdminCombinationCard(
   const visual = figma.createFrame();
   visual.name = "Visual";
   visual.resize(layout.visualW, layout.visualH);
-  visual.fills = [{ type: "SOLID", color: COLOR.refSheetBg }];
+  visual.fills = [{ type: "SOLID", color: hex(visualBg) }];
   visual.cornerRadius = 8;
   visual.clipsContent = true;
   visual.appendChild(inst);
@@ -1985,13 +1996,14 @@ async function buildAllAdminCards(
   combos: IndexedCombination[],
   base: ComponentNode,
   layout: AdminCardLayout,
-  boolishAxes: Set<string>
+  boolishAxes: Set<string>,
+  visualBg: string
 ): Promise<FrameNode[]> {
   const cards: FrameNode[] = [];
   for (let i = 0; i < combos.length; i += CARD_BATCH_SIZE) {
     const end = Math.min(i + CARD_BATCH_SIZE, combos.length);
     for (let j = i; j < end; j++) {
-      cards.push(makeAdminCombinationCard(combos[j], base, layout, boolishAxes));
+      cards.push(makeAdminCombinationCard(combos[j], base, layout, boolishAxes, visualBg));
     }
     if (end < combos.length) {
       figma.notify(`Génération… ${end}/${combos.length}`, { timeout: 800 });
@@ -2510,59 +2522,33 @@ function makeAdminBodyCell(content: AdminCellContent, width: number): FrameNode 
   return cell;
 }
 
-// Coloured chip used in the "Type" column.
+// Coloured chip used in the "Type" column. Reuses the brand tag palettes so
+// type colors stay consistent with the inline section tags (BLUE/GREEN/etc.).
 function makeTypeChip(type: ComponentPropertyType): FrameNode {
-  let bg: RGB;
-  let fg: RGB;
+  let palette: TagPalette;
   let label: string;
   switch (type) {
     case "BOOLEAN":
-      bg = COLOR.refChipBoolBg;
-      fg = COLOR.refChipBoolText;
+      palette = TAG_PALETTE_GREEN;
       label = "Boolean";
       break;
     case "VARIANT":
-      bg = COLOR.refChipVariantBg;
-      fg = COLOR.refChipVariantText;
+      palette = TAG_PALETTE_PURPLE;
       label = "Variant";
       break;
     case "TEXT":
-      bg = COLOR.refChipTextBg;
-      fg = COLOR.refChipTextText;
+      palette = TAG_PALETTE_ORANGE;
       label = "Text";
       break;
     case "INSTANCE_SWAP":
-      bg = COLOR.refChipSwapBg;
-      fg = COLOR.refChipSwapText;
+      palette = TAG_PALETTE_CYAN;
       label = "Instance";
       break;
     default:
-      bg = COLOR.refChipTextBg;
-      fg = COLOR.refChipTextText;
+      palette = TAG_PALETTE_BLUE;
       label = String(type);
   }
-
-  const chip = figma.createFrame();
-  chip.name = `Chip:${label}`;
-  chip.layoutMode = "HORIZONTAL";
-  chip.primaryAxisSizingMode = "AUTO";
-  chip.counterAxisSizingMode = "AUTO";
-  chip.paddingTop = 4;
-  chip.paddingBottom = 4;
-  chip.paddingLeft = 8;
-  chip.paddingRight = 8;
-  chip.cornerRadius = 4;
-  chip.fills = [{ type: "SOLID", color: bg }];
-
-  const t = figma.createText();
-  t.fontName = FONT.bodyMed;
-  t.fontSize = 11;
-  t.lineHeight = { value: 14, unit: "PIXELS" };
-  t.characters = label;
-  t.fills = [{ type: "SOLID", color: fg }];
-  chip.appendChild(t);
-
-  return chip;
+  return makeTag(label, palette);
 }
 
 // Vertical bullet list — values render uniformly (default value not emphasized).
