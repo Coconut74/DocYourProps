@@ -340,9 +340,12 @@
         flex-shrink: 0;
         background: var(--figma-color-bg-secondary, #f5f5f5);
       }
-      .group-catalogue .option-icon { color: #6366F1; background: rgba(99, 102, 241, 0.12); }
-      .group-spec .option-icon { color: #10B981; background: rgba(16, 185, 129, 0.12); }
-      .group-visual .option-icon { color: #A020F0; background: rgba(160, 32, 240, 0.12); }
+      .group-catalogue .option-icon,
+      .group-spec .option-icon,
+      .group-visual .option-icon {
+        color: #6366F1;
+        background: rgba(99, 102, 241, 0.12);
+      }
 
       .option-text {
         display: flex;
@@ -1215,7 +1218,7 @@
         <div id="content"></div>
 
         <div>
-          <div class="section-title">Inclure dans la doc</div>
+          <div class="section-title">Documentation</div>
           <div class="options">
 
             <div class="option-group group-catalogue">
