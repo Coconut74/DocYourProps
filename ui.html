@@ -1104,23 +1104,29 @@
       .doc-index-list {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 0;
         margin-top: 8px;
+        border: 1px solid rgba(13, 153, 255, 0.35);
+        border-radius: 8px;
+        overflow: hidden;
       }
       .doc-index-item {
         display: flex;
         flex-direction: column;
         gap: 4px;
         padding: 10px 12px;
-        border: 1px solid var(--figma-color-border, #e5e5e5);
-        border-radius: 8px;
+        border: 0;
+        border-bottom: 1px solid rgba(13, 153, 255, 0.20);
+        border-radius: 0;
         cursor: pointer;
-        background: transparent;
+        background: rgba(13, 153, 255, 0.06);
         text-align: left;
         font: inherit;
         color: var(--figma-color-text, #1e1e1e);
+        transition: background 120ms ease;
       }
-      .doc-index-item:hover { background: var(--figma-color-bg-hover, #f5f5f5); }
+      .doc-index-item:last-child { border-bottom: 0; }
+      .doc-index-item:hover { background: rgba(13, 153, 255, 0.14); }
       .doc-index-item.missing { opacity: 0.6; }
       .doc-index-name {
         font-size: 12px;
