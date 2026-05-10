@@ -1137,14 +1137,21 @@
       .doc-index-item:hover { background: var(--figma-color-bg-hover, #f5f5f5); }
       .doc-index-item.missing { opacity: 0.6; }
       .doc-index-item.selected {
-        background: rgba(13, 153, 255, 0.10);
-        border-color: var(--figma-color-bg-brand, #0d99ff);
-        box-shadow: 0 0 0 1px var(--figma-color-bg-brand, #0d99ff) inset;
+        background: rgba(13, 153, 255, 0.08);
+        border-color: rgba(13, 153, 255, 0.45);
       }
-      .doc-index-item.selected:hover { background: rgba(13, 153, 255, 0.16); }
+      .doc-index-item.selected:hover { background: rgba(13, 153, 255, 0.14); }
       .doc-index-item.selected .doc-index-name {
         color: var(--figma-color-bg-brand, #0d99ff);
       }
+      .doc-index-item .doc-index-name { flex: 1; min-width: 0; }
+      .doc-index-check {
+        display: none;
+        flex-shrink: 0;
+        color: var(--figma-color-bg-brand, #0d99ff);
+        margin-left: 6px;
+      }
+      .doc-index-item.selected .doc-index-check { display: inline-flex; }
       .doc-index-name {
         font-size: 12px;
         font-weight: 600;
@@ -3436,6 +3443,23 @@
             name.appendChild(tag);
           }
           btn.appendChild(name);
+
+          if (isCurrent) {
+            const check = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            check.setAttribute("class", "doc-index-check");
+            check.setAttribute("width", "12");
+            check.setAttribute("height", "12");
+            check.setAttribute("viewBox", "0 0 12 12");
+            check.setAttribute("fill", "none");
+            check.setAttribute("stroke", "currentColor");
+            check.setAttribute("stroke-width", "1.8");
+            check.setAttribute("stroke-linecap", "round");
+            check.setAttribute("stroke-linejoin", "round");
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", "M2.5 6.2l2.4 2.4L9.5 3.6");
+            check.appendChild(path);
+            btn.appendChild(check);
+          }
 
           btn.addEventListener("click", () => {
             if (it.missing) {
