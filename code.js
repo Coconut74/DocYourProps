@@ -407,7 +407,12 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 return a.missing ? 1 : -1;
             return a.name.localeCompare(b.name);
         });
-        figma.ui.postMessage({ type: "doc-index", items });
+        const currentTarget = yield resolveTarget();
+        figma.ui.postMessage({
+            type: "doc-index",
+            items,
+            currentTargetId: currentTarget ? currentTarget.id : null,
+        });
     }
     else if (msg.type === "locate-component-doc") {
         if (typeof msg.targetId !== "string")

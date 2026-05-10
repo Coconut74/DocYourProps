@@ -1136,6 +1136,15 @@
       }
       .doc-index-item:hover { background: var(--figma-color-bg-hover, #f5f5f5); }
       .doc-index-item.missing { opacity: 0.6; }
+      .doc-index-item.selected {
+        background: rgba(13, 153, 255, 0.10);
+        border-color: var(--figma-color-bg-brand, #0d99ff);
+        box-shadow: 0 0 0 1px var(--figma-color-bg-brand, #0d99ff) inset;
+      }
+      .doc-index-item.selected:hover { background: rgba(13, 153, 255, 0.16); }
+      .doc-index-item.selected .doc-index-name {
+        color: var(--figma-color-bg-brand, #0d99ff);
+      }
       .doc-index-name {
         font-size: 12px;
         font-weight: 600;
@@ -3231,7 +3240,10 @@
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
         } else if (msg.type === "doc-index") {
-          renderDocIndex(Array.isArray(msg.items) ? msg.items : []);
+          renderDocIndex(
+            Array.isArray(msg.items) ? msg.items : [],
+            typeof msg.currentTargetId === "string" ? msg.currentTargetId : null
+          );
         } else if (msg.type === "progress") {
           // Pick the busy button and update its label inline (e.g. "Génération 12/50…").
           const busyBtn = generateBtn.classList.contains("is-loading")
@@ -3389,7 +3401,7 @@
       });
       docIndexBackBtn.addEventListener("click", () => showView("main"));
 
-      function renderDocIndex(items) {
+      function renderDocIndex(items, currentTargetId) {
         docIndexList.innerHTML = "";
         if (!items || items.length === 0) {
           const empty = document.createElement("div");
@@ -3401,9 +3413,15 @@
         for (const it of items) {
           const btn = document.createElement("button");
           btn.type = "button";
-          btn.className = "doc-index-item" + (it.missing ? " missing" : "");
+          const isCurrent = currentTargetId && it.targetId === currentTargetId;
+          btn.className =
+            "doc-index-item" +
+            (it.missing ? " missing" : "") +
+            (isCurrent ? " selected" : "");
           btn.title = it.missing
             ? "Le composant a été supprimé — la documentation est orpheline"
+            : isCurrent
+            ? "Composant actuellement sélectionné"
             : "Cliquez pour zoomer sur la documentation";
 
           const name = document.createElement("div");

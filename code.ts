@@ -546,7 +546,12 @@ figma.ui.onmessage = async (msg: {
       if (a.missing !== b.missing) return a.missing ? 1 : -1;
       return a.name.localeCompare(b.name);
     });
-    figma.ui.postMessage({ type: "doc-index", items });
+    const currentTarget = await resolveTarget();
+    figma.ui.postMessage({
+      type: "doc-index",
+      items,
+      currentTargetId: currentTarget ? currentTarget.id : null,
+    });
   } else if (msg.type === "locate-component-doc") {
     if (typeof msg.targetId !== "string") return;
     const sheets = figma.currentPage.findAll(
