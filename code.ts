@@ -334,7 +334,7 @@ async function saveConfig(targetId: string, options: DocOptions): Promise<void> 
   }
 }
 
-figma.showUI(__html__, { width: 360, height: 540 });
+figma.showUI(__html__, { width: 440, height: 540 });
 
 const ONBOARDED_KEY = "docyourprops:onboarded";
 
@@ -557,6 +557,36 @@ figma.ui.onmessage = async (msg: {
       return;
     }
     figma.viewport.scrollAndZoomIntoView(sheets);
+  } else if (msg.type === "select-component") {
+    if (typeof msg.targetId !== "string") return;
+    let node: BaseNode | null = null;
+    try {
+      node = await figma.getNodeByIdAsync(msg.targetId);
+    } catch {
+      node = null;
+    }
+    if (!node || node.removed) {
+      figma.notify("Composant introuvable.", { error: true });
+      return;
+    }
+    if (node.type !== "COMPONENT" && node.type !== "COMPONENT_SET") {
+      figma.notify("Composant introuvable.", { error: true });
+      return;
+    }
+    const page = (() => {
+      let p: BaseNode | null = node;
+      while (p && p.type !== "PAGE") p = p.parent;
+      return p && p.type === "PAGE" ? (p as PageNode) : null;
+    })();
+    if (page && page.id !== figma.currentPage.id) {
+      try {
+        await figma.setCurrentPageAsync(page);
+      } catch {
+        // ignore — fall back to current page scrollAndZoom
+      }
+    }
+    figma.currentPage.selection = [node as SceneNode];
+    figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
   } else if (msg.type === "select-layer") {
     const target = await resolveTarget();
     if (!target || typeof msg.key !== "string") return;

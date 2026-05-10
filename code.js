@@ -196,7 +196,7 @@ function saveConfig(targetId, options) {
         }
     });
 }
-figma.showUI(__html__, { width: 360, height: 540 });
+figma.showUI(__html__, { width: 440, height: 540 });
 const ONBOARDED_KEY = "docyourprops:onboarded";
 function sendInit() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -418,6 +418,41 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             return;
         }
         figma.viewport.scrollAndZoomIntoView(sheets);
+    }
+    else if (msg.type === "select-component") {
+        if (typeof msg.targetId !== "string")
+            return;
+        let node = null;
+        try {
+            node = yield figma.getNodeByIdAsync(msg.targetId);
+        }
+        catch (_l) {
+            node = null;
+        }
+        if (!node || node.removed) {
+            figma.notify("Composant introuvable.", { error: true });
+            return;
+        }
+        if (node.type !== "COMPONENT" && node.type !== "COMPONENT_SET") {
+            figma.notify("Composant introuvable.", { error: true });
+            return;
+        }
+        const page = (() => {
+            let p = node;
+            while (p && p.type !== "PAGE")
+                p = p.parent;
+            return p && p.type === "PAGE" ? p : null;
+        })();
+        if (page && page.id !== figma.currentPage.id) {
+            try {
+                yield figma.setCurrentPageAsync(page);
+            }
+            catch (_m) {
+                // ignore — fall back to current page scrollAndZoom
+            }
+        }
+        figma.currentPage.selection = [node];
+        figma.viewport.scrollAndZoomIntoView([node]);
     }
     else if (msg.type === "select-layer") {
         const target = yield resolveTarget();

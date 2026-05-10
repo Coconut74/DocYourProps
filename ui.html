@@ -23,7 +23,7 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 12px 16px;
+        padding: 10px 16px;
         border-bottom: 1px solid var(--figma-color-border, #e6e6e6);
         flex-shrink: 0;
       }
@@ -43,6 +43,27 @@
         letter-spacing: -0.01em;
         flex: 1;
       }
+      .topbar-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        background: var(--figma-color-bg, #fff);
+        color: var(--figma-color-text, #1e1e1e);
+        border-radius: 6px;
+        font: inherit;
+        font-size: 11px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+      .topbar-btn:hover {
+        background: var(--figma-color-bg-hover, #f5f5f5);
+        border-color: var(--figma-color-text-secondary, #c8c8c8);
+      }
+      .topbar-btn[hidden] { display: none; }
+      .topbar-btn svg { flex-shrink: 0; opacity: 0.75; }
 
       /* ── Body ────────────────────────────────────────────── */
       .body {
@@ -268,31 +289,8 @@
         color: var(--figma-color-text-secondary, #888);
         margin-bottom: 4px;
       }
-      .options { display: flex; flex-direction: column; gap: 14px; }
+      .options { display: flex; flex-direction: column; gap: 12px; }
       .option-group { display: flex; flex-direction: column; gap: 1px; }
-      .option-group-title {
-        font-size: 9px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        font-weight: 600;
-        color: var(--figma-color-text-secondary, #888);
-        padding: 0 10px 4px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-      .option-group-title::before {
-        content: "";
-        display: inline-block;
-        width: 6px;
-        height: 6px;
-        border-radius: 2px;
-        background: currentColor;
-        opacity: 0.55;
-      }
-      .group-catalogue .option-group-title { color: #6366F1; }
-      .group-spec .option-group-title { color: #10B981; }
-      .group-visual .option-group-title { color: #A020F0; }
 
       .option {
         display: flex;
@@ -564,57 +562,142 @@
         color: var(--figma-color-text, #1e1e1e);
       }
 
-      /* ── Locks section (multi-select chips) ─────────────── */
+      /* ── Locks section ──────────────────────────────────── */
       #locks-section[hidden] { display: none; }
       .locks-list {
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 4px;
       }
-      .lock-row {
+
+      /* ── Axis row with dropdown (anatomy/tokens single-select, locks multi-select) ─ */
+      .axis-row {
         display: flex;
-        flex-direction: column;
-        gap: 6px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 4px 0;
         font-size: 11px;
       }
-      .lock-axis {
+      .axis-row .axis-label {
+        flex-shrink: 0;
+        max-width: 130px;
         color: var(--figma-color-text-secondary, #888);
         font-weight: 500;
         text-overflow: ellipsis;
         overflow: hidden;
         white-space: nowrap;
       }
-      .lock-values {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-      .lock-chip {
-        display: inline-flex;
-        align-items: center;
-        padding: 4px 10px;
-        border-radius: 100px;
-        background: var(--figma-color-bg-secondary, #f5f5f5);
-        color: var(--figma-color-text, #1e1e1e);
+      .axis-select {
+        flex: 1;
+        max-width: 240px;
+        font: inherit;
         font-size: 11px;
-        font-weight: 500;
+        padding: 5px 8px;
+        background: var(--figma-color-bg, #fff);
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 6px;
+        color: var(--figma-color-text, #1e1e1e);
+        outline: none;
         cursor: pointer;
-        transition: background 0.12s, color 0.12s;
+        transition: border-color 120ms ease, box-shadow 120ms ease;
+      }
+      .axis-select:hover { border-color: var(--figma-color-text-secondary, #c8c8c8); }
+      .axis-select:focus {
+        border-color: var(--figma-color-bg-brand, #0d99ff);
+        box-shadow: 0 0 0 2px rgba(13,153,255,0.18);
+      }
+
+      /* ── Multi-select dropdown (matrix locks) ───────────────────── */
+      .multiselect {
+        position: relative;
+        flex: 1;
+        max-width: 240px;
+      }
+      .multiselect-trigger {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 5px 8px;
+        background: var(--figma-color-bg, #fff);
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 6px;
+        font: inherit;
+        font-size: 11px;
+        color: var(--figma-color-text, #1e1e1e);
+        cursor: pointer;
+        text-align: left;
+        transition: border-color 120ms ease, box-shadow 120ms ease;
+      }
+      .multiselect-trigger:hover { border-color: var(--figma-color-text-secondary, #c8c8c8); }
+      .multiselect.open .multiselect-trigger,
+      .multiselect-trigger:focus {
+        border-color: var(--figma-color-bg-brand, #0d99ff);
+        box-shadow: 0 0 0 2px rgba(13,153,255,0.18);
+      }
+      .multiselect-label {
+        flex: 1;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      .multiselect-label.placeholder {
+        color: var(--figma-color-text-secondary, #888);
+      }
+      .multiselect-chevron {
+        flex-shrink: 0;
+        opacity: 0.6;
+        transition: transform 120ms ease;
+      }
+      .multiselect.open .multiselect-chevron {
+        transform: rotate(180deg);
+      }
+      .multiselect-popover {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 30;
+        background: var(--figma-color-bg, #fff);
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 6px;
+        box-shadow: 0 6px 24px rgba(0,0,0,0.10);
+        max-height: 220px;
+        overflow-y: auto;
+        padding: 4px;
+        animation: collapse-expand 0.14s ease both;
+      }
+      .multiselect-popover[hidden] { display: none; }
+      .multiselect-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        font-size: 11px;
+        cursor: pointer;
+        border-radius: 4px;
         -webkit-user-select: none;
         user-select: none;
       }
-      .lock-chip:hover:not(.selected) { opacity: 0.78; }
-      .lock-chip.selected {
-        background: var(--figma-color-bg-brand, #0d99ff);
-        color: #fff;
+      .multiselect-item:hover { background: var(--figma-color-bg-hover, #f5f5f5); }
+      .multiselect-item input { margin: 0; cursor: pointer; }
+      .multiselect-empty {
+        padding: 8px;
+        color: var(--figma-color-text-secondary, #888);
+        font-size: 11px;
       }
 
-      /* ── Collapsible panels (anatomy settings) ──────────── */
+      /* ── Collapsible panels ─────────────────────────────── */
       .collapse-section {
-        border-top: 1px solid var(--figma-color-border, #e5e5e5);
-        padding: 10px 0;
+        padding: 6px 0;
       }
-      .collapse-section:last-child { border-bottom: 1px solid var(--figma-color-border, #e5e5e5); }
+      .collapse-section + .collapse-section {
+        margin-top: 4px;
+        border-top: 1px solid var(--figma-color-border, #e5e5e5);
+        padding-top: 10px;
+      }
       .collapse-header {
         display: flex;
         align-items: center;
@@ -623,24 +706,40 @@
         width: 100%;
         background: none;
         border: 0;
-        padding: 4px 0;
+        padding: 7px 8px;
+        margin: 0 -8px;
+        border-radius: 6px;
         cursor: pointer;
         color: var(--figma-color-text, #1e1e1e);
         font: inherit;
         font-weight: 600;
         text-align: left;
+        transition: background 120ms ease;
+      }
+      .collapse-header:hover {
+        background: var(--figma-color-bg-hover, #f5f5f5);
       }
       .collapse-header .chevron {
-        transition: transform 0.15s ease;
+        transition: transform 0.18s ease;
         flex-shrink: 0;
+        opacity: 0.7;
       }
       .collapse-section.collapsed .collapse-header .chevron {
         transform: rotate(-90deg);
       }
       .collapse-body {
-        padding-top: 8px;
+        padding: 10px 2px 4px;
+        animation: collapse-expand 0.18s ease both;
       }
       .collapse-section.collapsed .collapse-body { display: none; }
+      @keyframes collapse-expand {
+        from { opacity: 0; transform: translateY(-2px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .collapse-body { animation: none; }
+        .collapse-header .chevron { transition: none; }
+      }
 
       /* ── Layer checkbox list ────────────────────────────── */
       .layer-list {
@@ -1101,25 +1200,23 @@
         </svg>
       </div>
       <span class="title">DocYourProps</span>
+      <button class="topbar-btn" id="btn-open-doc-index" hidden>
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 2.5h3l1 1.5h3v5H2z"/>
+        </svg>
+        <span>Voir l'index</span>
+      </button>
     </div>
 
     <div id="view-main" class="view view-active">
       <div class="body">
         <div id="content"></div>
-        <button class="reset-link doc-index-link" id="btn-open-doc-index" hidden>
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M2 2.5h3l1 1.5h3v5H2z"/>
-          </svg>
-          <span>Voir l'index des docs de la page</span>
-        </button>
 
         <div>
           <div class="section-title">Inclure dans la doc</div>
           <div class="options">
 
             <div class="option-group group-catalogue">
-              <div class="option-group-title">Catalogue</div>
-
               <div class="option" id="row-props">
                 <div class="option-label">
                   <span class="option-icon">
@@ -1163,8 +1260,6 @@
             </div>
 
             <div class="option-group group-spec">
-              <div class="option-group-title">Spec technique</div>
-
               <div class="option" id="row-layout">
                 <div class="option-label">
                   <span class="option-icon">
@@ -1197,8 +1292,6 @@
             </div>
 
             <div class="option-group group-visual">
-              <div class="option-group-title">Annotations visuelles</div>
-
               <div class="option" id="row-anatomy">
                 <div class="option-label">
                   <span class="option-icon">
@@ -2058,41 +2151,151 @@
         locksSection.hidden = availableAxes.length < 1;
       }
 
+      // Single active multiselect popover (only one open at a time).
+      let openMultiselect = null;
+      function closeOpenMultiselect() {
+        if (openMultiselect) {
+          openMultiselect.classList.remove("open");
+          const pop = openMultiselect.querySelector(".multiselect-popover");
+          if (pop) pop.hidden = true;
+          const trig = openMultiselect.querySelector(".multiselect-trigger");
+          if (trig) trig.setAttribute("aria-expanded", "false");
+          openMultiselect = null;
+        }
+      }
+      document.addEventListener("click", (ev) => {
+        if (!openMultiselect) return;
+        if (ev.target instanceof Node && openMultiselect.contains(ev.target)) return;
+        closeOpenMultiselect();
+      });
+
+      function makeMultiSelectDropdown(axis, options, selectedValues, onChange) {
+        const wrap = document.createElement("div");
+        wrap.className = "multiselect";
+
+        const trigger = document.createElement("button");
+        trigger.type = "button";
+        trigger.className = "multiselect-trigger";
+        trigger.setAttribute("aria-haspopup", "listbox");
+        trigger.setAttribute("aria-expanded", "false");
+
+        const labelEl = document.createElement("span");
+        labelEl.className = "multiselect-label";
+        const chev = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        chev.setAttribute("class", "multiselect-chevron");
+        chev.setAttribute("width", "10");
+        chev.setAttribute("height", "10");
+        chev.setAttribute("viewBox", "0 0 12 12");
+        chev.setAttribute("fill", "none");
+        chev.setAttribute("stroke", "currentColor");
+        chev.setAttribute("stroke-width", "1.4");
+        chev.setAttribute("stroke-linecap", "round");
+        chev.setAttribute("stroke-linejoin", "round");
+        const chevPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        chevPath.setAttribute("d", "M2.5 4.5l3.5 3.5 3.5-3.5");
+        chev.appendChild(chevPath);
+
+        trigger.appendChild(labelEl);
+        trigger.appendChild(chev);
+
+        const pop = document.createElement("div");
+        pop.className = "multiselect-popover";
+        pop.hidden = true;
+
+        const current = new Set(selectedValues || []);
+
+        function refreshLabel() {
+          if (current.size === 0) {
+            labelEl.textContent = "Toutes les valeurs";
+            labelEl.classList.add("placeholder");
+            labelEl.removeAttribute("title");
+            return;
+          }
+          const arr = [];
+          for (const v of options) if (current.has(v)) arr.push(v);
+          const full = arr.join(", ");
+          labelEl.classList.remove("placeholder");
+          if (full.length > 28) {
+            labelEl.textContent = arr.length + " valeurs";
+          } else {
+            labelEl.textContent = full;
+          }
+          labelEl.title = full;
+        }
+
+        if (!options || options.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "multiselect-empty";
+          empty.textContent = "Aucune valeur";
+          pop.appendChild(empty);
+        } else {
+          for (const v of options) {
+            const item = document.createElement("label");
+            item.className = "multiselect-item";
+            const cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.value = v;
+            cb.checked = current.has(v);
+            cb.addEventListener("change", () => {
+              if (cb.checked) current.add(v);
+              else current.delete(v);
+              refreshLabel();
+              const out = [];
+              for (const opt of options) if (current.has(opt)) out.push(opt);
+              onChange(out);
+            });
+            const txt = document.createElement("span");
+            txt.textContent = v;
+            item.appendChild(cb);
+            item.appendChild(txt);
+            pop.appendChild(item);
+          }
+        }
+
+        trigger.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          const wasOpen = wrap.classList.contains("open");
+          closeOpenMultiselect();
+          if (!wasOpen) {
+            wrap.classList.add("open");
+            pop.hidden = false;
+            trigger.setAttribute("aria-expanded", "true");
+            openMultiselect = wrap;
+          }
+        });
+
+        refreshLabel();
+        wrap.appendChild(trigger);
+        wrap.appendChild(pop);
+        return wrap;
+      }
+
       function renderLocks() {
         const locks = activeLocks();
         locksList.innerHTML = "";
+        closeOpenMultiselect();
         for (const axis of availableAxes) {
           const row = document.createElement("div");
-          row.className = "lock-row";
+          row.className = "axis-row";
 
           const label = document.createElement("span");
-          label.className = "lock-axis";
+          label.className = "axis-label";
           label.textContent = axis;
           label.title = axis;
           row.appendChild(label);
 
-          const values = document.createElement("div");
-          values.className = "lock-values";
-          const selected = new Set(locks[axis] || []);
-          for (const v of availableAxisValues[axis] || []) {
-            const chip = document.createElement("div");
-            chip.className = "lock-chip";
-            chip.textContent = v;
-            if (selected.has(v)) chip.classList.add("selected");
-            chip.addEventListener("click", () => {
+          const dropdown = makeMultiSelectDropdown(
+            axis,
+            availableAxisValues[axis] || [],
+            locks[axis] || [],
+            (newVals) => {
               const currentLocks = activeLocks();
-              const arr = currentLocks[axis] ? currentLocks[axis].slice() : [];
-              const i = arr.indexOf(v);
-              if (i >= 0) arr.splice(i, 1);
-              else arr.push(v);
-              if (arr.length === 0) delete currentLocks[axis];
-              else currentLocks[axis] = arr;
-              chip.classList.toggle("selected");
+              if (newVals.length === 0) delete currentLocks[axis];
+              else currentLocks[axis] = newVals;
               recomputeCount();
-            });
-            values.appendChild(chip);
-          }
-          row.appendChild(values);
+            }
+          );
+          row.appendChild(dropdown);
           locksList.appendChild(row);
         }
       }
@@ -2131,12 +2334,23 @@
         else updateGearDot();
       }
 
+      let topbarBtnAvailable = false;
+      function setTopbarBtnAvailable(v) {
+        topbarBtnAvailable = !!v;
+        applyTopbarBtnVisibility();
+      }
+      function applyTopbarBtnVisibility() {
+        const onMain = viewMain.classList.contains("view-active");
+        btnOpenDocIndex.hidden = !(onMain && topbarBtnAvailable);
+      }
+
       function showView(name) {
         viewMain.classList.toggle("view-active", name === "main");
         viewSettingsMatrix.classList.toggle("view-active", name === "settings-matrix");
         viewSettingsAnatomy.classList.toggle("view-active", name === "settings-anatomy");
         viewSettingsTokens.classList.toggle("view-active", name === "settings-tokens");
         viewDocIndex.classList.toggle("view-active", name === "doc-index");
+        applyTopbarBtnVisibility();
       }
 
       function cloneRules(rules) {
@@ -2218,37 +2432,36 @@
         }
         for (const axis of variantAxes) {
           const row = document.createElement("div");
-          row.className = "lock-row";
+          row.className = "axis-row";
 
           const label = document.createElement("span");
-          label.className = "lock-axis";
+          label.className = "axis-label";
           label.textContent = axis;
           label.title = axis;
           row.appendChild(label);
 
-          const values = document.createElement("div");
-          values.className = "lock-values";
+          const select = document.createElement("select");
+          select.className = "axis-select";
+          const empty = document.createElement("option");
+          empty.value = "";
+          empty.textContent = "— Défaut —";
+          select.appendChild(empty);
           for (const v of availableAxisValues[axis] || []) {
-            const chip = document.createElement("div");
-            chip.className = "lock-chip";
-            chip.textContent = v;
-            if (sel[axis] === v) chip.classList.add("selected");
-            chip.addEventListener("click", () => {
-              const cur = activeAnatomyVariant();
-              // Single-select per axis: clicking the active value clears it,
-              // clicking another value replaces the selection.
-              if (cur[axis] === v) delete cur[axis];
-              else cur[axis] = v;
-              renderAnatomyVariant();
-              // Combination changed — drop the manual selection (the keys may
-              // not match the new tree) and revert to auto for clarity.
-              pendingAnatomyIncludedLayers = undefined;
-              pendingAnatomyIncludedTouched = false;
-              fetchAnatomyLayers();
-            });
-            values.appendChild(chip);
+            const opt = document.createElement("option");
+            opt.value = v;
+            opt.textContent = v;
+            if (sel[axis] === v) opt.selected = true;
+            select.appendChild(opt);
           }
-          row.appendChild(values);
+          select.addEventListener("change", () => {
+            const cur = activeAnatomyVariant();
+            if (select.value === "") delete cur[axis];
+            else cur[axis] = select.value;
+            pendingAnatomyIncludedLayers = undefined;
+            pendingAnatomyIncludedTouched = false;
+            fetchAnatomyLayers();
+          });
+          row.appendChild(select);
           anatomyVariantList.appendChild(row);
         }
       }
@@ -2506,34 +2719,35 @@
         }
         for (const axis of variantAxes) {
           const row = document.createElement("div");
-          row.className = "lock-row";
+          row.className = "axis-row";
           const label = document.createElement("span");
-          label.className = "lock-axis";
+          label.className = "axis-label";
           label.textContent = axis;
           label.title = axis;
           row.appendChild(label);
 
-          const values = document.createElement("div");
-          values.className = "lock-values";
+          const select = document.createElement("select");
+          select.className = "axis-select";
+          const empty = document.createElement("option");
+          empty.value = "";
+          empty.textContent = "— Défaut —";
+          select.appendChild(empty);
           for (const v of availableAxisValues[axis] || []) {
-            const chip = document.createElement("div");
-            chip.className = "lock-chip";
-            chip.textContent = v;
-            if (sel[axis] === v) chip.classList.add("selected");
-            chip.addEventListener("click", () => {
-              const cur = activeTokenVariant();
-              if (cur[axis] === v) delete cur[axis];
-              else cur[axis] = v;
-              renderTokensVariant();
-              // Combination changed → drop the user's manual layer selection
-              // (keys may not match the new tree) and revert to auto.
-              pendingTokenIncludedLayers = undefined;
-              pendingTokenIncludedTouched = false;
-              fetchTokensLayers();
-            });
-            values.appendChild(chip);
+            const opt = document.createElement("option");
+            opt.value = v;
+            opt.textContent = v;
+            if (sel[axis] === v) opt.selected = true;
+            select.appendChild(opt);
           }
-          row.appendChild(values);
+          select.addEventListener("change", () => {
+            const cur = activeTokenVariant();
+            if (select.value === "") delete cur[axis];
+            else cur[axis] = select.value;
+            pendingTokenIncludedLayers = undefined;
+            pendingTokenIncludedTouched = false;
+            fetchTokensLayers();
+          });
+          row.appendChild(select);
           tokensVariantList.appendChild(row);
         }
       }
@@ -2766,7 +2980,7 @@
         rebuildAxesList([], {}, []);
         updatePropsRowLabel();
         document.getElementById("btn-reset-config").hidden = true;
-        btnOpenDocIndex.hidden = true;
+        setTopbarBtnAvailable(false);
         currentExistingSections = [];
         updateRegenButtons();
         updateGroupBySectionVisibility();
@@ -2821,7 +3035,7 @@
         applySavedConfig(target.savedConfig);
         updatePropsRowLabel();
         document.getElementById("btn-reset-config").hidden = !target.savedConfig;
-        btnOpenDocIndex.hidden = false;
+        setTopbarBtnAvailable(true);
         currentExistingSections = Array.isArray(target.existingSections)
           ? target.existingSections
           : [];
@@ -3211,10 +3425,18 @@
           btn.appendChild(sections);
 
           btn.addEventListener("click", () => {
+            if (it.missing) {
+              parent.postMessage(
+                { pluginMessage: { type: "locate-component-doc", targetId: it.targetId } },
+                "*"
+              );
+              return;
+            }
             parent.postMessage(
-              { pluginMessage: { type: "locate-component-doc", targetId: it.targetId } },
+              { pluginMessage: { type: "select-component", targetId: it.targetId } },
               "*"
             );
+            showView("main");
           });
           docIndexList.appendChild(btn);
         }
