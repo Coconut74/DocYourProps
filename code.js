@@ -91,8 +91,32 @@ const FONT = {
     titleMed: { family: "Inter", style: "Semi Bold" },
     body: { family: "Inter", style: "Regular" },
     bodyMed: { family: "Inter", style: "Semi Bold" },
+    bodyBold: { family: "Inter", style: "Bold" },
 };
 let lastSheets = [];
+// Generation warnings buffer — collected during generation/export and surfaced
+// in the post-generation toast. Avoids the previously-silent try/catch sites
+// that would drop variables / variants / fonts without telling the user.
+let generationWarnings = [];
+function resetGenerationWarnings() {
+    generationWarnings = [];
+}
+function pushGenerationWarning(msg) {
+    generationWarnings.push(msg);
+}
+function summarizeWarnings() {
+    var _a;
+    if (generationWarnings.length === 0)
+        return "";
+    // Group identical messages with a count suffix.
+    const counts = new Map();
+    for (const w of generationWarnings)
+        counts.set(w, ((_a = counts.get(w)) !== null && _a !== void 0 ? _a : 0) + 1);
+    const parts = [];
+    for (const [msg, n] of counts)
+        parts.push(n > 1 ? `${msg} (×${n})` : msg);
+    return parts.join(" · ");
+}
 let combosCache = null;
 function cachedEnumerateValidCombinations(target, allAxes, excludeRules = [], propLocks = {}) {
     const rulesKey = JSON.stringify([excludeRules, propLocks]);
@@ -103,7 +127,7 @@ function cachedEnumerateValidCombinations(target, allAxes, excludeRules = [], pr
     combosCache = { targetId: target.id, rulesKey, result };
     return result;
 }
-const CONFIG_KEY_PREFIX = "docplugin:config:";
+const CONFIG_KEY_PREFIX = "docyourprops:config:";
 function loadSavedConfig(targetId) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
@@ -144,61 +168,271 @@ function migratePropLocks(config) {
 }
 function saveConfig(targetId, options) {
     return __awaiter(this, void 0, void 0, function* () {
-        var _a, _b, _c;
+        var _a, _b, _c, _d, _e;
         const config = {
-            options: { props: options.props, tokens: options.tokens, variants: options.variants },
+            options: {
+                props: options.props,
+                tokens: options.tokens,
+                variants: options.variants,
+                layout: options.layout,
+                anatomy: options.anatomy,
+            },
             groupBy: (_a = options.groupBy) !== null && _a !== void 0 ? _a : [],
             excludeRules: (_b = options.excludeRules) !== null && _b !== void 0 ? _b : [],
             propLocks: (_c = options.propLocks) !== null && _c !== void 0 ? _c : {},
             matrixVisualBg: options.matrixVisualBg,
+            anatomyVariant: (_d = options.anatomyVariant) !== null && _d !== void 0 ? _d : {},
+            anatomyIncludedLayers: options.anatomyIncludedLayers,
+            tokenVariant: (_e = options.tokenVariant) !== null && _e !== void 0 ? _e : {},
+            tokenIncludedLayers: options.tokenIncludedLayers,
+            anatomyConfigured: options.anatomyConfigured === true,
+            tokensConfigured: options.tokensConfigured === true,
         };
         try {
             yield figma.clientStorage.setAsync(CONFIG_KEY_PREFIX + targetId, config);
         }
-        catch (_d) {
+        catch (_f) {
             // Best-effort — don't surface errors to the user.
         }
     });
 }
 figma.showUI(__html__, { width: 360, height: 540 });
+const ONBOARDED_KEY = "docyourprops:onboarded";
+function sendInit() {
+    return __awaiter(this, void 0, void 0, function* () {
+        let onboarded = true;
+        try {
+            const v = yield figma.clientStorage.getAsync(ONBOARDED_KEY);
+            onboarded = v === true;
+        }
+        catch (_a) {
+            /* fail silently — better to skip onboarding than spam the user */
+        }
+        figma.ui.postMessage({ type: "init", onboarded });
+    });
+}
 figma.on("selectionchange", () => {
     combosCache = null; // stale once the target changes
     void sendSelection();
 });
+void sendInit();
 void sendSelection();
 figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b;
-    const defaultOptions = { props: true, tokens: true, variants: true };
+    var _a, _b, _c, _d, _e, _f, _g;
+    const defaultOptions = {
+        props: true,
+        tokens: true,
+        variants: true,
+        layout: false,
+        anatomy: false,
+        anatomyVariant: {},
+        tokenVariant: {},
+    };
+    if (msg.type === "fetch-anatomy-layers") {
+        const target = yield resolveTarget();
+        const layers = target ? previewAnatomyLayers(target, msg.anatomyVariant) : [];
+        figma.ui.postMessage({ type: "anatomy-layers", layers, seq: (_a = msg.seq) !== null && _a !== void 0 ? _a : 0 });
+        return;
+    }
+    if (msg.type === "fetch-tokens-layers") {
+        const target = yield resolveTarget();
+        const layers = target ? previewTokensLayers(target, msg.tokenVariant) : { tree: [], autoSelected: [] };
+        figma.ui.postMessage({ type: "tokens-layers", layers, seq: (_b = msg.seq) !== null && _b !== void 0 ? _b : 0 });
+        return;
+    }
     if (msg.type === "generate-doc") {
         const target = yield resolveTarget();
         if (!target) {
             figma.notify("Sélectionnez un composant.", { error: true });
+            figma.ui.postMessage({ type: "generation-error" });
             return;
         }
-        const opts = (_a = msg.options) !== null && _a !== void 0 ? _a : defaultOptions;
+        const opts = (_c = msg.options) !== null && _c !== void 0 ? _c : defaultOptions;
+        resetGenerationWarnings();
         try {
             yield generateDoc(target, opts);
             void saveConfig(target.id, opts);
-            figma.notify("Documentation créée");
+            const summary = summarizeWarnings();
+            const message = summary
+                ? `Documentation créée — ${generationWarnings.length} avertissement(s) : ${summary}`
+                : "Documentation créée";
+            figma.notify(message, { timeout: summary ? 4500 : 1800 });
+            figma.ui.postMessage({ type: "generation-done" });
         }
         catch (e) {
             figma.notify(`Erreur: ${e.message}`, { error: true });
+            figma.ui.postMessage({ type: "generation-error" });
         }
     }
     else if (msg.type === "export-pdf") {
         const target = yield resolveTarget();
         if (!target) {
             figma.notify("Sélectionnez un composant.", { error: true });
+            figma.ui.postMessage({ type: "pdf-error" });
             return;
         }
-        const opts = (_b = msg.options) !== null && _b !== void 0 ? _b : defaultOptions;
+        const opts = (_d = msg.options) !== null && _d !== void 0 ? _d : defaultOptions;
+        resetGenerationWarnings();
         try {
             yield exportAsPdf(target, opts);
             void saveConfig(target.id, opts);
+            // Note: the `pdf-export` event already drives the UI to restore the
+            // button state — no separate done event needed here. The PDF "ready"
+            // notification is emitted from inside exportAsPdf.
+            const summary = summarizeWarnings();
+            if (summary) {
+                figma.notify(`PDF prêt — ${generationWarnings.length} avertissement(s) : ${summary}`, { timeout: 4500 });
+            }
         }
         catch (e) {
             figma.notify(`Erreur PDF : ${e.message}`, { error: true });
+            figma.ui.postMessage({ type: "pdf-error" });
         }
+    }
+    else if (msg.type === "export-markdown" || msg.type === "export-json") {
+        const target = yield resolveTarget();
+        if (!target) {
+            figma.notify("Sélectionnez un composant.", { error: true });
+            figma.ui.postMessage({ type: "export-error" });
+            return;
+        }
+        const opts = (_e = msg.options) !== null && _e !== void 0 ? _e : defaultOptions;
+        resetGenerationWarnings();
+        try {
+            const doc = yield buildDocAsObject(target, opts);
+            const safeName = target.name.replace(/[\\/:*?"<>|]/g, "_");
+            if (msg.type === "export-markdown") {
+                const content = buildMarkdown(doc);
+                figma.ui.postMessage({
+                    type: "download",
+                    content,
+                    filename: `${safeName}.md`,
+                    mime: "text/markdown;charset=utf-8",
+                });
+                figma.notify("Markdown prêt au téléchargement");
+            }
+            else {
+                const content = JSON.stringify(doc, null, 2);
+                figma.ui.postMessage({
+                    type: "download",
+                    content,
+                    filename: `${safeName}.json`,
+                    mime: "application/json;charset=utf-8",
+                });
+                figma.notify("JSON prêt au téléchargement");
+            }
+        }
+        catch (e) {
+            figma.notify(`Erreur export : ${e.message}`, { error: true });
+            figma.ui.postMessage({ type: "export-error" });
+        }
+    }
+    else if (msg.type === "clear-config") {
+        const target = yield resolveTarget();
+        if (target) {
+            try {
+                yield figma.clientStorage.deleteAsync(CONFIG_KEY_PREFIX + target.id);
+            }
+            catch (_h) {
+                /* best effort */
+            }
+        }
+    }
+    else if (msg.type === "set-onboarded") {
+        try {
+            yield figma.clientStorage.setAsync(ONBOARDED_KEY, true);
+        }
+        catch (_j) {
+            /* best effort */
+        }
+    }
+    else if (msg.type === "regen-section") {
+        const target = yield resolveTarget();
+        if (!target || typeof msg.section !== "string")
+            return;
+        const opts = (_f = msg.options) !== null && _f !== void 0 ? _f : defaultOptions;
+        resetGenerationWarnings();
+        try {
+            yield regenSection(target, msg.section, opts);
+            void saveConfig(target.id, opts);
+            const summary = summarizeWarnings();
+            figma.notify(summary
+                ? `Section regénérée — ${generationWarnings.length} avertissement(s) : ${summary}`
+                : "Section regénérée", { timeout: summary ? 4500 : 1800 });
+            figma.ui.postMessage({ type: "generation-done" });
+        }
+        catch (e) {
+            figma.notify(`Erreur: ${e.message}`, { error: true });
+            figma.ui.postMessage({ type: "generation-error" });
+        }
+    }
+    else if (msg.type === "fetch-doc-index") {
+        // Scan the current page for all generated sheets and group them by the
+        // component they document. Returns the list to the UI for navigation.
+        const sheets = figma.currentPage.findAll((n) => n.getPluginData("docyourprops:component") !== "");
+        const byTarget = new Map();
+        for (const s of sheets) {
+            const tid = s.getPluginData("docyourprops:component");
+            const section = s.getPluginData("docyourprops:section");
+            const entry = (_g = byTarget.get(tid)) !== null && _g !== void 0 ? _g : { sections: new Set(), sheets: [] };
+            if (section)
+                entry.sections.add(section);
+            entry.sheets.push(s);
+            byTarget.set(tid, entry);
+        }
+        const items = [];
+        for (const [tid, entry] of byTarget.entries()) {
+            let name = "Composant supprimé";
+            let missing = true;
+            try {
+                const node = yield figma.getNodeByIdAsync(tid);
+                if (node && node.removed !== true) {
+                    name = node.name;
+                    missing = false;
+                }
+            }
+            catch (_k) {
+                /* node unavailable — keep missing flag */
+            }
+            items.push({
+                targetId: tid,
+                name,
+                sections: Array.from(entry.sections),
+                missing,
+            });
+        }
+        // Sort: present-first, then alphabetic.
+        items.sort((a, b) => {
+            if (a.missing !== b.missing)
+                return a.missing ? 1 : -1;
+            return a.name.localeCompare(b.name);
+        });
+        figma.ui.postMessage({ type: "doc-index", items });
+    }
+    else if (msg.type === "locate-component-doc") {
+        if (typeof msg.targetId !== "string")
+            return;
+        const sheets = figma.currentPage.findAll((n) => n.getPluginData("docyourprops:component") === msg.targetId);
+        if (sheets.length === 0) {
+            figma.notify("Aucune doc trouvée pour ce composant.", { error: true });
+            return;
+        }
+        figma.viewport.scrollAndZoomIntoView(sheets);
+    }
+    else if (msg.type === "select-layer") {
+        const target = yield resolveTarget();
+        if (!target || typeof msg.key !== "string")
+            return;
+        const root = getBaseComponent(target);
+        if (!root)
+            return;
+        const node = resolveLayerByKey(root, msg.key);
+        if (!node) {
+            figma.notify("Calque introuvable.", { error: true });
+            return;
+        }
+        figma.currentPage.selection = [node];
+        figma.viewport.scrollAndZoomIntoView([node]);
     }
     else if (msg.type === "close") {
         figma.closePlugin();
@@ -228,10 +462,20 @@ function resolveTarget() {
         return null;
     });
 }
+// Diagnose why resolveTarget returned null so the UI can show a precise hint.
+function diagnoseEmptySelection() {
+    const sel = figma.currentPage.selection;
+    if (sel.length === 0)
+        return { reason: "no-selection" };
+    if (sel.length > 1)
+        return { reason: "multi-selection", count: sel.length };
+    return { reason: "wrong-type", nodeType: sel[0].type };
+}
 function sendSelection() {
     return __awaiter(this, void 0, void 0, function* () {
         const target = yield resolveTarget();
         let payload = null;
+        let emptyReason = null;
         if (target) {
             let preview = null;
             try {
@@ -256,6 +500,14 @@ function sendSelection() {
             for (const a of axes)
                 axisValues[a.name] = a.options.map((o) => o.label);
             const savedConfig = yield loadSavedConfig(target.id);
+            // Discover which section sheets already exist on the page for this target —
+            // used by the UI to show a "regen" button per section.
+            const existingSections = [];
+            for (const n of figma.currentPage.findAll((x) => x.getPluginData("docyourprops:component") === target.id)) {
+                const section = n.getPluginData("docyourprops:section");
+                if (section && existingSections.indexOf(section) === -1)
+                    existingSections.push(section);
+            }
             payload = {
                 name: target.name,
                 kind: target.type,
@@ -263,11 +515,18 @@ function sendSelection() {
                 previewBase64: preview,
                 axes: axes.map((a) => a.name),
                 axisValues,
+                variantAxes: axes
+                    .filter((a) => a.propType === "VARIANT" || a.propType === "BOOLEAN")
+                    .map((a) => a.name),
                 combinationCount,
                 savedConfig,
+                existingSections,
             };
         }
-        figma.ui.postMessage({ type: "selection", target: payload });
+        else {
+            emptyReason = diagnoseEmptySelection();
+        }
+        figma.ui.postMessage({ type: "selection", target: payload, emptyReason });
     });
 }
 // Returns prop display-names in the order Figma shows them in the component panel.
@@ -330,16 +589,25 @@ function buildSheets(target, options) {
         var _a, _b, _c;
         const sheets = [];
         const visualBg = normalizeHex(options.matrixVisualBg);
+        const instanceSwapNames = options.props
+            ? yield resolveInstanceSwapNames(target.componentPropertyDefinitions)
+            : undefined;
         if (options.props && options.variants) {
             const layout = computeAdminCardLayout(target);
-            const content = yield buildPropsAndMatrixContent(target, (_a = options.groupBy) !== null && _a !== void 0 ? _a : [], (_b = options.excludeRules) !== null && _b !== void 0 ? _b : [], (_c = options.propLocks) !== null && _c !== void 0 ? _c : {}, layout, visualBg);
+            const content = yield buildPropsAndMatrixContent(target, (_a = options.groupBy) !== null && _a !== void 0 ? _a : [], (_b = options.excludeRules) !== null && _b !== void 0 ? _b : [], (_c = options.propLocks) !== null && _c !== void 0 ? _c : {}, layout, visualBg, instanceSwapNames);
             sheets.push(makeAdminSheet(target, "Propriétés", content, layout.sheetW));
         }
         else if (options.props) {
-            sheets.push(makeAdminSheet(target, "Propriétés", buildPropsSection(target)));
+            sheets.push(makeAdminSheet(target, "Propriétés", buildPropsSection(target, ADMIN_CONTENT_WIDTH_DEFAULT, instanceSwapNames)));
+        }
+        if (options.layout) {
+            sheets.push(makeAdminSheet(target, "Layout", buildLayoutSection(target)));
+        }
+        if (options.anatomy) {
+            sheets.push(makeAdminSheet(target, "Anatomie", buildAnatomySection(target, options.anatomyVariant, options.anatomyIncludedLayers)));
         }
         if (options.tokens) {
-            sheets.push(makeAdminSheet(target, "Variables liées", yield buildTokensSection(target)));
+            sheets.push(makeAdminSheet(target, "Design tokens", yield buildTokensSection(target, options.tokenVariant, options.tokenIncludedLayers)));
         }
         return sheets;
     });
@@ -348,7 +616,7 @@ function buildSheets(target, options) {
 // remove them, and return the leftmost one's position so the new sheets can
 // take its place. Scoped to currentPage for perf — generation always lands here.
 function removeExistingSheets(target) {
-    const existing = figma.currentPage.findAll((n) => n.getPluginData("docplugin:component") === target.id);
+    const existing = figma.currentPage.findAll((n) => n.getPluginData("docyourprops:component") === target.id);
     if (existing.length === 0)
         return null;
     let minX = Infinity;
@@ -378,11 +646,73 @@ function generateDoc(target, options) {
             figma.currentPage.appendChild(sheet);
             sheet.x = x;
             sheet.y = y;
-            sheet.setPluginData("docplugin:component", target.id);
+            sheet.setPluginData("docyourprops:component", target.id);
             x += sheet.width + SHEET_GAP;
         }
         figma.currentPage.selection = sheets;
         figma.viewport.scrollAndZoomIntoView(sheets);
+    });
+}
+// Build a single-section variant of `options` so we can reuse `buildSheets`
+// to produce just the requested section's sheet (1-element array).
+function singleSectionOptions(section, options) {
+    const o = Object.assign(Object.assign({}, options), { props: section === "Propriétés", layout: section === "Layout", anatomy: section === "Anatomie", tokens: section === "Design tokens" });
+    // For "Propriétés", keep variants in sync with the user's intent — the
+    // matrix lives inside the props sheet and the original options.variants
+    // already encodes whether to draw it.
+    if (section !== "Propriétés")
+        o.variants = false;
+    return o;
+}
+// Regenerate one section in place: find the existing tagged sheet (if any),
+// build a fresh one with the same options, and place it at the same X/Y.
+// Other sections are left untouched.
+function regenSection(target, section, options) {
+    return __awaiter(this, void 0, void 0, function* () {
+        yield loadFonts();
+        const allExisting = figma.currentPage.findAll((n) => n.getPluginData("docyourprops:component") === target.id);
+        const existingForSection = allExisting.find((s) => s.getPluginData("docyourprops:section") === section);
+        const sectionSheets = yield buildSheets(target, singleSectionOptions(section, options));
+        const newSheet = sectionSheets[0];
+        if (!newSheet) {
+            if (existingForSection) {
+                figma.notify("Cette section ne génère pas de contenu pour la combinaison choisie.", {
+                    error: true,
+                });
+            }
+            return;
+        }
+        let placeX;
+        let placeY;
+        if (existingForSection) {
+            placeX = existingForSection.x;
+            placeY = existingForSection.y;
+            existingForSection.remove();
+        }
+        else if (allExisting.length > 0) {
+            // No sheet for this section yet — drop it to the right of the rightmost.
+            let maxRight = -Infinity;
+            let topY = 0;
+            for (const s of allExisting) {
+                const right = s.x + s.width;
+                if (right > maxRight) {
+                    maxRight = right;
+                    topY = s.y;
+                }
+            }
+            placeX = maxRight + SHEET_GAP;
+            placeY = topY;
+        }
+        else {
+            placeX = target.x + target.width + 80;
+            placeY = target.y;
+        }
+        figma.currentPage.appendChild(newSheet);
+        newSheet.x = placeX;
+        newSheet.y = placeY;
+        newSheet.setPluginData("docyourprops:component", target.id);
+        figma.currentPage.selection = [newSheet];
+        figma.viewport.scrollAndZoomIntoView([newSheet]);
     });
 }
 function exportAsPdf(target, options) {
@@ -390,12 +720,19 @@ function exportAsPdf(target, options) {
         var _a, _b;
         yield loadFonts();
         const pdfPages = [];
+        const instanceSwapNames = options.props
+            ? yield resolveInstanceSwapNames(target.componentPropertyDefinitions)
+            : undefined;
         if (options.props)
-            pdfPages.push(buildPdfPropsPage(target));
+            pdfPages.push(buildPdfPropsPage(target, instanceSwapNames));
+        if (options.layout)
+            pdfPages.push(buildPdfLayoutPage(target));
+        if (options.anatomy)
+            pdfPages.push(buildPdfAnatomyPage(target, options.anatomyVariant, options.anatomyIncludedLayers));
         if (options.variants)
             pdfPages.push(...(yield buildPdfCombinationsPages(target, (_a = options.excludeRules) !== null && _a !== void 0 ? _a : [], (_b = options.propLocks) !== null && _b !== void 0 ? _b : {}, normalizeHex(options.matrixVisualBg))));
         if (options.tokens)
-            pdfPages.push(...yield buildPdfTokensPage(target));
+            pdfPages.push(...(yield buildPdfTokensPage(target, options.tokenVariant, options.tokenIncludedLayers)));
         if (pdfPages.length === 0) {
             figma.notify("Aucune section sélectionnée.", { error: true });
             return;
@@ -451,6 +788,8 @@ function loadFonts() {
         const colfaxMedium = yield tryLoadFont({ family: "Colfax", style: "Medium" });
         const robotoRegular = yield tryLoadFont({ family: "Roboto", style: "Regular" });
         const robotoMedium = yield tryLoadFont({ family: "Roboto", style: "Medium" });
+        const robotoBold = yield tryLoadFont({ family: "Roboto", style: "Bold" });
+        const interBold = yield tryLoadFont({ family: "Inter", style: "Bold" });
         FONT.title = colfaxRegular
             ? { family: "Colfax", style: "Regular" }
             : { family: "Inter", style: "Regular" };
@@ -463,6 +802,11 @@ function loadFonts() {
         FONT.bodyMed = robotoMedium
             ? { family: "Roboto", style: "Medium" }
             : { family: "Inter", style: "Semi Bold" };
+        FONT.bodyBold = robotoBold
+            ? { family: "Roboto", style: "Bold" }
+            : interBold
+                ? { family: "Inter", style: "Bold" }
+                : { family: "Inter", style: "Semi Bold" };
     });
 }
 // ─── PDF page builders ───────────────────────────────────────────────────────
@@ -482,7 +826,7 @@ function makePdfHeader(componentName, sectionTitle, tag) {
 // Gap between the admin header (which has a built-in 16px paddingBottom on
 // its title row + divider) and the page body content.
 const PDF_BODY_GAP = 24;
-function buildPdfPropsPage(target) {
+function buildPdfPropsPage(target, instanceSwapNames) {
     const page = makePdfPage();
     const header = makePdfHeader(target.name, "Propriétés");
     page.appendChild(header);
@@ -495,7 +839,7 @@ function buildPdfPropsPage(target) {
             displayPropName(p),
             PROP_DESCRIPTION_PLACEHOLDER,
             makeTypeChip(p.type),
-            makeBulletList(valuesAsItems(p)),
+            makeBulletList(valuesAsItems(p, instanceSwapNames)),
         ]));
         page.appendChild(table);
         table.x = PDF_MARGIN;
@@ -575,55 +919,240 @@ function buildPdfCombinationsPages(target, excludeRules, propLocks, visualBg) {
         return pages;
     });
 }
-function buildPdfTokensPage(target) {
+function buildPdfTokensPage(target, variantSel, includedLayers) {
     return __awaiter(this, void 0, void 0, function* () {
         const page = makePdfPage();
-        const header = makePdfHeader(target.name, "Variables liées");
+        const header = makePdfHeader(target.name, "Design tokens");
         page.appendChild(header);
         header.x = PDF_MARGIN;
         header.y = PDF_MARGIN;
         const contentY = PDF_MARGIN + header.height + PDF_BODY_GAP;
-        const nodes = getInspectableNodes(target);
-        const ids = new Set();
-        for (const n of nodes)
-            collectBoundVariableIds(n, ids);
-        if (ids.size === 0) {
-            const t = figma.createText();
-            t.fontName = FONT.body;
-            t.fontSize = 12;
-            t.lineHeight = { value: 18, unit: "PIXELS" };
-            t.characters = "Aucune variable liée détectée.";
-            t.fills = [{ type: "SOLID", color: COLOR.refBodyText }];
-            page.appendChild(t);
-            t.x = PDF_MARGIN;
-            t.y = contentY;
-            return [page];
-        }
-        const items = [];
-        for (const id of ids) {
-            try {
-                const v = yield figma.variables.getVariableByIdAsync(id);
-                if (!v)
-                    continue;
-                let collName = "—";
-                try {
-                    const coll = yield figma.variables.getVariableCollectionByIdAsync(v.variableCollectionId);
-                    collName = coll ? coll.name : "—";
-                }
-                catch ( /* ignore */_a) { /* ignore */ }
-                items.push({ name: v.name, type: prettyVarType(v.resolvedType), collection: collName });
-            }
-            catch ( /* ignore */_b) { /* ignore */ }
-        }
-        items.sort((a, b) => a.name.localeCompare(b.name));
-        if (items.length > 0) {
-            const table = makeAdminTable(TOKEN_COL_HEADERS, PDF_TOKEN_COL_WIDTHS_A4, items.map((i) => [i.name, i.type, i.collection]));
-            page.appendChild(table);
-            table.x = PDF_MARGIN;
-            table.y = contentY;
-        }
+        const body = yield buildTokensSectionForWidth(target, PDF_CONTENT_W, variantSel, includedLayers);
+        page.appendChild(body);
+        body.x = PDF_MARGIN;
+        body.y = contentY;
         return [page];
     });
+}
+// Format a LayoutRow value (string or SceneNode) into a flat string for export.
+function flattenLayoutValue(v) {
+    if (typeof v === "string")
+        return v;
+    // A SceneNode — use its .name as best-effort label, or "(node)" if missing.
+    const node = v;
+    return node.name || "(node)";
+}
+function buildDocAsObject(target, options) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a, _b;
+        const base = getBaseComponent(target);
+        const baseW = base ? base.width : 0;
+        const baseH = base ? base.height : 0;
+        const props = extractProps(target);
+        const axes = yield eligibleAxes(target.componentPropertyDefinitions);
+        const combinationCount = axes.length > 0 ? cachedEnumerateValidCombinations(target, axes).combos.length : 0;
+        const instanceSwapNames = options.props
+            ? yield resolveInstanceSwapNames(target.componentPropertyDefinitions)
+            : undefined;
+        const doc = {
+            component: {
+                name: target.name,
+                kind: target.type,
+                width: baseW,
+                height: baseH,
+                propCount: props.length,
+                combinationCount,
+            },
+        };
+        if (options.props) {
+            doc.props = props.map((p) => ({
+                name: displayPropName(p),
+                type: p.type,
+                description: PROP_DESCRIPTION_PLACEHOLDER,
+                values: valuesAsItems(p, instanceSwapNames),
+            }));
+        }
+        if (options.layout && base) {
+            const sections = {};
+            sections["Dimensions"] = dimensionRows(base).map((r) => ({
+                label: r[0],
+                value: flattenLayoutValue(r[1]),
+            }));
+            if (base.layoutMode !== "NONE") {
+                sections["Auto-layout"] = autoLayoutRows(base).map((r) => ({
+                    label: r[0],
+                    value: flattenLayoutValue(r[1]),
+                }));
+            }
+            sections["Visuel"] = visualRows(base).map((r) => ({
+                label: r[0],
+                value: flattenLayoutValue(r[1]),
+            }));
+            const fx = effectRows(base);
+            if (fx.length > 0) {
+                sections["Effets"] = fx.map((r) => ({
+                    label: r[0],
+                    value: flattenLayoutValue(r[1]),
+                }));
+            }
+            doc.layout = sections;
+        }
+        if (options.anatomy && base) {
+            // Reuse the smart-detection walker — same set as the canvas anatomy when
+            // no manual includedLayers list is provided.
+            const { base: probedBase, booleanPayload } = getAnatomyBaseAndOverrides(target, options.anatomyVariant);
+            if (probedBase) {
+                const probe = probedBase.createInstance();
+                if (Object.keys(booleanPayload).length > 0) {
+                    try {
+                        probe.setProperties(booleanPayload);
+                    }
+                    catch (_c) {
+                        /* keep default state */
+                    }
+                }
+                let layers;
+                if (options.anatomyIncludedLayers !== undefined) {
+                    const inc = new Set(options.anatomyIncludedLayers);
+                    layers = findAllVisibleLayersWithPositions(probe).filter((l) => inc.has(l.key));
+                    if (layers.length > ANATOMY_MAX_LAYERS)
+                        layers = layers.slice(0, ANATOMY_MAX_LAYERS);
+                }
+                else {
+                    layers = findNamedLayersOnInstance(probe);
+                }
+                doc.anatomy = layers.map((l) => l.node.name).filter((n) => n.length > 0);
+                probe.remove();
+            }
+        }
+        if (options.tokens && base) {
+            const { base: tBase, booleanPayload: tBool } = getAnatomyBaseAndOverrides(target, options.tokenVariant);
+            if (tBase) {
+                const probe = tBase.createInstance();
+                if (Object.keys(tBool).length > 0) {
+                    try {
+                        probe.setProperties(tBool);
+                    }
+                    catch (_d) {
+                        /* keep default state */
+                    }
+                }
+                let varUsages = collectVariableUsagesOnInstance(probe);
+                let styleUsages = collectTextStyleUsagesOnInstance(probe);
+                probe.remove();
+                if (options.tokenIncludedLayers !== undefined) {
+                    const inc = new Set(options.tokenIncludedLayers);
+                    varUsages = varUsages.filter((u) => isAnchorInScope(u.anchorKey, inc));
+                    styleUsages = styleUsages.filter((u) => isAnchorInScope(u.anchorKey, inc));
+                }
+                const varIds = new Set();
+                for (const u of varUsages)
+                    varIds.add(u.variableId);
+                const varInfo = yield resolveVariableInfo(varIds);
+                const styleIds = new Set();
+                for (const u of styleUsages)
+                    styleIds.add(u.styleId);
+                const styleInfo = yield resolveTextStyleInfo(styleIds);
+                // Dedupe by id (count usages).
+                const colorMap = new Map();
+                for (const u of varUsages) {
+                    const info = varInfo.get(u.variableId);
+                    if (!info || info.type !== "COLOR")
+                        continue;
+                    const cur = (_a = colorMap.get(u.variableId)) !== null && _a !== void 0 ? _a : {
+                        name: info.name,
+                        collection: info.collection,
+                        count: 0,
+                    };
+                    cur.count++;
+                    colorMap.set(u.variableId, cur);
+                }
+                const typoMap = new Map();
+                for (const u of styleUsages) {
+                    const info = styleInfo.get(u.styleId);
+                    if (!info)
+                        continue;
+                    const cur = (_b = typoMap.get(u.styleId)) !== null && _b !== void 0 ? _b : { name: info.name, spec: info.spec, count: 0 };
+                    cur.count++;
+                    typoMap.set(u.styleId, cur);
+                }
+                doc.tokens = {
+                    colors: Array.from(colorMap.values()),
+                    typography: Array.from(typoMap.values()),
+                };
+            }
+        }
+        return doc;
+    });
+}
+function escapeMdCell(s) {
+    return s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+function buildMarkdown(doc) {
+    const lines = [];
+    lines.push(`# ${doc.component.name}`);
+    const meta = [
+        doc.component.kind === "COMPONENT_SET" ? "Set de variants" : "Composant",
+        `${doc.component.propCount} prop${doc.component.propCount !== 1 ? "s" : ""}`,
+    ];
+    if (doc.component.combinationCount > 0) {
+        meta.push(`${doc.component.combinationCount} combinaison${doc.component.combinationCount !== 1 ? "s" : ""}`);
+    }
+    lines.push(`> ${meta.join(" · ")}`);
+    lines.push("");
+    if (doc.props && doc.props.length > 0) {
+        lines.push("## Propriétés");
+        lines.push("");
+        lines.push("| Propriété | Type | Description | Valeurs |");
+        lines.push("|---|---|---|---|");
+        for (const p of doc.props) {
+            const values = p.values.length > 0 ? p.values.join(", ") : "—";
+            lines.push(`| ${escapeMdCell(p.name)} | ${p.type} | ${escapeMdCell(p.description)} | ${escapeMdCell(values)} |`);
+        }
+        lines.push("");
+    }
+    if (doc.layout) {
+        lines.push("## Layout");
+        lines.push("");
+        for (const section in doc.layout) {
+            const rows = doc.layout[section];
+            lines.push(`### ${section}`);
+            for (const r of rows) {
+                lines.push(`- **${r.label}** : ${r.value}`);
+            }
+            lines.push("");
+        }
+    }
+    if (doc.anatomy && doc.anatomy.length > 0) {
+        lines.push("## Anatomie");
+        lines.push("");
+        doc.anatomy.forEach((name, i) => lines.push(`${i + 1}. ${name}`));
+        lines.push("");
+    }
+    if (doc.tokens) {
+        const hasContent = doc.tokens.colors.length > 0 || doc.tokens.typography.length > 0;
+        if (hasContent) {
+            lines.push("## Design tokens");
+            lines.push("");
+            if (doc.tokens.colors.length > 0) {
+                lines.push("### Couleurs");
+                for (const c of doc.tokens.colors) {
+                    const usage = c.count > 1 ? ` _(×${c.count})_` : "";
+                    lines.push(`- ${c.name} — ${c.collection}${usage}`);
+                }
+                lines.push("");
+            }
+            if (doc.tokens.typography.length > 0) {
+                lines.push("### Typographie");
+                for (const t of doc.tokens.typography) {
+                    const usage = t.count > 1 ? ` _(×${t.count})_` : "";
+                    lines.push(`- ${t.name} — ${t.spec}${usage}`);
+                }
+                lines.push("");
+            }
+        }
+    }
+    return lines.join("\n");
 }
 // ─────────────────────────────────────────────────────────────────────────────
 function makeSheet(target, title, content) {
@@ -742,6 +1271,10 @@ function makeAdminSheet(target, title, content, sheetWidth = ADMIN_SHEET_WIDTH_D
     // on the next layout pass.
     sheet.counterAxisSizingMode = "FIXED";
     sheet.resize(sheetWidth, sheet.height);
+    // Tag the sheet with its section title so per-section regen can locate /
+    // replace exactly the right one (in addition to the component-id tag set
+    // when the sheet is positioned in generateDoc).
+    sheet.setPluginData("docyourprops:section", title);
     return sheet;
 }
 // 24×24 brand glyph — two parallel slanted bars in #0C4790. Imported from
@@ -882,7 +1415,7 @@ function scaleWidths(widths, targetTotal) {
     scaled.push(targetTotal - acc);
     return scaled;
 }
-function buildPropsSection(target, contentWidth = ADMIN_CONTENT_WIDTH_DEFAULT) {
+function buildPropsSection(target, contentWidth = ADMIN_CONTENT_WIDTH_DEFAULT, instanceSwapNames) {
     const props = extractProps(target);
     if (props.length === 0)
         return textFrame("Aucune propriété détectée.");
@@ -891,10 +1424,10 @@ function buildPropsSection(target, contentWidth = ADMIN_CONTENT_WIDTH_DEFAULT) {
         displayPropName(p),
         PROP_DESCRIPTION_PLACEHOLDER,
         makeTypeChip(p.type),
-        makeBulletList(valuesAsItems(p)),
+        makeBulletList(valuesAsItems(p, instanceSwapNames)),
     ]));
 }
-function buildPropsAndMatrixContent(target, groupBy, excludeRules, propLocks, layout, visualBg) {
+function buildPropsAndMatrixContent(target, groupBy, excludeRules, propLocks, layout, visualBg, instanceSwapNames) {
     return __awaiter(this, void 0, void 0, function* () {
         const wrapper = figma.createFrame();
         wrapper.name = "Body";
@@ -919,7 +1452,7 @@ function buildPropsAndMatrixContent(target, groupBy, excludeRules, propLocks, la
         sectionTitle.characters = target.name;
         sectionTitle.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
         wrapper.appendChild(sectionTitle);
-        wrapper.appendChild(buildSubSection("Props list", buildPropsSection(target, layout.contentW)));
+        wrapper.appendChild(buildSubSection("Props list", buildPropsSection(target, layout.contentW, instanceSwapNames)));
         const variants = yield buildVariantsSection(target, groupBy, excludeRules, propLocks, layout, visualBg);
         const visualTag = variants.comboCount > 0
             ? makeTag(`${variants.comboCount} combinaison${variants.comboCount > 1 ? "s" : ""}`)
@@ -988,15 +1521,12 @@ function makeTag(label, palette = TAG_PALETTE_BLUE) {
     tag.appendChild(t);
     return tag;
 }
-function buildTokensSection(target) {
+// Resolve metadata (name, type, collection) for each unique variable id.
+// Skips ids that don't resolve (library not loaded). Result map uses the
+// variable id as key.
+function resolveVariableInfo(ids) {
     return __awaiter(this, void 0, void 0, function* () {
-        const nodes = getInspectableNodes(target);
-        const ids = new Set();
-        for (const n of nodes)
-            collectBoundVariableIds(n, ids);
-        if (ids.size === 0)
-            return textFrame("Aucune variable liée détectée.");
-        const items = [];
+        const out = new Map();
         for (const id of ids) {
             try {
                 const v = yield figma.variables.getVariableByIdAsync(id);
@@ -1005,27 +1535,1262 @@ function buildTokensSection(target) {
                 let collName = "—";
                 try {
                     const coll = yield figma.variables.getVariableCollectionByIdAsync(v.variableCollectionId);
-                    collName = coll ? coll.name : "—";
+                    if (coll)
+                        collName = coll.name;
                 }
                 catch (_a) {
-                    // collection unavailable
+                    /* ignore */
                 }
-                items.push({
-                    name: v.name,
-                    type: prettyVarType(v.resolvedType),
-                    collection: collName,
-                });
+                out.set(id, { id, name: v.name, type: v.resolvedType, collection: collName });
             }
             catch (_b) {
-                // variable unavailable
+                pushGenerationWarning("variable non résolvable");
             }
         }
-        if (items.length === 0) {
-            return textFrame("Variables liées détectées mais non résolvables (librairie non chargée).");
-        }
-        items.sort((a, b) => a.name.localeCompare(b.name));
-        return makeAdminTable(TOKEN_COL_HEADERS, TOKEN_COL_WIDTHS, items.map((i) => [i.name, i.type, i.collection]));
+        return out;
     });
+}
+// Resolve TextStyle metadata for unique ids. Skips ids that don't resolve to
+// a TEXT-typed style (lib not loaded, removed, etc.).
+function resolveTextStyleInfo(ids) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const out = new Map();
+        for (const id of ids) {
+            try {
+                const s = yield figma.getStyleByIdAsync(id);
+                if (!s || s.type !== "TEXT")
+                    continue;
+                const ts = s;
+                const fn = ts.fontName;
+                const family = typeof fn === "object" ? fn.family : "Mixed";
+                const style = typeof fn === "object" ? fn.style : "";
+                const size = typeof ts.fontSize === "number" ? `${ts.fontSize} px` : "Mixed";
+                const spec = `${family}${style ? " " + style : ""} · ${size}`;
+                out.set(id, { id, name: ts.name, spec });
+            }
+            catch (_a) {
+                pushGenerationWarning("style de texte non résolvable");
+            }
+        }
+        return out;
+    });
+}
+// True if `anchorKey` is in `set`, OR any of its ancestor keys is. The "root"
+// anchor is special-cased: it's always in scope (always documented).
+function isAnchorInScope(anchorKey, set) {
+    if (anchorKey === "root")
+        return true;
+    let cur = anchorKey;
+    while (true) {
+        if (set.has(cur))
+            return true;
+        const slash = cur.lastIndexOf("/");
+        if (slash === -1)
+            return false;
+        cur = cur.substring(0, slash);
+    }
+}
+// Walk up `anchorKey`'s ancestor chain and return the first key present in
+// the picker `treeKeys` set. Used to surface deep token usages (inside nested
+// instances) as auto-selections on the visible parent in the picker tree.
+function nearestPickerAncestor(anchorKey, treeKeys) {
+    if (anchorKey === "root")
+        return null;
+    let cur = anchorKey;
+    while (true) {
+        if (treeKeys.has(cur))
+            return cur;
+        const slash = cur.lastIndexOf("/");
+        if (slash === -1)
+            return null;
+        cur = cur.substring(0, slash);
+    }
+}
+function buildTokensSectionForWidth(target, contentW, variantSel, includedLayers) {
+    return __awaiter(this, void 0, void 0, function* () {
+        // Reuse the anatomy variant resolver — for COMPONENT_SET, picks the
+        // matching child variant; applies BOOLEAN overrides on the probe.
+        const { base, booleanPayload } = getAnatomyBaseAndOverrides(target, variantSel);
+        if (!base)
+            return textFrame("Aucun composant à analyser.");
+        // Walk a probe instance to collect both variable usages (for COLOR tokens)
+        // and text-style usages (for typography). The probe is removed once we've
+        // snapshotted everything.
+        const probe = base.createInstance();
+        if (Object.keys(booleanPayload).length > 0) {
+            try {
+                probe.setProperties(booleanPayload);
+            }
+            catch (_a) {
+                /* invalid combo — keep default state */
+            }
+        }
+        let varUsages = collectVariableUsagesOnInstance(probe);
+        let styleUsages = collectTextStyleUsagesOnInstance(probe);
+        probe.remove();
+        // Layer filter: when the user has restricted the search scope, keep only
+        // usages whose anchor IS or is a descendant of any included key. This
+        // sub-tree semantic means checking a sub-component (e.g. an icon) also
+        // pulls in the tokens bound on its inner layers. The instance root is
+        // always kept — it's not exposed in the layer picker.
+        if (includedLayers !== undefined) {
+            const inc = new Set(includedLayers);
+            varUsages = varUsages.filter((u) => isAnchorInScope(u.anchorKey, inc));
+            styleUsages = styleUsages.filter((u) => isAnchorInScope(u.anchorKey, inc));
+        }
+        // Resolve variable metadata for unique ids — we only keep COLOR-typed ones.
+        // FLOAT/STRING/BOOLEAN variables are intentionally ignored : design tokens
+        // here mean color + typography.
+        const uniqueVarIds = new Set();
+        for (const u of varUsages)
+            uniqueVarIds.add(u.variableId);
+        const varInfo = yield resolveVariableInfo(uniqueVarIds);
+        const colorUsages = varUsages.filter((u) => {
+            const info = varInfo.get(u.variableId);
+            return info && info.type === "COLOR";
+        });
+        // Resolve text style metadata for unique ids.
+        const uniqueStyleIds = new Set();
+        for (const u of styleUsages)
+            uniqueStyleIds.add(u.styleId);
+        const styleInfo = yield resolveTextStyleInfo(uniqueStyleIds);
+        const validStyleUsages = styleUsages.filter((u) => styleInfo.has(u.styleId));
+        if (colorUsages.length === 0 && validStyleUsages.length === 0) {
+            if (varUsages.length > 0 || styleUsages.length > 0) {
+                return textFrame("Design tokens détectés mais non résolvables (librairie non chargée).");
+            }
+            return textFrame("Aucun design token détecté.");
+        }
+        const visualW = Math.round(contentW * ANATOMY_VISUAL_RATIO);
+        const wrapper = figma.createFrame();
+        wrapper.name = "TokensBody";
+        wrapper.layoutMode = "VERTICAL";
+        wrapper.primaryAxisSizingMode = "AUTO";
+        wrapper.counterAxisSizingMode = "AUTO";
+        wrapper.layoutAlign = "STRETCH";
+        wrapper.itemSpacing = 32;
+        wrapper.fills = [];
+        if (colorUsages.length > 0) {
+            const anchors = colorUsages.map((u) => ({
+                key: u.anchorKey,
+                localX: u.anchorLocalX,
+                localY: u.anchorLocalY,
+                w: u.anchorW,
+                h: u.anchorH,
+            }));
+            const legendRows = colorUsages.map((u) => {
+                const info = varInfo.get(u.variableId);
+                return { primary: info.name, secondary: info.collection };
+            });
+            const block = buildPinnedVisualBlock(base, booleanPayload, anchors, legendRows, contentW, visualW, "TokensVisual·COLOR");
+            wrapper.appendChild(buildSubSection("Couleurs", block));
+        }
+        if (validStyleUsages.length > 0) {
+            const anchors = validStyleUsages.map((u) => ({
+                key: u.anchorKey,
+                localX: u.anchorLocalX,
+                localY: u.anchorLocalY,
+                w: u.anchorW,
+                h: u.anchorH,
+            }));
+            const legendRows = validStyleUsages.map((u) => {
+                const info = styleInfo.get(u.styleId);
+                return { primary: info.name, secondary: info.spec };
+            });
+            const block = buildPinnedVisualBlock(base, booleanPayload, anchors, legendRows, contentW, visualW, "TokensVisual·TYPOGRAPHY");
+            wrapper.appendChild(buildSubSection("Typographie", block));
+        }
+        return wrapper;
+    });
+}
+function buildTokensSection(target, variantSel, includedLayers) {
+    return __awaiter(this, void 0, void 0, function* () {
+        return buildTokensSectionForWidth(target, ADMIN_CONTENT_WIDTH_DEFAULT, variantSel, includedLayers);
+    });
+}
+// ─── Layout section ──────────────────────────────────────────────────────────
+const LAYOUT_COL_WIDTHS = [220, 416]; // sum = 636 (admin content width)
+const LAYOUT_COL_HEADERS = ["Propriété", "Valeur"];
+const PDF_LAYOUT_COL_WIDTHS_A4 = [180, 335]; // sum = 515
+function fmtPx(n) {
+    const r = Math.round(n * 100) / 100;
+    return `${r} px`;
+}
+function fmtPaddingShorthand(node) {
+    const t = node.paddingTop;
+    const r = node.paddingRight;
+    const b = node.paddingBottom;
+    const l = node.paddingLeft;
+    if (t === r && r === b && b === l)
+        return fmtPx(t);
+    if (t === b && r === l)
+        return `${fmtPx(t)} · ${fmtPx(r)} (V · H)`;
+    return `${t} · ${r} · ${b} · ${l} px (T · R · B · L)`;
+}
+function fmtRadius(node) {
+    const cr = node.cornerRadius;
+    if (typeof cr === "number")
+        return fmtPx(cr);
+    // Mixed corners
+    const tl = node.topLeftRadius;
+    const tr = node.topRightRadius;
+    const bl = node.bottomLeftRadius;
+    const br = node.bottomRightRadius;
+    return `${fmtPx(tl)} · ${fmtPx(tr)} · ${fmtPx(br)} · ${fmtPx(bl)} (TL · TR · BR · BL)`;
+}
+function fmtConstraint(c) {
+    switch (c) {
+        case "MIN":
+            return "Début";
+        case "MAX":
+            return "Fin";
+        case "STRETCH":
+            return "Étiré";
+        case "CENTER":
+            return "Centré";
+        case "SCALE":
+            return "Échelle";
+    }
+}
+function fmtSizingMode(m) {
+    return m === "FIXED" ? "Fixe" : "Auto (Hug)";
+}
+function fmtPrimaryAlign(m) {
+    switch (m) {
+        case "MIN":
+            return "Début";
+        case "CENTER":
+            return "Centre";
+        case "MAX":
+            return "Fin";
+        case "SPACE_BETWEEN":
+            return "Espace équivalent";
+    }
+}
+function fmtCounterAlign(m) {
+    switch (m) {
+        case "MIN":
+            return "Début";
+        case "CENTER":
+            return "Centre";
+        case "MAX":
+            return "Fin";
+        case "BASELINE":
+            return "Baseline";
+    }
+}
+function fmtStrokeAlign(a) {
+    return a === "INSIDE" ? "Intérieur" : a === "OUTSIDE" ? "Extérieur" : "Centré";
+}
+function rgbHex(c) {
+    const h = (n) => {
+        const v = Math.round(Math.max(0, Math.min(1, n)) * 255).toString(16).toUpperCase();
+        return v.length === 1 ? "0" + v : v;
+    };
+    return `#${h(c.r)}${h(c.g)}${h(c.b)}`;
+}
+function rgbaSummary(c) {
+    return c.a < 1 ? `${rgbHex(c)} ${Math.round(c.a * 100)}%` : rgbHex(c);
+}
+function paintSummary(p) {
+    var _a, _b;
+    if (p.type === "SOLID") {
+        const bound = (_a = p.boundVariables) === null || _a === void 0 ? void 0 : _a.color;
+        if (bound)
+            return "Variable";
+        const c = p.color;
+        const a = (_b = p.opacity) !== null && _b !== void 0 ? _b : 1;
+        return a < 1 ? `${rgbHex(c)} ${Math.round(a * 100)}%` : rgbHex(c);
+    }
+    if (p.type === "GRADIENT_LINEAR")
+        return "Linear gradient";
+    if (p.type === "GRADIENT_RADIAL")
+        return "Radial gradient";
+    if (p.type === "GRADIENT_ANGULAR")
+        return "Angular gradient";
+    if (p.type === "GRADIENT_DIAMOND")
+        return "Diamond gradient";
+    if (p.type === "IMAGE")
+        return "Image";
+    if (p.type === "VIDEO")
+        return "Video";
+    return p.type;
+}
+function fillsSummary(fills) {
+    if (fills === figma.mixed)
+        return "Mixte";
+    const visible = fills.filter((p) => p.visible !== false);
+    if (visible.length === 0)
+        return "Aucun";
+    return visible.map(paintSummary).join(" + ");
+}
+function strokeSummary(node) {
+    if (!node.strokes || node.strokes.length === 0)
+        return "Aucun";
+    const visible = node.strokes.filter((p) => p.visible !== false);
+    if (visible.length === 0)
+        return "Aucun";
+    const w = node.strokeWeight;
+    const weight = typeof w === "number" ? `${w} px` : "Mixte";
+    const align = fmtStrokeAlign(node.strokeAlign);
+    const color = visible.map(paintSummary).join(" + ");
+    const dashed = node.dashPattern && node.dashPattern.length > 0 ? " · pointillés" : "";
+    return `${weight} ${align} · ${color}${dashed}`;
+}
+function effectSummary(e) {
+    switch (e.type) {
+        case "DROP_SHADOW":
+            return `Drop shadow · ${rgbaSummary(e.color)} · offset ${e.offset.x}/${e.offset.y} · blur ${e.radius}${e.spread ? ` · spread ${e.spread}` : ""}`;
+        case "INNER_SHADOW":
+            return `Inner shadow · ${rgbaSummary(e.color)} · offset ${e.offset.x}/${e.offset.y} · blur ${e.radius}`;
+        case "LAYER_BLUR":
+            return `Layer blur · ${e.radius}`;
+        case "BACKGROUND_BLUR":
+            return `Background blur · ${e.radius}`;
+        default:
+            return e.type;
+    }
+}
+function fmtBlendMode(m) {
+    if (m === "NORMAL")
+        return "Normal";
+    if (m === "PASS_THROUGH")
+        return "Pass through";
+    return m
+        .split("_")
+        .map((s) => s.charAt(0) + s.slice(1).toLowerCase())
+        .join(" ");
+}
+function dimensionRows(node) {
+    const rows = [];
+    rows.push(["Dimensions (W × H)", `${fmtPx(node.width)} × ${fmtPx(node.height)}`]);
+    if (node.minWidth != null)
+        rows.push(["Largeur minimale", fmtPx(node.minWidth)]);
+    if (node.maxWidth != null)
+        rows.push(["Largeur maximale", fmtPx(node.maxWidth)]);
+    if (node.minHeight != null)
+        rows.push(["Hauteur minimale", fmtPx(node.minHeight)]);
+    if (node.maxHeight != null)
+        rows.push(["Hauteur maximale", fmtPx(node.maxHeight)]);
+    rows.push([
+        "Contraintes (H · V)",
+        `${fmtConstraint(node.constraints.horizontal)} · ${fmtConstraint(node.constraints.vertical)}`,
+    ]);
+    if (node.targetAspectRatio) {
+        const ar = node.targetAspectRatio;
+        rows.push(["Ratio cible", `${ar.x} : ${ar.y}`]);
+    }
+    return rows;
+}
+function autoLayoutRows(node) {
+    const rows = [];
+    rows.push(["Direction", node.layoutMode === "HORIZONTAL" ? "Horizontal" : "Vertical"]);
+    rows.push(["Padding", fmtPaddingShorthand(node)]);
+    const gap = node.primaryAxisAlignItems === "SPACE_BETWEEN" ? "Auto (espace équivalent)" : fmtPx(node.itemSpacing);
+    rows.push(["Espacement", gap]);
+    rows.push(["Sizing primaire", fmtSizingMode(node.primaryAxisSizingMode)]);
+    rows.push(["Sizing secondaire", fmtSizingMode(node.counterAxisSizingMode)]);
+    rows.push(["Alignement primaire", fmtPrimaryAlign(node.primaryAxisAlignItems)]);
+    rows.push(["Alignement secondaire", fmtCounterAlign(node.counterAxisAlignItems)]);
+    if (node.layoutWrap === "WRAP") {
+        const cas = node.counterAxisSpacing;
+        rows.push(["Wrap", `Oui${cas != null ? ` · gap entre lignes ${fmtPx(cas)}` : ""}`]);
+    }
+    else {
+        rows.push(["Wrap", "Non"]);
+    }
+    rows.push(["Strokes inclus dans le layout", node.strokesIncludedInLayout ? "Oui" : "Non"]);
+    return rows;
+}
+function visualRows(node) {
+    const rows = [];
+    rows.push(["Corner radius", fmtRadius(node)]);
+    rows.push(["Stroke", strokeSummary(node)]);
+    rows.push(["Fill", fillsSummary(node.fills)]);
+    if (node.opacity < 1)
+        rows.push(["Opacité", `${Math.round(node.opacity * 100)} %`]);
+    if (node.blendMode !== "NORMAL" && node.blendMode !== "PASS_THROUGH") {
+        rows.push(["Blend mode", fmtBlendMode(node.blendMode)]);
+    }
+    rows.push(["Clip content", node.clipsContent ? "Oui" : "Non"]);
+    return rows;
+}
+function effectRows(node) {
+    const rows = [];
+    for (let i = 0; i < node.effects.length; i++) {
+        const e = node.effects[i];
+        if (e.visible === false)
+            continue;
+        rows.push([`Effet ${i + 1}`, effectSummary(e)]);
+    }
+    return rows;
+}
+function buildLayoutSubSections(node, widths) {
+    const wrapper = figma.createFrame();
+    wrapper.name = "LayoutBody";
+    wrapper.layoutMode = "VERTICAL";
+    wrapper.primaryAxisSizingMode = "AUTO";
+    wrapper.counterAxisSizingMode = "AUTO";
+    wrapper.layoutAlign = "STRETCH";
+    wrapper.itemSpacing = 24;
+    wrapper.fills = [];
+    const tableFrom = (rows) => makeAdminTable(LAYOUT_COL_HEADERS, widths, rows.map((r) => [r[0], r[1]]));
+    wrapper.appendChild(buildSubSection("Dimensions", tableFrom(dimensionRows(node))));
+    if (node.layoutMode !== "NONE") {
+        wrapper.appendChild(buildSubSection("Auto-layout", tableFrom(autoLayoutRows(node))));
+    }
+    wrapper.appendChild(buildSubSection("Visuel", tableFrom(visualRows(node))));
+    const effects = effectRows(node);
+    if (effects.length > 0) {
+        wrapper.appendChild(buildSubSection("Effets", tableFrom(effects)));
+    }
+    return wrapper;
+}
+function buildLayoutSection(target) {
+    const node = getBaseComponent(target);
+    if (!node)
+        return textFrame("Aucun composant à analyser.");
+    return buildLayoutSubSections(node, LAYOUT_COL_WIDTHS);
+}
+function buildPdfLayoutPage(target) {
+    const page = makePdfPage();
+    const header = makePdfHeader(target.name, "Layout");
+    page.appendChild(header);
+    header.x = PDF_MARGIN;
+    header.y = PDF_MARGIN;
+    const node = getBaseComponent(target);
+    if (!node)
+        return page;
+    const body = buildLayoutSubSections(node, PDF_LAYOUT_COL_WIDTHS_A4);
+    page.appendChild(body);
+    body.x = PDF_MARGIN;
+    body.y = PDF_MARGIN + header.height + PDF_BODY_GAP;
+    return page;
+}
+// ─── Anatomie annotée ────────────────────────────────────────────────────────
+const ANATOMY_VISUAL_RATIO = 0.55; // visual area takes ~55% of content width
+const ANATOMY_VISUAL_H_MIN = 240;
+const ANATOMY_VISUAL_PADDING = 24;
+const ANATOMY_CALLOUT_GAP = 32; // space between visual right edge and the badge column
+const ANATOMY_BADGE_SIZE = 24;
+const ANATOMY_NAME_FONT_SIZE = 13;
+const ANATOMY_NAME_LINE_HEIGHT = 18;
+// Vibrant purple — picked to contrast strongly with primary-blue components
+// so leader lines and badges never blend with the documented design.
+const ANATOMY_ACCENT_COLOR = "#A020F0";
+const ANATOMY_MAX_LAYERS = 12;
+const ANATOMY_MAX_DEPTH = 4;
+// Layer names that don't carry semantic info (auto-generated by Figma).
+const GENERIC_LAYER_NAME_RE = /^(Frame|Group|Rectangle|Ellipse|Vector|Line|Polygon|Star|Component|Instance|Slice|Image)\s*\d*$/i;
+function isMeaningfulLayerName(name) {
+    if (!name || name.length === 0)
+        return false;
+    if (name.startsWith(".") || name.startsWith("_"))
+        return false;
+    return !GENERIC_LAYER_NAME_RE.test(name);
+}
+function visibleChildCount(node) {
+    if (!("children" in node))
+        return 0;
+    const cs = node.children;
+    let n = 0;
+    for (const c of cs)
+        if (c.visible !== false)
+            n++;
+    return n;
+}
+// Returns true if `node` has any visible component-like reference (INSTANCE,
+// nested COMPONENT or COMPONENT_SET) in its subtree, within `maxDepth` levels.
+// Used to opt-out of single-child collapse: those references must remain
+// documentation targets even when buried inside single-child wrappers.
+function hasVisibleInstanceDescendant(node, maxDepth) {
+    if (maxDepth <= 0)
+        return false;
+    if (!("children" in node))
+        return false;
+    const cs = node.children;
+    for (const c of cs) {
+        if (c.visible === false)
+            continue;
+        if (c.type === "INSTANCE" || c.type === "COMPONENT" || c.type === "COMPONENT_SET")
+            return true;
+        if (hasVisibleInstanceDescendant(c, maxDepth - 1))
+            return true;
+    }
+    return false;
+}
+function findNamedLayers(root) {
+    const out = [];
+    const walk = (node, depth) => {
+        if (depth > ANATOMY_MAX_DEPTH)
+            return;
+        if (!("children" in node))
+            return;
+        const container = node;
+        for (const child of container.children) {
+            if (child.visible === false)
+                continue;
+            const childMeaningful = isMeaningfulLayerName(child.name);
+            if (childMeaningful)
+                out.push(child);
+            // Single-child collapse: when a meaningful-named layer wraps exactly
+            // one visible layer, the inner content is redundant — keep only this
+            // wrapper (the highest level) and stop descending here.
+            if (childMeaningful && visibleChildCount(child) === 1)
+                continue;
+            walk(child, depth + 1);
+        }
+    };
+    walk(root, 0);
+    out.sort((a, b) => {
+        const aBB = a.absoluteBoundingBox;
+        const bBB = b.absoluteBoundingBox;
+        if (!aBB || !bBB)
+            return 0;
+        return aBB.y - bBB.y || aBB.x - bBB.x;
+    });
+    return out.slice(0, ANATOMY_MAX_LAYERS);
+}
+function makeAnnotationBadge(n, size) {
+    const f = figma.createFrame();
+    f.name = `Badge ${n}`;
+    f.layoutMode = "HORIZONTAL";
+    f.primaryAxisSizingMode = "FIXED";
+    f.counterAxisSizingMode = "FIXED";
+    f.primaryAxisAlignItems = "CENTER";
+    f.counterAxisAlignItems = "CENTER";
+    f.resize(size, size);
+    f.cornerRadius = size / 2;
+    f.fills = [{ type: "SOLID", color: hex(ANATOMY_ACCENT_COLOR) }];
+    f.strokes = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
+    f.strokeWeight = 2;
+    f.strokeAlign = "OUTSIDE";
+    const t = figma.createText();
+    t.fontName = FONT.bodyMed;
+    t.fontSize = size <= 20 ? 11 : 12;
+    t.lineHeight = { value: size, unit: "PIXELS" };
+    t.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
+    t.characters = String(n);
+    f.appendChild(t);
+    return f;
+}
+// Map-style pin: white teardrop outer with shadow, purple inner circle
+// (22×22), bold white number centered on the circle. The pin frame is a
+// uniform 44×44 with the head circle centered at (22, 22) — large enough
+// that the tip can land at any of 8 directions without exceeding the frame.
+// `orientationDeg` rotates the tail around the head: 0 = tip down (default),
+// 90 = tip right, 180 = tip up, etc. (SVG-CW convention).
+function makeAnatomyPin(n, orientationDeg = 0) {
+    const pin = figma.createFrame();
+    pin.name = `Pin ${n}`;
+    pin.resize(44, 44);
+    pin.fills = [];
+    pin.clipsContent = false;
+    // Outer teardrop — the default S-pointing path goes from the tip (22, 44)
+    // through the right tangent (32.5, 29.7), around the TOP of the head circle
+    // (sweep-flag = 0 → CCW in SVG = arc passes over the top), to the left
+    // tangent (11.5, 29.7), then closes back to the tip. The whole path is
+    // wrapped in a <g rotate> around the head center (22, 22) so different
+    // orientations only swing the tail without moving the head.
+    const outer = figma.createNodeFromSvg(`<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">` +
+        `<g transform="rotate(${orientationDeg} 22 22)">` +
+        `<path d="M 22 44 L 32.5 29.7 A 13 13 0 1 0 11.5 29.7 Z" fill="#FFFFFF"/>` +
+        `</g>` +
+        `</svg>`);
+    outer.x = 0;
+    outer.y = 0;
+    outer.effects = [
+        {
+            type: "DROP_SHADOW",
+            color: { r: 0, g: 0, b: 0, a: 0.12 },
+            offset: { x: 0, y: 0 },
+            radius: 1,
+            spread: 0,
+            visible: true,
+            blendMode: "NORMAL",
+        },
+        {
+            type: "DROP_SHADOW",
+            color: { r: 0, g: 0, b: 0, a: 0.1 },
+            offset: { x: 0, y: 2 },
+            radius: 2,
+            spread: 0,
+            visible: true,
+            blendMode: "NORMAL",
+        },
+    ];
+    pin.appendChild(outer);
+    // Inner purple circle — centered at (22, 22), so frame-local (11, 11) +
+    // size 22. Rotation-invariant.
+    const inner = figma.createEllipse();
+    inner.resize(22, 22);
+    inner.x = 11;
+    inner.y = 11;
+    inner.fills = [{ type: "SOLID", color: hex(ANATOMY_ACCENT_COLOR) }];
+    pin.appendChild(inner);
+    // Number — always upright, centered on the inner circle.
+    const t = figma.createText();
+    t.fontName = FONT.bodyBold;
+    t.fontSize = 14;
+    t.lineHeight = { value: 22, unit: "PIXELS" };
+    t.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
+    t.characters = String(n);
+    t.textAlignHorizontal = "CENTER";
+    t.textAlignVertical = "CENTER";
+    t.textAutoResize = "NONE";
+    t.resize(22, 22);
+    t.x = 11;
+    t.y = 11;
+    pin.appendChild(t);
+    return pin;
+}
+// Single legend row: badge on the left + 1 or 2 stacked text lines on the
+// right. Width is fixed at `rowW`, height auto-sizes to content. Frames are
+// created with both axes FIXED + non-zero placeholder, then flipped to AUTO
+// after appendChild — required to dodge Figma's 1px-collapse (cf. CLAUDE.md).
+function makeLegendRow(num, content, rowW) {
+    const hasSecondary = !!content.secondary;
+    const row = figma.createFrame();
+    row.name = "LegendRow";
+    row.layoutMode = "HORIZONTAL";
+    row.primaryAxisSizingMode = "FIXED";
+    row.counterAxisSizingMode = "FIXED";
+    row.counterAxisAlignItems = hasSecondary ? "MIN" : "CENTER";
+    row.itemSpacing = 8;
+    row.fills = [];
+    row.resize(rowW, hasSecondary ? 40 : ANATOMY_BADGE_SIZE);
+    row.appendChild(makeAnnotationBadge(num, ANATOMY_BADGE_SIZE));
+    const textContainer = figma.createFrame();
+    textContainer.name = "LegendText";
+    textContainer.layoutMode = "VERTICAL";
+    textContainer.primaryAxisSizingMode = "FIXED";
+    textContainer.counterAxisSizingMode = "FIXED";
+    textContainer.itemSpacing = 2;
+    textContainer.fills = [];
+    textContainer.layoutGrow = 1;
+    textContainer.resize(40, hasSecondary ? 36 : ANATOMY_NAME_LINE_HEIGHT);
+    const t1 = figma.createText();
+    t1.fontName = FONT.body;
+    t1.fontSize = ANATOMY_NAME_FONT_SIZE;
+    t1.lineHeight = { value: ANATOMY_NAME_LINE_HEIGHT, unit: "PIXELS" };
+    t1.characters = content.primary;
+    t1.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
+    t1.textAutoResize = "HEIGHT";
+    t1.layoutAlign = "STRETCH";
+    textContainer.appendChild(t1);
+    if (hasSecondary) {
+        const t2 = figma.createText();
+        t2.fontName = FONT.body;
+        t2.fontSize = 11;
+        t2.lineHeight = { value: 14, unit: "PIXELS" };
+        t2.characters = content.secondary;
+        t2.fills = [{ type: "SOLID", color: COLOR.refMutedText }];
+        t2.textAutoResize = "HEIGHT";
+        t2.layoutAlign = "STRETCH";
+        textContainer.appendChild(t2);
+    }
+    textContainer.primaryAxisSizingMode = "AUTO";
+    row.appendChild(textContainer);
+    row.counterAxisSizingMode = "AUTO";
+    return row;
+}
+// Builds a "pinned visual block" — a frame with the cloned component on the
+// left (visual) and a numbered legend on the right. Pins are placed at each
+// anchor's best-fit orientation among 8 directions (S, N, E, W + diagonals),
+// tip on the layer's bounding-box edge facing the head. Used by Anatomie and
+// Variables liées (one block per token type for the latter).
+function buildPinnedVisualBlock(base, booleanPayload, anchors, legendRows, contentW, visualW, visualName = "PinnedVisual") {
+    const PIN_HEAD_RADIUS = 13;
+    const PIN_HEAD_DIST = 22;
+    const PIN_FRAME = 44;
+    const PIN_BREATHING = 4;
+    const PIN_ORIENTATIONS = [0, 180, 90, 270, 45, 135, 225, 315];
+    const LEGEND_ROW_GAP = 12;
+    const LEGEND_ROW_H = ANATOMY_BADGE_SIZE;
+    const calloutColX = visualW + ANATOMY_CALLOUT_GAP;
+    const calloutW = contentW - calloutColX;
+    // Create instance + apply boolean overrides up-front; all dimensions below
+    // derive from the post-override size.
+    const inst = base.createInstance();
+    if (Object.keys(booleanPayload).length > 0) {
+        try {
+            inst.setProperties(booleanPayload);
+        }
+        catch (_a) {
+            /* invalid combo — keep default state */
+        }
+    }
+    const instW = inst.width;
+    const instH = inst.height;
+    const fitScale = Math.min(1, (visualW - ANATOMY_VISUAL_PADDING * 2) / instW);
+    const fittedH = instH * fitScale + ANATOMY_VISUAL_PADDING * 2;
+    const visualH = Math.max(ANATOMY_VISUAL_H_MIN, Math.round(fittedH));
+    // ── Phase 1: pre-compute pin placements ────────────────────────────────
+    const finalInstW = instW * fitScale;
+    const finalInstH = instH * fitScale;
+    const compOriginXVis = Math.round((visualW - finalInstW) / 2);
+    const compOriginYVis = Math.round((visualH - finalInstH) / 2);
+    const placements = [];
+    const placedHeads = [];
+    for (let i = 0; i < anchors.length; i++) {
+        const a = anchors[i];
+        const relX = a.localX * fitScale;
+        const relY = a.localY * fitScale;
+        const relW = a.w * fitScale;
+        const relH = a.h * fitScale;
+        const layerCX = compOriginXVis + relX + relW / 2;
+        const layerCY = compOriginYVis + relY + relH / 2;
+        const halfW = relW / 2;
+        const halfH = relH / 2;
+        let bestDeg = 0;
+        let bestScore = Infinity;
+        let bestTip = { x: layerCX, y: layerCY };
+        let bestHead = { x: layerCX, y: layerCY };
+        for (const deg of PIN_ORIENTATIONS) {
+            const rad = (deg * Math.PI) / 180;
+            const hx = -Math.sin(rad);
+            const hy = -Math.cos(rad);
+            const txDist = Math.abs(hx) > 1e-9 ? halfW / Math.abs(hx) : Infinity;
+            const tyDist = Math.abs(hy) > 1e-9 ? halfH / Math.abs(hy) : Infinity;
+            const t = Math.min(txDist, tyDist);
+            const tipX = layerCX + t * hx;
+            const tipY = layerCY + t * hy;
+            const headX = tipX + PIN_HEAD_DIST * hx;
+            const headY = tipY + PIN_HEAD_DIST * hy;
+            let score = 0;
+            for (const ph of placedHeads) {
+                const dx = headX - ph.x;
+                const dy = headY - ph.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                score += Math.max(0, 2 * PIN_HEAD_RADIUS - dist);
+            }
+            if (score < bestScore) {
+                bestScore = score;
+                bestDeg = deg;
+                bestTip = { x: tipX, y: tipY };
+                bestHead = { x: headX, y: headY };
+                if (score === 0)
+                    break;
+            }
+        }
+        placedHeads.push(bestHead);
+        const rad = (bestDeg * Math.PI) / 180;
+        const tipLocalY = 22 + 22 * Math.cos(rad);
+        const pinTopY = bestTip.y - tipLocalY;
+        const pinBottomY = pinTopY + PIN_FRAME;
+        placements.push({
+            deg: bestDeg,
+            tipX: bestTip.x,
+            tipY: bestTip.y,
+            pinTopY,
+            pinBottomY,
+        });
+    }
+    // ── Phase 2: derive body height from actual extents ────────────────────
+    let minPinY = 0;
+    let maxPinY = 0;
+    for (const p of placements) {
+        if (p.pinTopY < minPinY)
+            minPinY = p.pinTopY;
+        if (p.pinBottomY > maxPinY)
+            maxPinY = p.pinBottomY;
+    }
+    const visualOffsetY = Math.max(0, -minPinY) + (minPinY < 0 ? PIN_BREATHING : 0);
+    // Approximate legend height (we let auto-layout finalize it; this is just
+    // an upper bound used for reserving body height).
+    const rowHeights = legendRows.map((r) => (r.secondary ? 40 : LEGEND_ROW_H));
+    const legendH = rowHeights.reduce((a, b) => a + b, 0) +
+        Math.max(0, legendRows.length - 1) * LEGEND_ROW_GAP;
+    const visualBottom = visualOffsetY + visualH;
+    const legendBottom = visualOffsetY + legendH;
+    const pinsBottom = visualOffsetY + maxPinY;
+    const contentBottom = Math.max(visualBottom, legendBottom, pinsBottom);
+    const bodyH = contentBottom + (maxPinY > visualH ? PIN_BREATHING : 0);
+    const body = figma.createFrame();
+    body.name = "PinnedVisualBody";
+    body.resize(contentW, bodyH);
+    body.fills = [];
+    body.clipsContent = false;
+    const visual = figma.createFrame();
+    visual.name = visualName;
+    visual.resize(visualW, visualH);
+    visual.fills = [{ type: "SOLID", color: COLOR.refMatrixCardBg }];
+    visual.cornerRadius = 8;
+    visual.clipsContent = true;
+    body.appendChild(visual);
+    visual.x = 0;
+    visual.y = visualOffsetY;
+    visual.appendChild(inst);
+    if (fitScale < 1)
+        inst.rescale(fitScale);
+    inst.x = Math.round((visualW - inst.width) / 2);
+    inst.y = Math.round((visualH - inst.height) / 2);
+    // ── Phase 3: instantiate pins at their pre-computed positions ──────────
+    for (let i = 0; i < placements.length; i++) {
+        const p = placements[i];
+        const rad = (p.deg * Math.PI) / 180;
+        const tipLocalX = 22 + 22 * Math.sin(rad);
+        const tipLocalY = 22 + 22 * Math.cos(rad);
+        const pin = makeAnatomyPin(i + 1, p.deg);
+        body.appendChild(pin);
+        pin.x = Math.round(p.tipX - tipLocalX);
+        pin.y = Math.round(p.tipY - tipLocalY + visualOffsetY);
+    }
+    if (legendRows.length > 0) {
+        const legend = figma.createFrame();
+        legend.name = "PinnedLegend";
+        legend.layoutMode = "VERTICAL";
+        legend.primaryAxisSizingMode = "FIXED";
+        legend.counterAxisSizingMode = "FIXED";
+        legend.itemSpacing = LEGEND_ROW_GAP;
+        legend.fills = [];
+        legend.resize(calloutW, 200);
+        for (let i = 0; i < legendRows.length; i++) {
+            legend.appendChild(makeLegendRow(i + 1, legendRows[i], calloutW));
+        }
+        legend.primaryAxisSizingMode = "AUTO";
+        body.appendChild(legend);
+        legend.x = calloutColX;
+        legend.y = visualOffsetY;
+    }
+    return body;
+}
+function buildAnatomySectionForWidth(target, contentW, variantSel, includedLayers) {
+    const { base, booleanPayload } = getAnatomyBaseAndOverrides(target, variantSel);
+    if (!base)
+        return textFrame("Aucun composant à analyser.");
+    // Walk the layer tree on a probe instance (with overrides applied) so the
+    // detected layers reflect the user's combination. The probe is disposed
+    // once we've snapshotted everything we need.
+    const probe = base.createInstance();
+    if (Object.keys(booleanPayload).length > 0) {
+        try {
+            probe.setProperties(booleanPayload);
+        }
+        catch (_a) {
+            /* invalid combo */
+        }
+    }
+    let layers;
+    if (includedLayers !== undefined) {
+        if (includedLayers.length === 0) {
+            probe.remove();
+            return textFrame("Aucun calque sélectionné pour l'anatomie.");
+        }
+        const inc = new Set(includedLayers);
+        layers = findAllVisibleLayersWithPositions(probe).filter((l) => inc.has(l.key));
+        layers.sort((a, b) => a.localY - b.localY || a.localX - b.localX);
+        if (layers.length > ANATOMY_MAX_LAYERS)
+            layers = layers.slice(0, ANATOMY_MAX_LAYERS);
+    }
+    else {
+        layers = findNamedLayersOnInstance(probe);
+    }
+    if (layers.length === 0) {
+        probe.remove();
+        return textFrame("Aucun calque sélectionné pour l'anatomie.");
+    }
+    // Snapshot what we need before disposing the probe (node references become
+    // stale once .remove() is called).
+    const anchors = layers.map((l) => ({
+        key: l.key,
+        localX: l.localX,
+        localY: l.localY,
+        w: l.w,
+        h: l.h,
+    }));
+    const legendRows = layers.map((l) => ({ primary: l.node.name }));
+    probe.remove();
+    const visualW = Math.round(contentW * ANATOMY_VISUAL_RATIO);
+    return buildPinnedVisualBlock(base, booleanPayload, anchors, legendRows, contentW, visualW, "AnatomyVisual");
+}
+function buildAnatomySection(target, variantSel, includedLayers) {
+    return buildAnatomySectionForWidth(target, ADMIN_CONTENT_WIDTH_DEFAULT, variantSel, includedLayers);
+}
+function buildPdfAnatomyPage(target, variantSel, includedLayers) {
+    const page = makePdfPage();
+    const header = makePdfHeader(target.name, "Anatomie");
+    page.appendChild(header);
+    header.x = PDF_MARGIN;
+    header.y = PDF_MARGIN;
+    const body = buildAnatomySectionForWidth(target, PDF_CONTENT_W, variantSel, includedLayers);
+    page.appendChild(body);
+    body.x = PDF_MARGIN;
+    body.y = PDF_MARGIN + header.height + PDF_BODY_GAP;
+    return page;
+}
+// Return the variant child of a COMPONENT_SET that matches the user's selection
+// (axisName → variant value). Falls back to null if the selection is empty,
+// references unknown axes, or doesn't match any variant.
+function findVariantBySelection(set, sel) {
+    const keys = Object.keys(sel).filter((k) => sel[k]);
+    if (keys.length === 0)
+        return null;
+    for (const child of set.children) {
+        if (child.type !== "COMPONENT")
+            continue;
+        const vp = child.variantProperties;
+        if (!vp)
+            continue;
+        let match = true;
+        for (const k of keys) {
+            if (vp[k] !== sel[k]) {
+                match = false;
+                break;
+            }
+        }
+        if (match)
+            return child;
+    }
+    return null;
+}
+// Splits the anatomy selection into the VARIANT part (used to pick the
+// component child) and the BOOLEAN part (applied to the instance via
+// setProperties). The user's selection is keyed by stripped names; we look up
+// each prop's type in `defs` to dispatch correctly. BOOLEAN values come in as
+// "true" / "false" strings from the UI and are coerced here.
+function getAnatomyBaseAndOverrides(target, variantSel) {
+    const defs = target.componentPropertyDefinitions;
+    const variantPart = {};
+    const booleanPayload = {};
+    if (variantSel) {
+        for (const name of Object.keys(variantSel)) {
+            const value = variantSel[name];
+            if (typeof value !== "string")
+                continue;
+            // Match by stripped name — variant prop keys have no #suffix, others do.
+            for (const rawKey of Object.keys(defs)) {
+                if (stripPropKey(rawKey) !== name)
+                    continue;
+                const def = defs[rawKey];
+                if (def.type === "VARIANT")
+                    variantPart[name] = value;
+                else if (def.type === "BOOLEAN")
+                    booleanPayload[rawKey] = value === "true";
+                break;
+            }
+        }
+    }
+    let base = null;
+    if (target.type === "COMPONENT_SET" && Object.keys(variantPart).length > 0) {
+        base = findVariantBySelection(target, variantPart);
+    }
+    if (!base)
+        base = getBaseComponent(target);
+    return { base, booleanPayload };
+}
+// Walk an instance's children using local x/y (relative to the instance),
+// honoring the same single-child-collapse rule as findNamedLayers. Coords
+// here are in the instance's local space — multiply by fitScale to convert
+// to the rendered scale, or walk after rescale to skip the multiplication.
+function findNamedLayersOnInstance(inst) {
+    const out = [];
+    const recurse = (node, depth, dx, dy, parentKey) => {
+        if (depth > ANATOMY_MAX_DEPTH)
+            return;
+        if (!("children" in node))
+            return;
+        const container = node;
+        for (let i = 0; i < container.children.length; i++) {
+            const child = container.children[i];
+            if (child.visible === false)
+                continue;
+            const lm = child;
+            const cx = dx + lm.x;
+            const cy = dy + lm.y;
+            const childKey = parentKey ? `${parentKey}/${i}` : String(i);
+            const meaningful = isMeaningfulLayerName(child.name);
+            // Component-like nodes (instances of other components, or nested
+            // components/component sets) are always documentation-worthy — push them
+            // regardless of whether their layer name passes the meaningful filter,
+            // because they reference an external component.
+            const isComponentLike = child.type === "INSTANCE" ||
+                child.type === "COMPONENT" ||
+                child.type === "COMPONENT_SET";
+            if (meaningful || isComponentLike) {
+                out.push({
+                    node: child,
+                    key: childKey,
+                    localX: cx,
+                    localY: cy,
+                    w: lm.width,
+                    h: lm.height,
+                });
+            }
+            // Stop descending into nested component-like nodes — their internals
+            // belong to another component's documentation, not this one.
+            if (isComponentLike)
+                continue;
+            // Single-child collapse: meaningful wrapper around exactly one layer.
+            // EXCEPT when the subtree contains a nested instance — instances of
+            // other components must always reach the layer list, even when buried
+            // inside single-child wrappers.
+            if (meaningful &&
+                visibleChildCount(child) === 1 &&
+                !hasVisibleInstanceDescendant(child, ANATOMY_MAX_DEPTH - depth))
+                continue;
+            recurse(child, depth + 1, cx, cy, childKey);
+        }
+    };
+    recurse(inst, 0, 0, 0, "");
+    out.sort((a, b) => a.localY - b.localY || a.localX - b.localX);
+    return out.slice(0, ANATOMY_MAX_LAYERS);
+}
+// Maximum tree size shown in the layer picker — generous enough for most
+// real components. Beyond this, the picker truncates (the rendered anatomy
+// is independently capped by ANATOMY_MAX_LAYERS).
+const ANATOMY_TREE_MAX_DEPTH = 8;
+const ANATOMY_TREE_MAX_NODES = 200;
+// Walk every visible layer (depth-first, capped) so the UI can show the user
+// the exact hierarchy of their instance. Stops descending into nested
+// component-like nodes — their internals belong to another component's doc.
+function walkAnatomyTree(inst) {
+    const out = [];
+    const recurse = (node, depth, parentKey) => {
+        if (depth > ANATOMY_TREE_MAX_DEPTH)
+            return;
+        if (out.length >= ANATOMY_TREE_MAX_NODES)
+            return;
+        if (!("children" in node))
+            return;
+        const container = node;
+        for (let i = 0; i < container.children.length; i++) {
+            if (out.length >= ANATOMY_TREE_MAX_NODES)
+                return;
+            const child = container.children[i];
+            if (child.visible === false)
+                continue;
+            const key = parentKey ? `${parentKey}/${i}` : String(i);
+            out.push({ key, name: child.name, type: child.type, depth });
+            if (child.type === "INSTANCE" ||
+                child.type === "COMPONENT" ||
+                child.type === "COMPONENT_SET")
+                continue;
+            recurse(child, depth + 1, key);
+        }
+    };
+    recurse(inst, 0, "");
+    return out;
+}
+// Walk all visible layers WITH position info (used for rendering when the
+// user supplied an explicit include list — we then filter by key).
+function findAllVisibleLayersWithPositions(inst) {
+    const out = [];
+    const recurse = (node, depth, dx, dy, parentKey) => {
+        if (depth > ANATOMY_TREE_MAX_DEPTH)
+            return;
+        if (!("children" in node))
+            return;
+        const container = node;
+        for (let i = 0; i < container.children.length; i++) {
+            const child = container.children[i];
+            if (child.visible === false)
+                continue;
+            const lm = child;
+            const cx = dx + lm.x;
+            const cy = dy + lm.y;
+            const key = parentKey ? `${parentKey}/${i}` : String(i);
+            out.push({ node: child, key, localX: cx, localY: cy, w: lm.width, h: lm.height });
+            if (child.type === "INSTANCE" ||
+                child.type === "COMPONENT" ||
+                child.type === "COMPONENT_SET")
+                continue;
+            recurse(child, depth + 1, cx, cy, key);
+        }
+    };
+    recurse(inst, 0, 0, 0, "");
+    return out;
+}
+// Recursively collect all variable IDs referenced in a polymorphic
+// `boundVariables` value. Handles three shapes Figma uses:
+//   - direct alias: { id: "...", type: "VARIABLE" }
+//   - array of aliases: [{id}, {id}, ...]
+//   - nested object: { r: alias, g: alias, ... } (gradients, effects, etc.)
+function extractAliasIdsFromValue(val) {
+    const out = [];
+    const recurseValue = (v) => {
+        if (!v)
+            return;
+        if (Array.isArray(v)) {
+            for (const item of v)
+                recurseValue(item);
+            return;
+        }
+        if (typeof v !== "object")
+            return;
+        const obj = v;
+        if (typeof obj.id === "string") {
+            out.push(obj.id);
+            return;
+        }
+        for (const k in obj)
+            recurseValue(obj[k]);
+    };
+    recurseValue(val);
+    return out;
+}
+// Walk all visible nodes in `inst` (and the root itself) and emit one VarUsage
+// per (variableId, anchorNodeKey) tuple — deduped across fields. Mirrors the
+// instance-walker convention from findAllVisibleLayersWithPositions: stops at
+// nested component-like nodes, key is the path of child indexes.
+function collectVariableUsagesOnInstance(inst) {
+    const out = [];
+    const seen = new Set(); // dedupe by `${variableId}|${anchorKey}`
+    const visit = (node, key, localX, localY, w, h) => {
+        const bv = node.boundVariables;
+        if (!bv)
+            return;
+        for (const field in bv) {
+            const ids = extractAliasIdsFromValue(bv[field]);
+            for (const id of ids) {
+                const sig = `${id}|${key}`;
+                if (seen.has(sig))
+                    continue;
+                seen.add(sig);
+                out.push({
+                    variableId: id,
+                    anchorKey: key,
+                    anchorLocalX: localX,
+                    anchorLocalY: localY,
+                    anchorW: w,
+                    anchorH: h,
+                });
+            }
+        }
+    };
+    // The instance root itself (e.g., its background fills can be variable-bound).
+    visit(inst, "root", 0, 0, inst.width, inst.height);
+    const recurse = (node, depth, dx, dy, parentKey) => {
+        if (depth > ANATOMY_TREE_MAX_DEPTH)
+            return;
+        if (!("children" in node))
+            return;
+        const container = node;
+        for (let i = 0; i < container.children.length; i++) {
+            const child = container.children[i];
+            if (child.visible === false)
+                continue;
+            const lm = child;
+            const cx = dx + lm.x;
+            const cy = dy + lm.y;
+            const childKey = parentKey === "root" ? String(i) : `${parentKey}/${i}`;
+            visit(child, childKey, cx, cy, lm.width, lm.height);
+            // For tokens we DO descend into nested INSTANCE / COMPONENT / COMPONENT_SET:
+            // a sub-component (e.g. an icon) carries its own bound variables on
+            // its mirrored children, and the user expects to find them when they
+            // include that sub-component in the search scope.
+            recurse(child, depth + 1, cx, cy, childKey);
+        }
+    };
+    recurse(inst, 0, 0, 0, "root");
+    return out;
+}
+// Walk the instance and emit one TextStyleUsage per (styleId, anchorKey).
+// Only TEXT nodes contribute. Mixed-style text (`textStyleId === figma.mixed`)
+// is skipped — it would require per-character resolution.
+function collectTextStyleUsagesOnInstance(inst) {
+    const out = [];
+    const seen = new Set();
+    const visitText = (node, key, x, y, w, h) => {
+        const styleId = node.textStyleId;
+        if (typeof styleId !== "string" || styleId === "")
+            return;
+        const sig = `${styleId}|${key}`;
+        if (seen.has(sig))
+            return;
+        seen.add(sig);
+        out.push({
+            styleId,
+            anchorKey: key,
+            anchorLocalX: x,
+            anchorLocalY: y,
+            anchorW: w,
+            anchorH: h,
+        });
+    };
+    const recurse = (node, depth, dx, dy, parentKey) => {
+        if (depth > ANATOMY_TREE_MAX_DEPTH)
+            return;
+        if (!("children" in node))
+            return;
+        const container = node;
+        for (let i = 0; i < container.children.length; i++) {
+            const child = container.children[i];
+            if (child.visible === false)
+                continue;
+            const lm = child;
+            const cx = dx + lm.x;
+            const cy = dy + lm.y;
+            const childKey = parentKey === "root" ? String(i) : `${parentKey}/${i}`;
+            if (child.type === "TEXT") {
+                visitText(child, childKey, cx, cy, lm.width, lm.height);
+            }
+            // Same as the variable walker — descend through nested INSTANCEs so
+            // text styles applied inside sub-components are surfaced.
+            recurse(child, depth + 1, cx, cy, childKey);
+        }
+    };
+    recurse(inst, 0, 0, 0, "root");
+    return out;
+}
+// Compute the layer picker payload for a given target + selection: the full
+// hierarchical tree of visible layers, plus the keys auto-selected by the
+// smart heuristic (used as the default checkbox state).
+function previewAnatomyLayers(target, variantSel) {
+    const { base, booleanPayload } = getAnatomyBaseAndOverrides(target, variantSel);
+    if (!base)
+        return { tree: [], autoSelected: [] };
+    const inst = base.createInstance();
+    if (Object.keys(booleanPayload).length > 0) {
+        try {
+            inst.setProperties(booleanPayload);
+        }
+        catch (_a) {
+            // Ignore invalid combos.
+        }
+    }
+    const tree = walkAnatomyTree(inst);
+    const autoSelected = findNamedLayersOnInstance(inst).map((l) => l.key);
+    inst.remove();
+    return { tree, autoSelected };
+}
+// Same as previewAnatomyLayers but the auto-selected set is the layers where
+// at least one design token usage was found (color variable or text style).
+// The instance root ("root" key) is never included — it isn't shown in the
+// picker tree, but its tokens are always documented anyway.
+function previewTokensLayers(target, variantSel) {
+    const { base, booleanPayload } = getAnatomyBaseAndOverrides(target, variantSel);
+    if (!base)
+        return { tree: [], autoSelected: [] };
+    const inst = base.createInstance();
+    if (Object.keys(booleanPayload).length > 0) {
+        try {
+            inst.setProperties(booleanPayload);
+        }
+        catch (_a) {
+            /* ignore */
+        }
+    }
+    const tree = walkAnatomyTree(inst);
+    // The picker tree stops at INSTANCE / COMPONENT / COMPONENT_SET (clean UX),
+    // but the token walkers descend through them. Map each deep usage to the
+    // nearest ancestor that IS in the picker tree, so checking an icon's row
+    // pre-selects the icon (which then pulls in its inner usages).
+    const treeKeys = new Set(tree.map((t) => t.key));
+    const seen = new Set();
+    for (const u of collectVariableUsagesOnInstance(inst)) {
+        const anc = nearestPickerAncestor(u.anchorKey, treeKeys);
+        if (anc)
+            seen.add(anc);
+    }
+    for (const u of collectTextStyleUsagesOnInstance(inst)) {
+        const anc = nearestPickerAncestor(u.anchorKey, treeKeys);
+        if (anc)
+            seen.add(anc);
+    }
+    const autoSelected = Array.from(seen);
+    inst.remove();
+    return { tree, autoSelected };
 }
 function buildVariantsSection(target, groupBy, excludeRules, propLocks, layout, visualBg) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -1151,6 +2916,52 @@ function buildLayoutFromCards(combos, cards, groupBy, cardW, depth) {
     }
     return wrapper;
 }
+// Resolve every INSTANCE_SWAP prop's preferredValues to a list of component
+// names, so the props table can show meaningful labels instead of the literal
+// "Instance". Returns rawKey → ordered, deduped names. Props with empty or
+// unresolvable preferredValues are absent from the map (caller falls back).
+function resolveInstanceSwapNames(defs) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        const out = new Map();
+        const tasks = [];
+        for (const key of Object.keys(defs)) {
+            const def = defs[key];
+            if (def.type !== "INSTANCE_SWAP")
+                continue;
+            const pv = (_a = def.preferredValues) !== null && _a !== void 0 ? _a : [];
+            if (pv.length === 0)
+                continue;
+            const rawKey = key;
+            tasks.push(Promise.all(pv.map((item) => __awaiter(this, void 0, void 0, function* () {
+                try {
+                    if (item.type === "COMPONENT") {
+                        const c = yield figma.importComponentByKeyAsync(item.key);
+                        return c.name;
+                    }
+                    const cs = yield figma.importComponentSetByKeyAsync(item.key);
+                    return cs.name;
+                }
+                catch (_a) {
+                    return null;
+                }
+            }))).then((names) => {
+                const seen = new Set();
+                const list = [];
+                for (const n of names) {
+                    if (n && !seen.has(n)) {
+                        seen.add(n);
+                        list.push(n);
+                    }
+                }
+                if (list.length > 0)
+                    out.set(rawKey, list);
+            }));
+        }
+        yield Promise.all(tasks);
+        return out;
+    });
+}
 function eligibleAxes(defs) {
     return __awaiter(this, void 0, void 0, function* () {
         var _a, _b;
@@ -1210,6 +3021,27 @@ function getBaseComponent(target) {
         return firstVariant !== null && firstVariant !== void 0 ? firstVariant : null;
     }
     return target;
+}
+// Walks `root.children` using the slash-separated path of indexes that the
+// pickers emit (e.g. "0/1/2"). Returns the matching node, or null if any
+// segment is out of range. The "root" key resolves to the root itself.
+function resolveLayerByKey(root, key) {
+    if (!key || key === "root")
+        return root;
+    const parts = key.split("/");
+    let cur = root;
+    for (const part of parts) {
+        const idx = Number(part);
+        if (!Number.isFinite(idx) || idx < 0)
+            return null;
+        if (!("children" in cur))
+            return null;
+        const c = cur.children[idx];
+        if (!c)
+            return null;
+        cur = c;
+    }
+    return cur;
 }
 function computeVisualSize(target) {
     let w = 0;
@@ -1662,8 +3494,15 @@ function buildAllAdminCards(combos, base, layout, boolishAxes, visualBg) {
             for (let j = i; j < end; j++) {
                 cards.push(makeAdminCombinationCard(combos[j], base, layout, boolishAxes, visualBg));
             }
+            // Live progress for the UI button (no toast spam needed — the UI updates
+            // the inline button label).
+            figma.ui.postMessage({
+                type: "progress",
+                phase: "matrix",
+                current: end,
+                total: combos.length,
+            });
             if (end < combos.length) {
-                figma.notify(`Génération… ${end}/${combos.length}`, { timeout: 800 });
                 yield new Promise((r) => setTimeout(r, 0));
             }
         }
@@ -1838,8 +3677,13 @@ function buildAllCards(combos, base, cardW, visualH, miniH, boolishAxes) {
             for (let j = i; j < end; j++) {
                 cards.push(makeCombinationCard(combos[j], base, cardW, visualH, miniH, boolishAxes));
             }
+            figma.ui.postMessage({
+                type: "progress",
+                phase: "matrix",
+                current: end,
+                total: combos.length,
+            });
             if (end < combos.length) {
-                figma.notify(`Génération… ${end}/${combos.length}`, { timeout: 800 });
                 yield new Promise((r) => setTimeout(r, 0));
             }
         }
@@ -2156,7 +4000,7 @@ function makeBulletList(items) {
     }
     return list;
 }
-function valuesAsItems(p) {
+function valuesAsItems(p, instanceSwapNames) {
     var _a;
     switch (p.type) {
         case "BOOLEAN":
@@ -2165,61 +4009,12 @@ function valuesAsItems(p) {
             return [`"${String(p.defaultValue)}"`];
         case "VARIANT":
             return (_a = p.variantOptions) !== null && _a !== void 0 ? _a : [];
-        case "INSTANCE_SWAP":
-            return ["Instance"];
+        case "INSTANCE_SWAP": {
+            const resolved = instanceSwapNames === null || instanceSwapNames === void 0 ? void 0 : instanceSwapNames.get(p.rawKey);
+            return resolved && resolved.length > 0 ? resolved : ["Instance"];
+        }
         default:
             return [];
-    }
-}
-function getInspectableNodes(target) {
-    if (target.type === "COMPONENT_SET") {
-        const result = [target];
-        const first = target.children.find((c) => c.type === "COMPONENT");
-        if (first) {
-            result.push(first);
-            result.push(...first.findAll(() => true));
-        }
-        return result;
-    }
-    return [target, ...target.findAll(() => true)];
-}
-function collectBoundVariableIds(node, ids) {
-    const bv = node.boundVariables;
-    if (bv) {
-        for (const field in bv) {
-            const val = bv[field];
-            if (!val)
-                continue;
-            if (Array.isArray(val)) {
-                for (const a of val)
-                    extractAliasId(a, ids);
-            }
-            else if (typeof val === "object") {
-                const obj = val;
-                if (typeof obj.id === "string") {
-                    ids.add(obj.id);
-                }
-                else {
-                    for (const k in obj) {
-                        const inner = obj[k];
-                        if (Array.isArray(inner)) {
-                            for (const a of inner)
-                                extractAliasId(a, ids);
-                        }
-                        else {
-                            extractAliasId(inner, ids);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-function extractAliasId(value, ids) {
-    if (value && typeof value === "object") {
-        const id = value.id;
-        if (typeof id === "string")
-            ids.add(id);
     }
 }
 function textFrame(text) {

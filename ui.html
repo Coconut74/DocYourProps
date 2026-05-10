@@ -2,7 +2,7 @@
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
-    <title>DocPlugin</title>
+    <title>DocYourProps</title>
     <style>
       :root { color-scheme: light dark; }
       * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -57,7 +57,75 @@
 
       /* ── View routing ───────────────────────────────────── */
       .view { display: none; }
-      .view.view-active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+      .view.view-active {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        animation: view-enter 0.18s ease both;
+      }
+      @keyframes view-enter {
+        from { transform: translateX(8px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .view.view-active { animation: none; }
+      }
+
+      /* ── Onboarding overlay (first launch) ─────────────── */
+      .onboarding-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.42);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+        padding: 24px;
+        animation: view-enter 0.2s ease both;
+      }
+      .onboarding-overlay[hidden] { display: none; }
+      .onboarding-card {
+        background: var(--figma-color-bg, #fff);
+        color: var(--figma-color-text, #1e1e1e);
+        border-radius: 12px;
+        padding: 22px 22px 18px;
+        max-width: 280px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .onboarding-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(160, 32, 240, 0.12);
+        color: #A020F0;
+      }
+      .onboarding-title {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0;
+      }
+      .onboarding-text {
+        font-size: 11.5px;
+        line-height: 1.45;
+        margin: 0;
+        color: var(--figma-color-text-secondary, #666);
+      }
+      .onboarding-text strong {
+        color: var(--figma-color-text, #1e1e1e);
+        font-weight: 600;
+      }
+      #onboarding-ok {
+        align-self: stretch;
+        margin-top: 6px;
+      }
 
       /* ── Settings view header (back arrow + title) ──────── */
       .settings-header {
@@ -100,6 +168,13 @@
         border: 1.5px dashed var(--figma-color-border, #e6e6e6);
         border-radius: 10px;
       }
+      .empty-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--figma-color-text, #1e1e1e);
+        margin: 6px 0 0;
+        text-align: center;
+      }
       .empty-hint {
         font-size: 11px;
         color: var(--figma-color-text-secondary, #888);
@@ -129,6 +204,11 @@
       .component-meta {
         padding: 9px 12px;
         display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .component-meta-row {
+        display: flex;
         align-items: center;
         gap: 8px;
       }
@@ -150,6 +230,34 @@
         white-space: nowrap;
         flex-shrink: 0;
       }
+      .badge-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .badge-list .badge {
+        font-size: 9.5px;
+        padding: 1px 6px;
+      }
+      .badge-list .badge.with-accent::before {
+        content: "";
+        display: inline-block;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        margin-right: 4px;
+        vertical-align: middle;
+        background: currentColor;
+        opacity: 0.55;
+      }
+      .badge-list .badge--props { color: #6366F1; }
+      .badge-list .badge--combos { color: #6366F1; }
+      .badge-list .badge--saved { color: #10B981; }
+      .badge-list .badge--saved::before {
+        content: "✓";
+        margin-right: 3px;
+        opacity: 1;
+      }
 
       /* ── Options ─────────────────────────────────────────── */
       .section-title {
@@ -160,7 +268,32 @@
         color: var(--figma-color-text-secondary, #888);
         margin-bottom: 4px;
       }
-      .options { display: flex; flex-direction: column; gap: 1px; }
+      .options { display: flex; flex-direction: column; gap: 14px; }
+      .option-group { display: flex; flex-direction: column; gap: 1px; }
+      .option-group-title {
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 600;
+        color: var(--figma-color-text-secondary, #888);
+        padding: 0 10px 4px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .option-group-title::before {
+        content: "";
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 2px;
+        background: currentColor;
+        opacity: 0.55;
+      }
+      .group-catalogue .option-group-title { color: #6366F1; }
+      .group-spec .option-group-title { color: #10B981; }
+      .group-visual .option-group-title { color: #A020F0; }
+
       .option {
         display: flex;
         align-items: center;
@@ -183,12 +316,49 @@
       .option-label {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
         color: var(--figma-color-text-secondary, #888);
+        flex: 1;
+        min-width: 0;
+      }
+      .option-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        flex-shrink: 0;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+      }
+      .group-catalogue .option-icon { color: #6366F1; background: rgba(99, 102, 241, 0.12); }
+      .group-spec .option-icon { color: #10B981; background: rgba(16, 185, 129, 0.12); }
+      .group-visual .option-icon { color: #A020F0; background: rgba(160, 32, 240, 0.12); }
+
+      .option-text {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+        flex: 1;
+      }
+      .option-title-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
       }
       .option-label .label-text {
         font-size: 12px;
         color: var(--figma-color-text, #1e1e1e);
+        font-weight: 500;
+      }
+      .option-desc {
+        font-size: 10.5px;
+        color: var(--figma-color-text-secondary, #888);
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .count-tag {
         font-size: 10px;
@@ -219,6 +389,31 @@
       }
       .gear-btn:hover { background: var(--figma-color-bg-hover, #f5f5f5); color: var(--figma-color-text, #1e1e1e); }
       .gear-btn[hidden] { display: none; }
+
+      /* Per-section regen button — only visible when a sheet for the section
+         already exists on the canvas. Same shape as the gear button, slightly
+         tinted on hover to distinguish the action. */
+      .regen-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        border-radius: 5px;
+        cursor: pointer;
+        color: var(--figma-color-text-secondary, #888);
+        flex-shrink: 0;
+      }
+      .regen-btn:hover {
+        background: var(--figma-color-bg-hover, #f5f5f5);
+        color: var(--figma-color-bg-brand, #0d99ff);
+      }
+      .regen-btn[hidden] { display: none; }
+      .regen-btn.is-busy svg { animation: regen-spin 0.7s linear infinite; }
+      @keyframes regen-spin { to { transform: rotate(360deg); } }
       .gear-dot {
         position: absolute;
         top: 2px;
@@ -414,6 +609,147 @@
         color: #fff;
       }
 
+      /* ── Collapsible panels (anatomy settings) ──────────── */
+      .collapse-section {
+        border-top: 1px solid var(--figma-color-border, #e5e5e5);
+        padding: 10px 0;
+      }
+      .collapse-section:last-child { border-bottom: 1px solid var(--figma-color-border, #e5e5e5); }
+      .collapse-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        width: 100%;
+        background: none;
+        border: 0;
+        padding: 4px 0;
+        cursor: pointer;
+        color: var(--figma-color-text, #1e1e1e);
+        font: inherit;
+        font-weight: 600;
+        text-align: left;
+      }
+      .collapse-header .chevron {
+        transition: transform 0.15s ease;
+        flex-shrink: 0;
+      }
+      .collapse-section.collapsed .collapse-header .chevron {
+        transform: rotate(-90deg);
+      }
+      .collapse-body {
+        padding-top: 8px;
+      }
+      .collapse-section.collapsed .collapse-body { display: none; }
+
+      /* ── Layer checkbox list ────────────────────────────── */
+      .layer-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .layer-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 4px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 11px;
+        color: var(--figma-color-text, #1e1e1e);
+      }
+      .layer-row:hover { background: var(--figma-color-bg-hover, rgba(0,0,0,.04)); }
+      .layer-row .layer-num {
+        flex: 0 0 auto;
+        min-width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: #A020F0;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 1;
+        transition: opacity 0.12s;
+      }
+      .layer-row.deselected .layer-num { opacity: 0.25; }
+      .layer-row .layer-type {
+        flex: 0 0 auto;
+        min-width: 18px;
+        height: 16px;
+        padding: 0 4px;
+        border-radius: 3px;
+        background: var(--figma-color-bg-secondary, #efefef);
+        color: var(--figma-color-text-secondary, #888);
+        font-size: 9px;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .layer-row.deselected .layer-name { color: var(--figma-color-text-secondary, #888); text-decoration: line-through; }
+      .layer-row .layer-name {
+        flex: 1 1 auto;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      .layer-row input[type="checkbox"] {
+        flex: 0 0 auto;
+        margin: 0;
+      }
+      .layer-toolbar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .layer-toolbar button {
+        background: none;
+        border: 1px solid var(--figma-color-border, #e5e5e5);
+        border-radius: 6px;
+        padding: 4px 10px;
+        cursor: pointer;
+        color: var(--figma-color-text, #1e1e1e);
+        font: inherit;
+        font-size: 11px;
+      }
+      .layer-toolbar button:hover { background: var(--figma-color-bg-hover, rgba(0,0,0,.04)); }
+      .layer-filter {
+        width: 100%;
+        font: inherit;
+        font-size: 11px;
+        padding: 6px 10px;
+        margin-bottom: 6px;
+        border: 1px solid var(--figma-color-border, #e5e5e5);
+        border-radius: 6px;
+        background: var(--figma-color-bg, #fff);
+        color: var(--figma-color-text, #1e1e1e);
+        outline: none;
+      }
+      .layer-filter:focus { border-color: var(--figma-color-bg-brand, #0d99ff); }
+      .layer-filter::placeholder { color: var(--figma-color-text-secondary, #888); }
+      .layer-empty {
+        color: var(--figma-color-text-secondary, #888);
+        font-size: 11px;
+        padding: 18px 8px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        text-align: center;
+      }
+      .layer-empty svg { opacity: 0.5; }
+      .layer-empty .layer-empty-title {
+        font-weight: 500;
+        color: var(--figma-color-text, #1e1e1e);
+      }
+      .layer-empty .layer-empty-hint {
+        font-size: 10.5px;
+        opacity: 0.85;
+      }
+
       /* ── Visual bg picker ───────────────────────────────── */
       .visual-bg-row {
         display: flex;
@@ -466,6 +802,21 @@
       .visual-bg-hex:focus {
         border-color: var(--figma-color-bg-brand, #0d99ff);
       }
+      .visual-bg-hex.invalid {
+        border-color: #ef4444;
+      }
+      .visual-bg-hex.invalid:focus {
+        border-color: #ef4444;
+        outline-color: #ef4444;
+      }
+      .visual-bg-hint {
+        font-size: 10px;
+        color: #ef4444;
+        margin-top: 4px;
+        line-height: 1.3;
+        display: none;
+      }
+      .visual-bg-hint.shown { display: block; }
       .visual-bg-reset {
         background: transparent;
         color: var(--figma-color-text-secondary, #757575);
@@ -542,14 +893,136 @@
       .btn-ghost {
         background: var(--figma-color-bg-secondary, #f5f5f5);
         color: var(--figma-color-text, #1e1e1e);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
       }
       .btn-ghost:hover { opacity: 0.72; }
+      .btn-icon {
+        padding: 6px 8px;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
       .btn-primary {
         background: var(--figma-color-bg-brand, #0d99ff);
         color: #fff;
         flex: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
       }
       .btn-primary:hover:not(:disabled) { opacity: 0.85; }
+      /* Inline spinner shown on the primary CTAs while sandbox is busy */
+      .btn-spinner {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        border: 1.5px solid currentColor;
+        border-top-color: transparent;
+        animation: btn-spin 0.7s linear infinite;
+        display: none;
+      }
+      button.is-loading .btn-spinner { display: inline-block; }
+      button.is-loading { pointer-events: none; opacity: 0.85; }
+      @keyframes btn-spin { to { transform: rotate(360deg); } }
+
+      /* Reset-config affordance — small ghost link below the option list */
+      .reset-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin: 14px 4px 0;
+        padding: 4px 8px;
+        background: transparent;
+        border: none;
+        color: var(--figma-color-text-secondary, #888);
+        font-size: 11px;
+        font-weight: 500;
+        cursor: pointer;
+        border-radius: 5px;
+      }
+      .reset-link:hover { color: var(--figma-color-text, #1e1e1e); background: var(--figma-color-bg-hover, #f5f5f5); }
+      .reset-link[hidden] { display: none; }
+
+      /* Doc index list */
+      .doc-index-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .doc-index-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 10px 12px;
+        border: 1px solid var(--figma-color-border, #e5e5e5);
+        border-radius: 8px;
+        cursor: pointer;
+        background: transparent;
+        text-align: left;
+        font: inherit;
+        color: var(--figma-color-text, #1e1e1e);
+      }
+      .doc-index-item:hover { background: var(--figma-color-bg-hover, #f5f5f5); }
+      .doc-index-item.missing { opacity: 0.6; }
+      .doc-index-name {
+        font-size: 12px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .doc-index-name .missing-tag {
+        font-size: 9px;
+        font-weight: 500;
+        color: #ef4444;
+        background: rgba(239, 68, 68, 0.12);
+        padding: 1px 6px;
+        border-radius: 4px;
+      }
+      .doc-index-sections {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .doc-index-sections .badge {
+        font-size: 9.5px;
+        padding: 1px 6px;
+      }
+      .doc-index-empty {
+        font-size: 11px;
+        color: var(--figma-color-text-secondary, #888);
+        padding: 16px 4px;
+        text-align: center;
+      }
+
+      /* Accessibility — visible focus ring on every interactive control */
+      :focus-visible {
+        outline: 2px solid var(--figma-color-bg-brand, #0d99ff);
+        outline-offset: 2px;
+      }
+      /* The toggle's input is opacity:0 — surface focus on the visual track. */
+      .toggle input:focus-visible ~ .toggle-track {
+        outline: 2px solid var(--figma-color-bg-brand, #0d99ff);
+        outline-offset: 2px;
+      }
+
+      /* Custom thin scrollbar for the layer pickers — discoverable without
+         being intrusive. */
+      .layer-list { scrollbar-width: thin; }
+      .layer-list::-webkit-scrollbar { width: 6px; height: 6px; }
+      .layer-list::-webkit-scrollbar-thumb {
+        background: var(--figma-color-border, #d9d9d9);
+        border-radius: 3px;
+      }
+      .layer-list::-webkit-scrollbar-thumb:hover {
+        background: var(--figma-color-text-secondary, #888);
+      }
+      .layer-list::-webkit-scrollbar-track { background: transparent; }
 
       .settings-footer {
         display: flex;
@@ -573,83 +1046,214 @@
           <rect x="6.7" y="6.7" width="3.8" height="3.8" rx="0.9" fill="white"/>
         </svg>
       </div>
-      <span class="title">DocPlugin</span>
+      <span class="title">DocYourProps</span>
     </div>
 
     <div id="view-main" class="view view-active">
       <div class="body">
         <div id="content"></div>
+        <button class="reset-link doc-index-link" id="btn-open-doc-index" hidden>
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 2.5h3l1 1.5h3v5H2z"/>
+          </svg>
+          <span>Voir l'index des docs de la page</span>
+        </button>
 
         <div>
           <div class="section-title">Inclure dans la doc</div>
           <div class="options">
 
-            <div class="option" id="row-props">
-              <div class="option-label">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                  <rect x="1" y="2.5" width="12" height="1.5" rx="0.75"/>
-                  <rect x="1" y="6.25" width="8.5" height="1.5" rx="0.75"/>
-                  <rect x="1" y="10" width="10" height="1.5" rx="0.75"/>
-                </svg>
-                <span class="label-text">Propriétés</span>
-              </div>
-              <div class="toggle">
-                <input type="checkbox" id="opt-props" checked />
-                <div class="toggle-track"></div>
-                <div class="toggle-thumb"></div>
+            <div class="option-group group-catalogue">
+              <div class="option-group-title">Catalogue</div>
+
+              <div class="option" id="row-props">
+                <div class="option-label">
+                  <span class="option-icon">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                      <rect x="1" y="2.5" width="12" height="1.5" rx="0.75"/>
+                      <rect x="1" y="6.25" width="8.5" height="1.5" rx="0.75"/>
+                      <rect x="1" y="10" width="10" height="1.5" rx="0.75"/>
+                    </svg>
+                  </span>
+                  <div class="option-text">
+                    <div class="option-title-row">
+                      <span class="label-text" id="row-props-label">Propriétés</span>
+                      <span class="count-tag" id="count-tag" hidden></span>
+                    </div>
+                    <span class="option-desc" id="row-props-desc">Tableau des props · matrice si variants</span>
+                  </div>
+                </div>
+                <div class="option-trailing">
+                  <button class="regen-btn" id="btn-regen-props" title="Regénérer cette section" aria-label="Regénérer la section Propriétés" hidden>
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2.5 5a3.5 3.5 0 0 1 6 0M9.5 2.5V5h-2.5"/>
+                      <path d="M9.5 7a3.5 3.5 0 0 1-6 0M2.5 9.5V7h2.5"/>
+                    </svg>
+                  </button>
+                  <button class="gear-btn" id="btn-matrix-settings" title="Configurer la matrice (tri, exclusions, verrous, fond)" aria-label="Configurer la matrice" hidden>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2 4.5h3.5M9 4.5h3"/>
+                      <path d="M2 9.5h2M7.5 9.5h4.5"/>
+                      <circle cx="7" cy="4.5" r="1.5"/>
+                      <circle cx="5.5" cy="9.5" r="1.5"/>
+                    </svg>
+                    <span class="gear-dot" id="gear-dot-matrix" title="Paramètres personnalisés actifs" hidden></span>
+                  </button>
+                  <div class="toggle">
+                    <input type="checkbox" id="opt-props" aria-label="Inclure les propriétés et combinaisons" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div class="option" id="row-tokens">
-              <div class="option-label">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                  <circle cx="7" cy="7" r="2.6"/>
-                  <path d="M7 1.5A5.5 5.5 0 1 1 1.5 7" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-                </svg>
-                <span class="label-text">Variables liées</span>
-              </div>
-              <div class="toggle">
-                <input type="checkbox" id="opt-tokens" checked />
-                <div class="toggle-track"></div>
-                <div class="toggle-thumb"></div>
+            <div class="option-group group-spec">
+              <div class="option-group-title">Spec technique</div>
+
+              <div class="option" id="row-layout">
+                <div class="option-label">
+                  <span class="option-icon">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3">
+                      <rect x="1.5" y="1.5" width="11" height="11" rx="1.5"/>
+                      <path d="M1.5 5.5h11M5.5 1.5v11"/>
+                    </svg>
+                  </span>
+                  <div class="option-text">
+                    <div class="option-title-row">
+                      <span class="label-text">Layout</span>
+                    </div>
+                    <span class="option-desc">Dimensions · auto-layout · radius · effets</span>
+                  </div>
+                </div>
+                <div class="option-trailing">
+                  <button class="regen-btn" id="btn-regen-layout" title="Regénérer cette section" aria-label="Regénérer la section Layout" hidden>
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2.5 5a3.5 3.5 0 0 1 6 0M9.5 2.5V5h-2.5"/>
+                      <path d="M9.5 7a3.5 3.5 0 0 1-6 0M2.5 9.5V7h2.5"/>
+                    </svg>
+                  </button>
+                  <div class="toggle">
+                    <input type="checkbox" id="opt-layout" aria-label="Inclure les specs de layout" />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div class="option disabled" id="row-variants">
-              <div class="option-label">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                  <rect x="1" y="1" width="5" height="5" rx="1.2"/>
-                  <rect x="8" y="1" width="5" height="5" rx="1.2"/>
-                  <rect x="1" y="8" width="5" height="5" rx="1.2"/>
-                  <rect x="8" y="8" width="5" height="5" rx="1.2"/>
-                </svg>
-                <span class="label-text">Matrice des props</span>
-                <span class="count-tag" id="count-tag" hidden></span>
+            <div class="option-group group-visual">
+              <div class="option-group-title">Annotations visuelles</div>
+
+              <div class="option" id="row-anatomy">
+                <div class="option-label">
+                  <span class="option-icon">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3">
+                      <circle cx="3.5" cy="3.5" r="1.8"/>
+                      <circle cx="10.5" cy="3.5" r="1.8"/>
+                      <circle cx="7" cy="10.5" r="1.8"/>
+                      <path d="M3.5 5.3v.7M10.5 5.3v.7M5 10.5h4"/>
+                    </svg>
+                  </span>
+                  <div class="option-text">
+                    <div class="option-title-row">
+                      <span class="label-text">Anatomie</span>
+                    </div>
+                    <span class="option-desc">Composant annoté avec un pin par calque</span>
+                  </div>
+                </div>
+                <div class="option-trailing">
+                  <button class="regen-btn" id="btn-regen-anatomy" title="Regénérer cette section" aria-label="Regénérer la section Anatomie" hidden>
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2.5 5a3.5 3.5 0 0 1 6 0M9.5 2.5V5h-2.5"/>
+                      <path d="M9.5 7a3.5 3.5 0 0 1-6 0M2.5 9.5V7h2.5"/>
+                    </svg>
+                  </button>
+                  <button class="gear-btn" id="btn-anatomy-settings" title="Configurer l'anatomie (variant, calques affichés)" aria-label="Configurer l'anatomie" hidden>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2 4.5h3.5M9 4.5h3"/>
+                      <path d="M2 9.5h2M7.5 9.5h4.5"/>
+                      <circle cx="7" cy="4.5" r="1.5"/>
+                      <circle cx="5.5" cy="9.5" r="1.5"/>
+                    </svg>
+                    <span class="gear-dot" id="gear-dot-anatomy" title="Paramètres personnalisés actifs" hidden></span>
+                  </button>
+                  <div class="toggle">
+                    <input type="checkbox" id="opt-anatomy" aria-label="Inclure l'anatomie" />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </div>
+                </div>
               </div>
-              <div class="option-trailing">
-                <button class="gear-btn" id="btn-matrix-settings" title="Paramètres de la matrice" hidden>
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="7" cy="7" r="1.8"/>
-                    <path d="M11.4 8.4l.9.5-1 1.7-1-.4a4 4 0 0 1-1.3.7l-.1 1H6.1l-.1-1a4 4 0 0 1-1.3-.7l-1 .4-1-1.7.9-.5a4 4 0 0 1 0-1.4l-.9-.5 1-1.7 1 .4a4 4 0 0 1 1.3-.7l.1-1h1.8l.1 1a4 4 0 0 1 1.3.7l1-.4 1 1.7-.9.5a4 4 0 0 1 0 1.4z"/>
-                  </svg>
-                  <span class="gear-dot" id="gear-dot-matrix" hidden></span>
-                </button>
-                <div class="toggle">
-                  <input type="checkbox" id="opt-variants" checked disabled />
-                  <div class="toggle-track"></div>
-                  <div class="toggle-thumb"></div>
+
+              <div class="option" id="row-tokens">
+                <div class="option-label">
+                  <span class="option-icon">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                      <circle cx="7" cy="7" r="2.6"/>
+                      <path d="M7 1.5A5.5 5.5 0 1 1 1.5 7" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  <div class="option-text">
+                    <div class="option-title-row">
+                      <span class="label-text">Design tokens</span>
+                    </div>
+                    <span class="option-desc">Couleurs · typographies utilisées</span>
+                  </div>
+                </div>
+                <div class="option-trailing">
+                  <button class="regen-btn" id="btn-regen-tokens" title="Regénérer cette section" aria-label="Regénérer la section Design tokens" hidden>
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2.5 5a3.5 3.5 0 0 1 6 0M9.5 2.5V5h-2.5"/>
+                      <path d="M9.5 7a3.5 3.5 0 0 1-6 0M2.5 9.5V7h2.5"/>
+                    </svg>
+                  </button>
+                  <button class="gear-btn" id="btn-tokens-settings" title="Configurer les tokens (variant, calques cherchés)" aria-label="Configurer les design tokens" hidden>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2 4.5h3.5M9 4.5h3"/>
+                      <path d="M2 9.5h2M7.5 9.5h4.5"/>
+                      <circle cx="7" cy="4.5" r="1.5"/>
+                      <circle cx="5.5" cy="9.5" r="1.5"/>
+                    </svg>
+                    <span class="gear-dot" id="gear-dot-tokens" title="Paramètres personnalisés actifs" hidden></span>
+                  </button>
+                  <div class="toggle">
+                    <input type="checkbox" id="opt-tokens" aria-label="Inclure les design tokens" checked />
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                  </div>
                 </div>
               </div>
             </div>
 
           </div>
+
+          <button class="reset-link" id="btn-reset-config" hidden>
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 4.5a3.5 3.5 0 0 1 6 0M9 2v2.5h-2.5"/>
+              <path d="M8.5 6.5a3.5 3.5 0 0 1-6 0M2 9V6.5h2.5"/>
+            </svg>
+            <span>Réinitialiser les paramètres</span>
+          </button>
         </div>
       </div>
 
       <div class="footer">
-        <button class="btn-ghost" id="close">Fermer</button>
-        <button class="btn-ghost" id="export-pdf" disabled>PDF</button>
-        <button class="btn-primary" id="generate" disabled>Générer la doc</button>
+        <button class="btn-ghost" id="close" title="Fermer le plugin">Fermer</button>
+        <button class="btn-ghost btn-icon" id="export-md" title="Exporter en Markdown" disabled>
+          <span class="btn-label">MD</span>
+        </button>
+        <button class="btn-ghost btn-icon" id="export-json" title="Exporter en JSON" disabled>
+          <span class="btn-label">JSON</span>
+        </button>
+        <button class="btn-ghost" id="export-pdf" title="Exporter en PDF (⌘⇧P)" disabled>
+          <span class="btn-spinner"></span>
+          <span class="btn-label">PDF</span>
+        </button>
+        <button class="btn-primary" id="generate" title="Générer la documentation sur le canvas (⌘↵)" disabled>
+          <span class="btn-spinner"></span>
+          <span class="btn-label">Générer la doc</span>
+        </button>
       </div>
     </div>
 
@@ -665,34 +1269,71 @@
 
       <div class="body">
         <div id="group-by-section" hidden>
-          <div class="section-title">Trier par</div>
-          <div class="hint">Cliquez pour grouper les combinaisons (ordre = niveaux)</div>
-          <div class="axes-list" id="axes-list"></div>
+          <div class="collapse-section" id="matrix-group-collapse">
+            <button class="collapse-header" id="matrix-group-header" type="button">
+              <span>Trier par</span>
+              <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
+              </svg>
+            </button>
+            <div class="collapse-body">
+              <div class="hint">Cliquez pour grouper les combinaisons (ordre = niveaux)</div>
+              <div class="axes-list" id="axes-list"></div>
+            </div>
+          </div>
         </div>
 
         <div id="exclusions-section" hidden>
-          <div class="section-title">Exclusions</div>
-          <div class="hint">Combinaisons à ne pas générer (chaque règle = ET ; plusieurs règles = OU)</div>
-          <div class="rules-list" id="rules-list"></div>
-          <button class="add-rule-btn" id="add-rule">+ Ajouter une exclusion</button>
+          <div class="collapse-section collapsed" id="matrix-exclusions-collapse">
+            <button class="collapse-header" id="matrix-exclusions-header" type="button">
+              <span>Exclusions</span>
+              <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
+              </svg>
+            </button>
+            <div class="collapse-body">
+              <div class="hint">Combinaisons à ne pas générer (chaque règle = ET ; plusieurs règles = OU)</div>
+              <div class="rules-list" id="rules-list"></div>
+              <button class="add-rule-btn" id="add-rule">+ Ajouter une exclusion</button>
+            </div>
+          </div>
         </div>
 
         <div id="locks-section" hidden>
-          <div class="section-title">Verrouiller</div>
-          <div class="hint">Cochez les valeurs à conserver pour chaque axe (vide = libre)</div>
-          <div class="locks-list" id="locks-list"></div>
+          <div class="collapse-section collapsed" id="matrix-locks-collapse">
+            <button class="collapse-header" id="matrix-locks-header" type="button">
+              <span>Verrouiller</span>
+              <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
+              </svg>
+            </button>
+            <div class="collapse-body">
+              <div class="hint">Cochez les valeurs à conserver pour chaque axe (vide = libre)</div>
+              <div class="locks-list" id="locks-list"></div>
+            </div>
+          </div>
         </div>
 
         <div id="visual-bg-section">
-          <div class="section-title">Couleur de fond du visuel</div>
-          <div class="hint">Fond de la zone d'aperçu dans chaque card de la matrice.</div>
-          <div class="visual-bg-row">
-            <label class="visual-bg-swatch" title="Choisir une couleur (pipette disponible)">
-              <span class="visual-bg-swatch-fill" id="visual-bg-fill"></span>
-              <input type="color" id="visual-bg-color" value="#FFFFFF" />
-            </label>
-            <input type="text" class="visual-bg-hex" id="visual-bg-hex" maxlength="7" spellcheck="false" />
-            <button type="button" class="visual-bg-reset" id="visual-bg-reset" title="Réinitialiser au blanc">Reset</button>
+          <div class="collapse-section collapsed" id="matrix-bg-collapse">
+            <button class="collapse-header" id="matrix-bg-header" type="button">
+              <span>Couleur de fond du visuel</span>
+              <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
+              </svg>
+            </button>
+            <div class="collapse-body">
+              <div class="hint">Fond de la zone d'aperçu dans chaque card de la matrice.</div>
+              <div class="visual-bg-row">
+                <label class="visual-bg-swatch" title="Choisir une couleur (pipette disponible)">
+                  <span class="visual-bg-swatch-fill" id="visual-bg-fill"></span>
+                  <input type="color" id="visual-bg-color" value="#FFFFFF" />
+                </label>
+                <input type="text" class="visual-bg-hex" id="visual-bg-hex" maxlength="7" spellcheck="false" aria-label="Code couleur hexadécimal" />
+                <button type="button" class="visual-bg-reset" id="visual-bg-reset" title="Réinitialiser au blanc">Reset</button>
+              </div>
+              <div class="visual-bg-hint" id="visual-bg-hint">Format attendu : #RRGGBB (ex. #E6F2FD)</div>
+            </div>
           </div>
         </div>
       </div>
@@ -703,12 +1344,142 @@
       </div>
     </div>
 
+    <div id="view-settings-anatomy" class="view">
+      <div class="settings-header">
+        <button class="back-btn" id="anatomy-settings-back" title="Retour">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 2.5L4.5 7 9 11.5"/>
+          </svg>
+        </button>
+        <span class="settings-title">Paramètres — Anatomie</span>
+      </div>
+
+      <div class="body">
+        <div class="collapse-section" id="anatomy-combo-collapse">
+          <button class="collapse-header" id="anatomy-combo-header" type="button">
+            <span>Combinaison</span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
+            </svg>
+          </button>
+          <div class="collapse-body">
+            <div class="hint">Choisissez les valeurs des props (variant + booleans) qui définissent l'instance documentée. Vide = défaut.</div>
+            <div class="locks-list" id="anatomy-variant-list"></div>
+          </div>
+        </div>
+
+        <div class="collapse-section collapsed" id="anatomy-layers-collapse">
+          <button class="collapse-header" id="anatomy-layers-header" type="button">
+            <span>Calques affichés</span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
+            </svg>
+          </button>
+          <div class="collapse-body">
+            <div class="hint">Calques détectés pour la combinaison ci-dessus. Décochez ceux qui ne doivent pas apparaître dans l'anatomie.</div>
+            <div class="layer-toolbar">
+              <button type="button" id="anatomy-layers-auto" title="Sélection automatique des calques nommés et sous-composants">Auto</button>
+              <button type="button" id="anatomy-layers-all" title="Inclure tous les calques visibles">Tout cocher</button>
+              <button type="button" id="anatomy-layers-none" title="Vider la sélection — aucun calque annoté">Tout décocher</button>
+            </div>
+            <input type="search" class="layer-filter" id="anatomy-layers-filter" placeholder="Filtrer les calques…" aria-label="Filtrer les calques de l'anatomie" />
+            <div class="layer-list" id="anatomy-layers-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-footer">
+        <button class="btn-ghost" id="anatomy-settings-cancel">Annuler</button>
+        <button class="btn-primary" id="anatomy-settings-confirm">Valider</button>
+      </div>
+    </div>
+
+    <div id="view-settings-tokens" class="view">
+      <div class="settings-header">
+        <button class="back-btn" id="tokens-settings-back" title="Retour">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 2.5L4.5 7 9 11.5"/>
+          </svg>
+        </button>
+        <span class="settings-title">Paramètres — Design tokens</span>
+      </div>
+
+      <div class="body">
+        <div class="collapse-section" id="tokens-combo-collapse">
+          <button class="collapse-header" id="tokens-combo-header" type="button">
+            <span>Combinaison</span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
+            </svg>
+          </button>
+          <div class="collapse-body">
+            <div class="hint">Choisissez les valeurs des props (variant + booleans) qui définissent l'instance analysée pour les tokens. Vide = défaut.</div>
+            <div class="locks-list" id="tokens-variant-list"></div>
+          </div>
+        </div>
+
+        <div class="collapse-section collapsed" id="tokens-layers-collapse">
+          <button class="collapse-header" id="tokens-layers-header" type="button">
+            <span>Calques cherchés</span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
+            </svg>
+          </button>
+          <div class="collapse-body">
+            <div class="hint">Calques où chercher les tokens. Auto = calques où des tokens sont déjà détectés. Le composant racine est toujours analysé.</div>
+            <div class="layer-toolbar">
+              <button type="button" id="tokens-layers-auto" title="Sélection automatique des calques où des tokens sont détectés">Auto</button>
+              <button type="button" id="tokens-layers-all" title="Chercher les tokens dans tous les calques visibles">Tout cocher</button>
+              <button type="button" id="tokens-layers-none" title="Vider la sélection — ne chercher dans aucun calque">Tout décocher</button>
+            </div>
+            <input type="search" class="layer-filter" id="tokens-layers-filter" placeholder="Filtrer les calques…" aria-label="Filtrer les calques cherchés" />
+            <div class="layer-list" id="tokens-layers-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-footer">
+        <button class="btn-ghost" id="tokens-settings-cancel">Annuler</button>
+        <button class="btn-primary" id="tokens-settings-confirm">Valider</button>
+      </div>
+    </div>
+
+    <div id="view-doc-index" class="view">
+      <div class="settings-header">
+        <button class="back-btn" id="doc-index-back" title="Retour">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 2.5L4.5 7 9 11.5"/>
+          </svg>
+        </button>
+        <span class="settings-title">Index des docs · page courante</span>
+      </div>
+      <div class="body">
+        <div class="hint">Cliquez sur un composant pour zoomer sur sa documentation.</div>
+        <div class="doc-index-list" id="doc-index-list"></div>
+      </div>
+    </div>
+
+    <div class="onboarding-overlay" id="onboarding-overlay" hidden>
+      <div class="onboarding-card">
+        <div class="onboarding-icon">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 2.5l2.6 5.3 5.9.9-4.2 4.1 1 5.7L11 16l-5.3 2.5 1-5.7-4.2-4.1 5.9-.9z"/>
+          </svg>
+        </div>
+        <h3 class="onboarding-title">Bienvenue dans DocYourProps</h3>
+        <p class="onboarding-text">
+          Sélectionnez un composant Figma puis cliquez sur <strong>⚙</strong>
+          dans une section pour ajuster sa combinaison ou ses calques. Vos
+          préférences sont mémorisées par composant.
+        </p>
+        <button class="btn-primary" id="onboarding-ok">C'est parti</button>
+      </div>
+    </div>
+
     <script>
       const content = document.getElementById("content");
       const generateBtn = document.getElementById("generate");
       const exportPdfBtn = document.getElementById("export-pdf");
-      const variantsRow = document.getElementById("row-variants");
-      const variantsBox = document.getElementById("opt-variants");
       const propsBox = document.getElementById("opt-props");
       const countTag = document.getElementById("count-tag");
       const groupBySection = document.getElementById("group-by-section");
@@ -721,11 +1492,52 @@
       const tokensBox = document.getElementById("opt-tokens");
       const matrixSettingsBtn = document.getElementById("btn-matrix-settings");
       const gearDotMatrix = document.getElementById("gear-dot-matrix");
+      const anatomySettingsBtn = document.getElementById("btn-anatomy-settings");
+      const gearDotAnatomy = document.getElementById("gear-dot-anatomy");
+      const anatomyVariantList = document.getElementById("anatomy-variant-list");
+      const anatomyComboCollapse = document.getElementById("anatomy-combo-collapse");
+      const anatomyLayersCollapse = document.getElementById("anatomy-layers-collapse");
+      const anatomyComboHeader = document.getElementById("anatomy-combo-header");
+      const anatomyLayersHeader = document.getElementById("anatomy-layers-header");
+      const anatomyLayersList = document.getElementById("anatomy-layers-list");
+      const anatomyLayersAllBtn = document.getElementById("anatomy-layers-all");
+      const anatomyLayersNoneBtn = document.getElementById("anatomy-layers-none");
       const viewMain = document.getElementById("view-main");
       const viewSettingsMatrix = document.getElementById("view-settings-matrix");
+      const viewSettingsAnatomy = document.getElementById("view-settings-anatomy");
       const settingsBackBtn = document.getElementById("settings-back");
       const settingsCancelBtn = document.getElementById("settings-cancel");
       const settingsConfirmBtn = document.getElementById("settings-confirm");
+      const anatomySettingsBackBtn = document.getElementById("anatomy-settings-back");
+      const anatomySettingsCancelBtn = document.getElementById("anatomy-settings-cancel");
+      const anatomySettingsConfirmBtn = document.getElementById("anatomy-settings-confirm");
+      const tokensSettingsBtn = document.getElementById("btn-tokens-settings");
+      const gearDotTokens = document.getElementById("gear-dot-tokens");
+      // Per-section regen buttons (W3.2). Section-title → button element.
+      const regenButtons = {
+        "Propriétés": document.getElementById("btn-regen-props"),
+        "Layout": document.getElementById("btn-regen-layout"),
+        "Anatomie": document.getElementById("btn-regen-anatomy"),
+        "Design tokens": document.getElementById("btn-regen-tokens"),
+      };
+      let currentExistingSections = [];
+      const tokensVariantList = document.getElementById("tokens-variant-list");
+      const tokensComboCollapse = document.getElementById("tokens-combo-collapse");
+      const tokensLayersCollapse = document.getElementById("tokens-layers-collapse");
+      const tokensComboHeader = document.getElementById("tokens-combo-header");
+      const tokensLayersHeader = document.getElementById("tokens-layers-header");
+      const tokensLayersList = document.getElementById("tokens-layers-list");
+      const tokensLayersAllBtn = document.getElementById("tokens-layers-all");
+      const tokensLayersNoneBtn = document.getElementById("tokens-layers-none");
+      const tokensLayersAutoBtn = document.getElementById("tokens-layers-auto");
+      const viewSettingsTokens = document.getElementById("view-settings-tokens");
+      const viewDocIndex = document.getElementById("view-doc-index");
+      const btnOpenDocIndex = document.getElementById("btn-open-doc-index");
+      const docIndexBackBtn = document.getElementById("doc-index-back");
+      const docIndexList = document.getElementById("doc-index-list");
+      const tokensSettingsBackBtn = document.getElementById("tokens-settings-back");
+      const tokensSettingsCancelBtn = document.getElementById("tokens-settings-cancel");
+      const tokensSettingsConfirmBtn = document.getElementById("tokens-settings-confirm");
       const visualBgFill = document.getElementById("visual-bg-fill");
       const visualBgColorInput = document.getElementById("visual-bg-color");
       const visualBgHexInput = document.getElementById("visual-bg-hex");
@@ -740,12 +1552,41 @@
 
       let availableAxes = [];
       let availableAxisValues = {}; // { axisName: [valueLabels...] }
+      // Subset of availableAxes that are VARIANT-typed — used by the anatomy
+      // settings (only VARIANT axes select a specific component child).
+      let variantAxes = [];
+      // True when the selected component has at least one axis (BOOLEAN / VARIANT
+      // with ≥2 values / INSTANCE_SWAP with ≥2 preferred values). Drives the
+      // matrix output, the count tag, and the gear button — props and matrix
+      // are now a single user-visible toggle ("Propriétés").
+      let matrixAvailable = false;
 
       // Applied (validated) state — used by Generate / PDF.
       let groupByOrder = [];
       let exclusionRules = [];      // Array<{ [axisName]: valueLabel }>. Empty value = (toutes)
       let propLocks = {};           // { [axisName]: string[] } — empty array / absent = libre
       let matrixVisualBg = VISUAL_BG_DEFAULT;
+      let anatomyVariant = {};      // { [axisName]: value } — variant basis for Anatomy
+      // null  → auto mode (use smart detection at generation time).
+      // []    → manual mode, no layers selected (empty anatomy).
+      // [...] → manual mode with these explicit keys.
+      let anatomyIncludedLayers = null;
+      // Cached layer preview for the current combination — refreshed by the
+      // sandbox whenever the user changes a chip in the settings view.
+      let availableAnatomyTree = []; // { key, name, type, depth }[]
+      let availableAnatomyAuto = []; // string[] — auto-detected keys (subset of tree)
+      let anatomyLayerFetchSeq = 0;  // latest-wins guard for async fetches
+      // Same shape as anatomy* but for the Design Tokens settings panel.
+      // The two are independent once the user has validated either panel
+      // (tokensConfigured / anatomyConfigured) — until then, the Tokens
+      // panel inherits anatomy's variant on first open (and vice versa).
+      let tokenVariant = {};
+      let tokenIncludedLayers = null;
+      let availableTokensTree = [];
+      let availableTokensAuto = [];
+      let tokensLayerFetchSeq = 0;
+      let anatomyConfigured = false;
+      let tokensConfigured = false;
       let baseCombinationCount = 0; // Last reported total combinations (cartesian post-dedup)
 
       // Pending state — populated when entering settings, applied on Valider, dropped on Annuler.
@@ -753,26 +1594,90 @@
       let pendingExclusionRules = null;
       let pendingPropLocks = null;
       let pendingMatrixVisualBg = null;
+      let pendingAnatomyVariant = null;
+      // Same shape as anatomyIncludedLayers (null/[]/[...]) — only set during
+      // a settings session, applied on Valider and dropped on Annuler.
+      let pendingAnatomyIncludedLayers; // intentionally undefined when not editing
+      let pendingAnatomyIncludedTouched = false; // user has interacted in this session
+      let pendingTokenVariant = null;
+      let pendingTokenIncludedLayers; // intentionally undefined when not editing
+      let pendingTokenIncludedTouched = false;
 
       // Returns the currently-edited state (pending if in settings view, else applied).
       function activeGroupBy() { return pendingGroupByOrder ?? groupByOrder; }
       function activeRules() { return pendingExclusionRules ?? exclusionRules; }
       function activeLocks() { return pendingPropLocks ?? propLocks; }
       function activeVisualBg() { return pendingMatrixVisualBg ?? matrixVisualBg; }
+      function activeAnatomyVariant() { return pendingAnatomyVariant ?? anatomyVariant; }
+      // Returns the effective set of *checked* layer keys for the current
+      // session, or null when in auto mode (use the auto-detected set).
+      function activeAnatomyIncluded() {
+        if (pendingAnatomyIncludedTouched) return pendingAnatomyIncludedLayers;
+        return anatomyIncludedLayers;
+      }
+      function activeTokenVariant() { return pendingTokenVariant ?? tokenVariant; }
+      function activeTokenIncluded() {
+        if (pendingTokenIncludedTouched) return pendingTokenIncludedLayers;
+        return tokenIncludedLayers;
+      }
 
       // Click-to-toggle for all option rows. Clicks on the gear button are intercepted
       // (stopPropagation) so they don't toggle the row.
-      ["row-props", "row-tokens", "row-variants"].forEach((id) => {
+      ["row-props", "row-layout", "row-anatomy", "row-tokens"].forEach((id) => {
         const row = document.getElementById(id);
         const cb = row.querySelector('input[type="checkbox"]');
         row.addEventListener("click", (ev) => {
-          if (ev.target.closest(".gear-btn")) return;
+          if (ev.target.closest(".gear-btn") || ev.target.closest(".regen-btn")) return;
           if (!cb.disabled) {
             cb.checked = !cb.checked;
             updateMatrixGearVisibility();
+            updateAnatomyGearVisibility();
+            updateTokensGearVisibility();
+            updateActionButtons();
           }
         });
       });
+
+      // Live-update Generate / PDF disabled state based on toggles + selection.
+      // Generate: enabled if a target is selected and at least one section is on.
+      // PDF: same constraint — same logic, no point disabling one without the other.
+      function anySectionEnabled() {
+        return (
+          document.getElementById("opt-props").checked ||
+          document.getElementById("opt-layout").checked ||
+          document.getElementById("opt-anatomy").checked ||
+          document.getElementById("opt-tokens").checked
+        );
+      }
+      function updateActionButtons() {
+        const hasTarget = !generateBtn.dataset.noTarget; // dataset flag set by renderEmpty/renderTarget
+        const ok = hasTarget && anySectionEnabled();
+        generateBtn.disabled = !ok;
+        exportPdfBtn.disabled = !ok;
+        const mdBtn = document.getElementById("export-md");
+        const jsonBtn = document.getElementById("export-json");
+        if (mdBtn) mdBtn.disabled = !ok;
+        if (jsonBtn) jsonBtn.disabled = !ok;
+      }
+
+      // Toggle the inline spinner / loading state on a footer CTA. Called when
+      // the sandbox kicks off a long-running operation and again when it
+      // signals done — restores the original label and re-enables the button.
+      function setButtonBusy(btn, busy, busyLabel) {
+        const label = btn.querySelector(".btn-label");
+        if (!label) return;
+        if (busy) {
+          if (!btn.dataset.idleLabel) btn.dataset.idleLabel = label.textContent;
+          label.textContent = busyLabel || btn.dataset.idleLabel;
+          btn.classList.add("is-loading");
+          btn.disabled = true;
+        } else {
+          if (btn.dataset.idleLabel) label.textContent = btn.dataset.idleLabel;
+          btn.classList.remove("is-loading");
+          // Re-derive disabled state from the current toggles — don't blindly enable.
+          updateActionButtons();
+        }
+      }
 
       matrixSettingsBtn.addEventListener("click", (ev) => {
         ev.stopPropagation();
@@ -781,6 +1686,95 @@
       settingsBackBtn.addEventListener("click", cancelMatrixSettings);
       settingsCancelBtn.addEventListener("click", cancelMatrixSettings);
       settingsConfirmBtn.addEventListener("click", confirmMatrixSettings);
+
+      anatomySettingsBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        openAnatomySettings();
+      });
+      anatomySettingsBackBtn.addEventListener("click", cancelAnatomySettings);
+      anatomySettingsCancelBtn.addEventListener("click", cancelAnatomySettings);
+      anatomySettingsConfirmBtn.addEventListener("click", confirmAnatomySettings);
+
+      anatomyComboHeader.addEventListener("click", () => {
+        anatomyComboCollapse.classList.toggle("collapsed");
+      });
+
+      // Matrix settings — each of the 4 sections wraps a .collapse-section
+      // for consistency with the anatomy/tokens panels. Headers toggle on click.
+      ["matrix-group", "matrix-exclusions", "matrix-locks", "matrix-bg"].forEach((id) => {
+        const header = document.getElementById(`${id}-header`);
+        const collapse = document.getElementById(`${id}-collapse`);
+        if (header && collapse) {
+          header.addEventListener("click", () => collapse.classList.toggle("collapsed"));
+        }
+      });
+      anatomyLayersHeader.addEventListener("click", () => {
+        anatomyLayersCollapse.classList.toggle("collapsed");
+      });
+      anatomyLayersAllBtn.addEventListener("click", () => {
+        // Manual mode: every layer in the tree is checked.
+        pendingAnatomyIncludedLayers = availableAnatomyTree.map((l) => l.key);
+        pendingAnatomyIncludedTouched = true;
+        renderAnatomyLayers();
+      });
+      anatomyLayersNoneBtn.addEventListener("click", () => {
+        // Manual mode: nothing checked.
+        pendingAnatomyIncludedLayers = [];
+        pendingAnatomyIncludedTouched = true;
+        renderAnatomyLayers();
+      });
+      // "Auto" / "Réinitialiser" — drop manual selection and revert to the
+      // smart auto-detected set.
+      const anatomyLayersAutoBtn = document.getElementById("anatomy-layers-auto");
+      if (anatomyLayersAutoBtn) {
+        anatomyLayersAutoBtn.addEventListener("click", () => {
+          pendingAnatomyIncludedLayers = null;
+          pendingAnatomyIncludedTouched = true; // explicit revert is itself a touch
+          renderAnatomyLayers();
+        });
+      }
+
+      // Layer filter inputs — re-render on every keystroke (cheap, no fetch).
+      const anatomyLayersFilter = document.getElementById("anatomy-layers-filter");
+      const tokensLayersFilter = document.getElementById("tokens-layers-filter");
+      if (anatomyLayersFilter) {
+        anatomyLayersFilter.addEventListener("input", () => renderAnatomyLayers());
+      }
+      if (tokensLayersFilter) {
+        tokensLayersFilter.addEventListener("input", () => renderTokensLayers());
+      }
+
+      tokensSettingsBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        openTokensSettings();
+      });
+      tokensSettingsBackBtn.addEventListener("click", cancelTokensSettings);
+      tokensSettingsCancelBtn.addEventListener("click", cancelTokensSettings);
+      tokensSettingsConfirmBtn.addEventListener("click", confirmTokensSettings);
+
+      tokensComboHeader.addEventListener("click", () => {
+        tokensComboCollapse.classList.toggle("collapsed");
+      });
+      tokensLayersHeader.addEventListener("click", () => {
+        tokensLayersCollapse.classList.toggle("collapsed");
+      });
+      tokensLayersAllBtn.addEventListener("click", () => {
+        pendingTokenIncludedLayers = availableTokensTree.map((l) => l.key);
+        pendingTokenIncludedTouched = true;
+        renderTokensLayers();
+      });
+      tokensLayersNoneBtn.addEventListener("click", () => {
+        pendingTokenIncludedLayers = [];
+        pendingTokenIncludedTouched = true;
+        renderTokensLayers();
+      });
+      if (tokensLayersAutoBtn) {
+        tokensLayersAutoBtn.addEventListener("click", () => {
+          pendingTokenIncludedLayers = null;
+          pendingTokenIncludedTouched = true;
+          renderTokensLayers();
+        });
+      }
 
       // Visual bg picker — three inputs that stay in sync.
       // The native <input type="color"> includes the OS color picker
@@ -796,17 +1790,40 @@
         if (visualBgColorInput.value.toUpperCase() !== v) visualBgColorInput.value = v;
         if (!opts || !opts.skipHexInput) visualBgHexInput.value = v;
       }
-      visualBgColorInput.addEventListener("input", (ev) => setPendingVisualBg(ev.target.value));
+      visualBgColorInput.addEventListener("input", (ev) => {
+        markHexValidity(ev.target.value);
+        setPendingVisualBg(ev.target.value);
+      });
       visualBgHexInput.addEventListener("input", (ev) => {
         const raw = ev.target.value.trim();
+        markHexValidity(raw);
         // Accept partial typing without overwriting the user's input.
         if (HEX_RE.test(raw)) setPendingVisualBg(raw, { skipHexInput: true });
       });
       visualBgHexInput.addEventListener("blur", (ev) => {
         // On blur, normalize whatever was typed (snaps to default if invalid).
         setPendingVisualBg(ev.target.value);
+        markHexValidity(ev.target.value);
       });
-      visualBgResetBtn.addEventListener("click", () => setPendingVisualBg(VISUAL_BG_DEFAULT));
+      visualBgResetBtn.addEventListener("click", () => {
+        setPendingVisualBg(VISUAL_BG_DEFAULT);
+        markHexValidity(VISUAL_BG_DEFAULT);
+      });
+
+      // Toggle the red border + hint message based on the typed value.
+      // Empty input is treated as neutral (no error shown), since the user
+      // is mid-typing or has cleared the field intentionally.
+      function markHexValidity(value) {
+        const hint = document.getElementById("visual-bg-hint");
+        const raw = (value || "").trim();
+        if (raw.length === 0 || HEX_RE.test(raw)) {
+          visualBgHexInput.classList.remove("invalid");
+          if (hint) hint.classList.remove("shown");
+        } else {
+          visualBgHexInput.classList.add("invalid");
+          if (hint) hint.classList.add("shown");
+        }
+      }
       renderVisualBgInputs();
 
       addRuleBtn.addEventListener("click", () => {
@@ -820,15 +1837,8 @@
         );
       }
 
-      function setVariantsAvailable(available) {
-        variantsBox.disabled = !available;
-        if (!available) {
-          variantsBox.checked = false;
-          variantsRow.classList.add("disabled");
-        } else {
-          variantsBox.checked = true;
-          variantsRow.classList.remove("disabled");
-        }
+      function setMatrixAvailable(available) {
+        matrixAvailable = available;
       }
 
       function updateCountTag(count) {
@@ -840,17 +1850,34 @@
         }
       }
 
-      function rebuildAxesList(axes, axisValues) {
+      function rebuildAxesList(axes, axisValues, vAxes) {
         availableAxes = axes;
         availableAxisValues = axisValues || {};
+        variantAxes = vAxes || [];
         groupByOrder = [];
         exclusionRules = [];
         propLocks = {};
         matrixVisualBg = VISUAL_BG_DEFAULT;
+        anatomyVariant = {};
+        anatomyIncludedLayers = null;
+        availableAnatomyTree = [];
+        availableAnatomyAuto = [];
+        anatomyConfigured = false;
+        tokenVariant = {};
+        tokenIncludedLayers = null;
+        availableTokensTree = [];
+        availableTokensAuto = [];
+        tokensConfigured = false;
         pendingGroupByOrder = null;
         pendingExclusionRules = null;
         pendingPropLocks = null;
         pendingMatrixVisualBg = null;
+        pendingAnatomyVariant = null;
+        pendingAnatomyIncludedLayers = undefined;
+        pendingAnatomyIncludedTouched = false;
+        pendingTokenVariant = null;
+        pendingTokenIncludedLayers = undefined;
+        pendingTokenIncludedTouched = false;
         renderVisualBgInputs();
         axesList.innerHTML = "";
         for (const axis of axes) {
@@ -1027,15 +2054,18 @@
       }
 
       function updateMatrixGearVisibility() {
-        const matrixAvailable = !variantsBox.disabled && availableAxes.length >= 1;
-        matrixSettingsBtn.hidden = !matrixAvailable;
-        if (!matrixAvailable) gearDotMatrix.hidden = true;
+        const show = matrixAvailable && availableAxes.length >= 1 && propsBox.checked;
+        matrixSettingsBtn.hidden = !show;
+        if (!show) gearDotMatrix.hidden = true;
         else updateGearDot();
       }
 
       function showView(name) {
         viewMain.classList.toggle("view-active", name === "main");
         viewSettingsMatrix.classList.toggle("view-active", name === "settings-matrix");
+        viewSettingsAnatomy.classList.toggle("view-active", name === "settings-anatomy");
+        viewSettingsTokens.classList.toggle("view-active", name === "settings-tokens");
+        viewDocIndex.classList.toggle("view-active", name === "doc-index");
       }
 
       function cloneRules(rules) {
@@ -1059,6 +2089,15 @@
         updateGroupBySectionVisibility();
         updateExclusionsSectionVisibility();
         updateLocksSectionVisibility();
+        // Reset matrix collapses to default: only "Trier par" expanded.
+        const matrixGroupCollapse = document.getElementById("matrix-group-collapse");
+        const matrixExclusionsCollapse = document.getElementById("matrix-exclusions-collapse");
+        const matrixLocksCollapse = document.getElementById("matrix-locks-collapse");
+        const matrixBgCollapse = document.getElementById("matrix-bg-collapse");
+        if (matrixGroupCollapse) matrixGroupCollapse.classList.remove("collapsed");
+        if (matrixExclusionsCollapse) matrixExclusionsCollapse.classList.add("collapsed");
+        if (matrixLocksCollapse) matrixLocksCollapse.classList.add("collapsed");
+        if (matrixBgCollapse) matrixBgCollapse.classList.add("collapsed");
         recomputeCount();
         showView("settings-matrix");
       }
@@ -1096,7 +2135,547 @@
         showView("main");
       }
 
-      function renderEmpty() {
+      function renderAnatomyVariant() {
+        const sel = activeAnatomyVariant();
+        anatomyVariantList.innerHTML = "";
+        if (variantAxes.length === 0) {
+          const hint = document.createElement("div");
+          hint.className = "hint";
+          hint.textContent = "Ce composant n'a aucun axe configurable — rien à choisir.";
+          anatomyVariantList.appendChild(hint);
+          return;
+        }
+        for (const axis of variantAxes) {
+          const row = document.createElement("div");
+          row.className = "lock-row";
+
+          const label = document.createElement("span");
+          label.className = "lock-axis";
+          label.textContent = axis;
+          label.title = axis;
+          row.appendChild(label);
+
+          const values = document.createElement("div");
+          values.className = "lock-values";
+          for (const v of availableAxisValues[axis] || []) {
+            const chip = document.createElement("div");
+            chip.className = "lock-chip";
+            chip.textContent = v;
+            if (sel[axis] === v) chip.classList.add("selected");
+            chip.addEventListener("click", () => {
+              const cur = activeAnatomyVariant();
+              // Single-select per axis: clicking the active value clears it,
+              // clicking another value replaces the selection.
+              if (cur[axis] === v) delete cur[axis];
+              else cur[axis] = v;
+              renderAnatomyVariant();
+              // Combination changed — drop the manual selection (the keys may
+              // not match the new tree) and revert to auto for clarity.
+              pendingAnatomyIncludedLayers = undefined;
+              pendingAnatomyIncludedTouched = false;
+              fetchAnatomyLayers();
+            });
+            values.appendChild(chip);
+          }
+          row.appendChild(values);
+          anatomyVariantList.appendChild(row);
+        }
+      }
+
+      function fetchAnatomyLayers() {
+        anatomyLayerFetchSeq++;
+        const seq = anatomyLayerFetchSeq;
+        // Show a placeholder while we wait for the sandbox.
+        anatomyLayersList.innerHTML = "";
+        const placeholder = document.createElement("div");
+        placeholder.className = "layer-empty";
+        placeholder.textContent = "Chargement des calques…";
+        anatomyLayersList.appendChild(placeholder);
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "fetch-anatomy-layers",
+              anatomyVariant: activeAnatomyVariant(),
+              seq,
+            },
+          },
+          "*"
+        );
+      }
+
+      // Returns the set of layer keys that should display as checked, given
+      // the current pending/applied state. In auto mode we surface the smart
+      // detection; in manual mode we surface the user's explicit list.
+      function effectiveCheckedSet() {
+        const inc = activeAnatomyIncluded();
+        if (inc === null) return new Set(availableAnatomyAuto);
+        return new Set(inc);
+      }
+
+      // Toggles a single layer's checked state. Switches to manual mode on
+      // first interaction (snapshotting the auto set so the user starts from
+      // a sensible baseline).
+      function toggleAnatomyLayer(key) {
+        if (!pendingAnatomyIncludedTouched) {
+          // Snapshot the currently checked set as the manual starting point.
+          const base = activeAnatomyIncluded();
+          pendingAnatomyIncludedLayers = base === null
+            ? availableAnatomyAuto.slice()
+            : base.slice();
+          pendingAnatomyIncludedTouched = true;
+        }
+        const idx = pendingAnatomyIncludedLayers.indexOf(key);
+        if (idx >= 0) pendingAnatomyIncludedLayers.splice(idx, 1);
+        else pendingAnatomyIncludedLayers.push(key);
+      }
+
+      function renderAnatomyLayers() {
+        const checked = effectiveCheckedSet();
+        anatomyLayersList.innerHTML = "";
+        if (availableAnatomyTree.length === 0) {
+          anatomyLayersList.appendChild(makeLayerEmptyState(
+            "Aucun calque",
+            "Ce composant n'expose aucun calque pour cette combinaison."
+          ));
+          return;
+        }
+        const filterInput = document.getElementById("anatomy-layers-filter");
+        const visible = filterTreeByQuery(availableAnatomyTree, filterInput ? filterInput.value : "");
+        if (visible.size === 0) {
+          anatomyLayersList.appendChild(makeLayerEmptyState(
+            "Aucun résultat",
+            "Aucun calque ne correspond au filtre saisi."
+          ));
+          return;
+        }
+        availableAnatomyTree.forEach((layer) => {
+          if (!visible.has(layer.key)) return;
+          const isOn = checked.has(layer.key);
+          const row = document.createElement("label");
+          row.className = "layer-row" + (isOn ? "" : " deselected");
+          row.style.paddingLeft = String(4 + layer.depth * 14) + "px";
+
+          const typeBadge = document.createElement("span");
+          typeBadge.className = "layer-type";
+          typeBadge.textContent = shortType(layer.type);
+          typeBadge.title = layer.type;
+          row.appendChild(typeBadge);
+
+          const name = document.createElement("span");
+          name.className = "layer-name";
+          name.textContent = layer.name || "—";
+          name.title = layer.name || "";
+          row.appendChild(name);
+
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = isOn;
+          cb.addEventListener("change", () => {
+            toggleAnatomyLayer(layer.key);
+            renderAnatomyLayers();
+          });
+          row.appendChild(cb);
+
+          // Double-click on a row → select the corresponding layer in Figma
+          // (handy to verify which layer is which before committing).
+          row.title = "Double-cliquez pour sélectionner ce calque dans Figma";
+          row.addEventListener("dblclick", (ev) => {
+            ev.preventDefault();
+            parent.postMessage(
+              { pluginMessage: { type: "select-layer", key: layer.key } },
+              "*"
+            );
+          });
+
+          anatomyLayersList.appendChild(row);
+        });
+      }
+
+      // Returns the set of layer keys that should be displayed for the given
+      // filter query: all matches AND all their ancestors (so the tree
+      // structure is preserved). Empty/whitespace query → all keys visible.
+      function filterTreeByQuery(tree, query) {
+        const visible = new Set();
+        const q = (query || "").trim().toLowerCase();
+        if (q.length === 0) {
+          for (const t of tree) visible.add(t.key);
+          return visible;
+        }
+        for (const t of tree) {
+          if (!t.name || !t.name.toLowerCase().includes(q)) continue;
+          // Add the matching key + every ancestor key (slash-bounded prefix).
+          visible.add(t.key);
+          let cur = t.key;
+          while (true) {
+            const slash = cur.lastIndexOf("/");
+            if (slash === -1) break;
+            cur = cur.substring(0, slash);
+            visible.add(cur);
+          }
+        }
+        return visible;
+      }
+
+      // Renders the empty-state block used by both layer pickers when no
+      // layers are detected. Better than a plain text line — shows an icon
+      // + a primary message + a discreet hint.
+      function makeLayerEmptyState(title, hint) {
+        const wrap = document.createElement("div");
+        wrap.className = "layer-empty";
+        wrap.innerHTML =
+          `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">` +
+          `<rect x="3" y="3" width="16" height="16" rx="3"/>` +
+          `<path d="M7 11h8M11 7v8"/>` +
+          `</svg>` +
+          `<div class="layer-empty-title"></div>` +
+          `<div class="layer-empty-hint"></div>`;
+        wrap.querySelector(".layer-empty-title").textContent = title;
+        wrap.querySelector(".layer-empty-hint").textContent = hint;
+        return wrap;
+      }
+
+      function shortType(t) {
+        switch (t) {
+          case "FRAME": return "F";
+          case "GROUP": return "G";
+          case "TEXT": return "T";
+          case "VECTOR": return "V";
+          case "RECTANGLE": return "R";
+          case "ELLIPSE": return "E";
+          case "INSTANCE": return "I";
+          case "COMPONENT": return "C";
+          case "COMPONENT_SET": return "CS";
+          case "LINE": return "L";
+          case "POLYGON": return "P";
+          case "STAR": return "S";
+          case "BOOLEAN_OPERATION": return "B";
+          default: return t.charAt(0);
+        }
+      }
+
+      function openAnatomySettings() {
+        // Inheritance: if Anatomy has never been validated AND Tokens has,
+        // seed the variant from Tokens. Layer scope stays independent.
+        if (!anatomyConfigured && tokensConfigured) {
+          pendingAnatomyVariant = Object.assign({}, tokenVariant);
+        } else {
+          pendingAnatomyVariant = Object.assign({}, anatomyVariant);
+        }
+        pendingAnatomyIncludedLayers = undefined;
+        pendingAnatomyIncludedTouched = false;
+        // Default both panels: combo expanded, layers collapsed.
+        anatomyComboCollapse.classList.remove("collapsed");
+        anatomyLayersCollapse.classList.add("collapsed");
+        if (anatomyLayersFilter) anatomyLayersFilter.value = "";
+        renderAnatomyVariant();
+        renderAnatomyLayers();
+        fetchAnatomyLayers();
+        showView("settings-anatomy");
+      }
+
+      function confirmAnatomySettings() {
+        if (pendingAnatomyVariant !== null) anatomyVariant = pendingAnatomyVariant;
+        if (pendingAnatomyIncludedTouched) {
+          if (pendingAnatomyIncludedLayers === null) {
+            // User clicked "Auto" — drop the explicit list, revert to default.
+            anatomyIncludedLayers = null;
+          } else {
+            // Persist only keys that exist in the current preview.
+            const treeKeys = new Set(availableAnatomyTree.map((l) => l.key));
+            anatomyIncludedLayers = pendingAnatomyIncludedLayers.filter((k) =>
+              treeKeys.has(k)
+            );
+          }
+        }
+        anatomyConfigured = true;
+        pendingAnatomyVariant = null;
+        pendingAnatomyIncludedLayers = undefined;
+        pendingAnatomyIncludedTouched = false;
+        updateAnatomyGearDot();
+        showView("main");
+      }
+
+      function cancelAnatomySettings() {
+        pendingAnatomyVariant = null;
+        pendingAnatomyIncludedLayers = undefined;
+        pendingAnatomyIncludedTouched = false;
+        showView("main");
+      }
+
+      function hasActiveAnatomySettings() {
+        return (
+          Object.keys(anatomyVariant).length > 0 ||
+          anatomyIncludedLayers !== null
+        );
+      }
+
+      function updateAnatomyGearDot() {
+        gearDotAnatomy.hidden = !hasActiveAnatomySettings();
+      }
+
+      function updateAnatomyGearVisibility() {
+        const anatomyBox = document.getElementById("opt-anatomy");
+        const show = variantAxes.length > 0 && anatomyBox.checked;
+        anatomySettingsBtn.hidden = !show;
+        if (!show) gearDotAnatomy.hidden = true;
+        else updateAnatomyGearDot();
+      }
+
+      // ── Tokens settings panel — mirrors the anatomy panel logic ──────────
+
+      function renderTokensVariant() {
+        const sel = activeTokenVariant();
+        tokensVariantList.innerHTML = "";
+        if (variantAxes.length === 0) {
+          const hint = document.createElement("div");
+          hint.className = "hint";
+          hint.textContent = "Ce composant n'a aucun axe configurable — rien à choisir.";
+          tokensVariantList.appendChild(hint);
+          return;
+        }
+        for (const axis of variantAxes) {
+          const row = document.createElement("div");
+          row.className = "lock-row";
+          const label = document.createElement("span");
+          label.className = "lock-axis";
+          label.textContent = axis;
+          label.title = axis;
+          row.appendChild(label);
+
+          const values = document.createElement("div");
+          values.className = "lock-values";
+          for (const v of availableAxisValues[axis] || []) {
+            const chip = document.createElement("div");
+            chip.className = "lock-chip";
+            chip.textContent = v;
+            if (sel[axis] === v) chip.classList.add("selected");
+            chip.addEventListener("click", () => {
+              const cur = activeTokenVariant();
+              if (cur[axis] === v) delete cur[axis];
+              else cur[axis] = v;
+              renderTokensVariant();
+              // Combination changed → drop the user's manual layer selection
+              // (keys may not match the new tree) and revert to auto.
+              pendingTokenIncludedLayers = undefined;
+              pendingTokenIncludedTouched = false;
+              fetchTokensLayers();
+            });
+            values.appendChild(chip);
+          }
+          row.appendChild(values);
+          tokensVariantList.appendChild(row);
+        }
+      }
+
+      function fetchTokensLayers() {
+        tokensLayerFetchSeq++;
+        const seq = tokensLayerFetchSeq;
+        tokensLayersList.innerHTML = "";
+        const placeholder = document.createElement("div");
+        placeholder.className = "layer-empty";
+        placeholder.textContent = "Chargement des calques…";
+        tokensLayersList.appendChild(placeholder);
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "fetch-tokens-layers",
+              tokenVariant: activeTokenVariant(),
+              seq,
+            },
+          },
+          "*"
+        );
+      }
+
+      function effectiveTokensCheckedSet() {
+        const inc = activeTokenIncluded();
+        if (inc === null) return new Set(availableTokensAuto);
+        return new Set(inc);
+      }
+
+      function toggleTokensLayer(key) {
+        if (!pendingTokenIncludedTouched) {
+          const base = activeTokenIncluded();
+          pendingTokenIncludedLayers = base === null
+            ? availableTokensAuto.slice()
+            : base.slice();
+          pendingTokenIncludedTouched = true;
+        }
+        const idx = pendingTokenIncludedLayers.indexOf(key);
+        if (idx >= 0) pendingTokenIncludedLayers.splice(idx, 1);
+        else pendingTokenIncludedLayers.push(key);
+      }
+
+      function renderTokensLayers() {
+        const checked = effectiveTokensCheckedSet();
+        tokensLayersList.innerHTML = "";
+        if (availableTokensTree.length === 0) {
+          tokensLayersList.appendChild(makeLayerEmptyState(
+            "Aucun calque",
+            "Ce composant n'expose aucun calque pour cette combinaison."
+          ));
+          return;
+        }
+        const filterInput = document.getElementById("tokens-layers-filter");
+        const visible = filterTreeByQuery(availableTokensTree, filterInput ? filterInput.value : "");
+        if (visible.size === 0) {
+          tokensLayersList.appendChild(makeLayerEmptyState(
+            "Aucun résultat",
+            "Aucun calque ne correspond au filtre saisi."
+          ));
+          return;
+        }
+        availableTokensTree.forEach((layer) => {
+          if (!visible.has(layer.key)) return;
+          const isOn = checked.has(layer.key);
+          const row = document.createElement("label");
+          row.className = "layer-row" + (isOn ? "" : " deselected");
+          row.style.paddingLeft = String(4 + layer.depth * 14) + "px";
+
+          const typeBadge = document.createElement("span");
+          typeBadge.className = "layer-type";
+          typeBadge.textContent = shortType(layer.type);
+          typeBadge.title = layer.type;
+          row.appendChild(typeBadge);
+
+          const name = document.createElement("span");
+          name.className = "layer-name";
+          name.textContent = layer.name || "—";
+          name.title = layer.name || "";
+          row.appendChild(name);
+
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = isOn;
+          cb.addEventListener("change", () => {
+            toggleTokensLayer(layer.key);
+            renderTokensLayers();
+          });
+          row.appendChild(cb);
+
+          row.title = "Double-cliquez pour sélectionner ce calque dans Figma";
+          row.addEventListener("dblclick", (ev) => {
+            ev.preventDefault();
+            parent.postMessage(
+              { pluginMessage: { type: "select-layer", key: layer.key } },
+              "*"
+            );
+          });
+
+          tokensLayersList.appendChild(row);
+        });
+      }
+
+      function openTokensSettings() {
+        // Inheritance rule: if Tokens has never been validated AND Anatomy
+        // has, seed the variant from Anatomy. Layer scope stays independent
+        // (semantics differ — Anatomy = display, Tokens = search scope).
+        if (!tokensConfigured && anatomyConfigured) {
+          pendingTokenVariant = Object.assign({}, anatomyVariant);
+        } else {
+          pendingTokenVariant = Object.assign({}, tokenVariant);
+        }
+        pendingTokenIncludedLayers = undefined;
+        pendingTokenIncludedTouched = false;
+        tokensComboCollapse.classList.remove("collapsed");
+        tokensLayersCollapse.classList.add("collapsed");
+        if (tokensLayersFilter) tokensLayersFilter.value = "";
+        renderTokensVariant();
+        renderTokensLayers();
+        fetchTokensLayers();
+        showView("settings-tokens");
+      }
+
+      function confirmTokensSettings() {
+        if (pendingTokenVariant !== null) tokenVariant = pendingTokenVariant;
+        if (pendingTokenIncludedTouched) {
+          if (pendingTokenIncludedLayers === null) {
+            tokenIncludedLayers = null;
+          } else {
+            const treeKeys = new Set(availableTokensTree.map((l) => l.key));
+            tokenIncludedLayers = pendingTokenIncludedLayers.filter((k) => treeKeys.has(k));
+          }
+        }
+        pendingTokenVariant = null;
+        pendingTokenIncludedLayers = undefined;
+        pendingTokenIncludedTouched = false;
+        tokensConfigured = true;
+        updateTokensGearDot();
+        showView("main");
+      }
+
+      function cancelTokensSettings() {
+        pendingTokenVariant = null;
+        pendingTokenIncludedLayers = undefined;
+        pendingTokenIncludedTouched = false;
+        showView("main");
+      }
+
+      function hasActiveTokensSettings() {
+        return Object.keys(tokenVariant).length > 0 || tokenIncludedLayers !== null;
+      }
+
+      function updateTokensGearDot() {
+        gearDotTokens.hidden = !hasActiveTokensSettings();
+      }
+
+      function updateTokensGearVisibility() {
+        const tokensBox = document.getElementById("opt-tokens");
+        const show = variantAxes.length > 0 && tokensBox.checked;
+        tokensSettingsBtn.hidden = !show;
+        if (!show) gearDotTokens.hidden = true;
+        else updateTokensGearDot();
+      }
+
+      // Show/hide per-section regen buttons based on which sections already
+      // have a sheet on the canvas for the current target.
+      function updateRegenButtons() {
+        const sections = new Set(currentExistingSections || []);
+        for (const [title, btn] of Object.entries(regenButtons)) {
+          if (!btn) continue;
+          btn.hidden = !sections.has(title);
+        }
+      }
+
+      // Wire the click → send `regen-section` to the sandbox.
+      Object.entries(regenButtons).forEach(([title, btn]) => {
+        if (!btn) return;
+        btn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          btn.classList.add("is-busy");
+          btn.disabled = true;
+          parent.postMessage(
+            {
+              pluginMessage: {
+                type: "regen-section",
+                section: title,
+                options: getOptions(),
+              },
+            },
+            "*"
+          );
+          // Safety reset in case the sandbox doesn't reply within 30s.
+          setTimeout(() => {
+            btn.classList.remove("is-busy");
+            btn.disabled = false;
+          }, 30_000);
+        });
+      });
+
+      function renderEmpty(emptyReason) {
+        // Build a contextual message from the reason sent by the sandbox.
+        let title, hint;
+        if (emptyReason && emptyReason.reason === "multi-selection") {
+          title = "Plusieurs éléments sélectionnés";
+          hint = "Sélectionnez un seul composant, set de variants ou instance.";
+        } else if (emptyReason && emptyReason.reason === "wrong-type") {
+          const t = String(emptyReason.nodeType || "").toLowerCase().replace(/_/g, " ");
+          title = `Type non supporté (${t})`;
+          hint = "Sélectionnez un Component, Component Set ou Instance.";
+        } else {
+          title = null;
+          hint = "Sélectionnez un composant, un set de variants ou une instance.";
+        }
         content.innerHTML = `
           <div class="empty">
             <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
@@ -1105,18 +2684,27 @@
               <rect x="3" y="18" width="11" height="11" rx="2.5" fill="var(--figma-color-border,#d9d9d9)" opacity=".45"/>
               <rect x="18" y="18" width="11" height="11" rx="2.5" fill="var(--figma-color-border,#d9d9d9)"/>
             </svg>
-            <p class="empty-hint">Sélectionnez un composant,<br>un set de variants ou une instance.</p>
+            ${title ? `<p class="empty-title">${title}</p>` : ""}
+            <p class="empty-hint">${hint}</p>
           </div>`;
-        generateBtn.disabled = true;
-        exportPdfBtn.disabled = true;
-        setVariantsAvailable(false);
+        generateBtn.dataset.noTarget = "1";
+        exportPdfBtn.dataset.noTarget = "1";
+        setMatrixAvailable(false);
         baseCombinationCount = 0;
         updateCountTag(0);
-        rebuildAxesList([], {});
+        rebuildAxesList([], {}, []);
+        updatePropsRowLabel();
+        document.getElementById("btn-reset-config").hidden = true;
+        btnOpenDocIndex.hidden = true;
+        currentExistingSections = [];
+        updateRegenButtons();
         updateGroupBySectionVisibility();
         updateExclusionsSectionVisibility();
         updateLocksSectionVisibility();
         updateMatrixGearVisibility();
+        updateAnatomyGearVisibility();
+        updateTokensGearVisibility();
+        updateActionButtons();
         showView("main");
       }
 
@@ -1126,28 +2714,69 @@
           : `<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
                <rect x="3" y="3" width="18" height="18" rx="3" stroke="var(--figma-color-border,#d9d9d9)" stroke-width="1.5"/>
              </svg>`;
-        const kindLabel = target.kind === "COMPONENT_SET" ? "Set" : "Composant";
         const n = target.props.length;
+        const combos = target.combinationCount || 0;
+        // Mini badges row: props count + combinations + saved-config marker.
+        const badges = [];
+        badges.push(
+          `<span class="badge with-accent badge--props">${n} prop${n !== 1 ? "s" : ""}</span>`
+        );
+        if (combos > 0) {
+          badges.push(
+            `<span class="badge with-accent badge--combos">${combos} combinaison${combos !== 1 ? "s" : ""}</span>`
+          );
+        }
+        if (target.savedConfig) {
+          badges.push(
+            `<span class="badge badge--saved" title="Préférences mémorisées pour ce composant">Mémorisé</span>`
+          );
+        }
         content.innerHTML = `
           <div class="component-card">
             <div class="preview-img">${img}</div>
             <div class="component-meta">
-              <span class="component-name">${escapeHtml(target.name)}</span>
-              <span class="badge">${kindLabel} · ${n} prop${n !== 1 ? "s" : ""}</span>
+              <div class="component-meta-row">
+                <span class="component-name" title="${escapeHtml(target.name)}">${escapeHtml(target.name)}</span>
+              </div>
+              <div class="badge-list">${badges.join("")}</div>
             </div>
           </div>`;
-        generateBtn.disabled = false;
-        exportPdfBtn.disabled = false;
-        setVariantsAvailable(target.combinationCount > 0);
+        delete generateBtn.dataset.noTarget;
+        delete exportPdfBtn.dataset.noTarget;
+        setMatrixAvailable(target.combinationCount > 0);
         baseCombinationCount = target.combinationCount || 0;
         updateCountTag(baseCombinationCount);
-        rebuildAxesList(target.axes || [], target.axisValues || {});
+        rebuildAxesList(target.axes || [], target.axisValues || {}, target.variantAxes || []);
         applySavedConfig(target.savedConfig);
+        updatePropsRowLabel();
+        document.getElementById("btn-reset-config").hidden = !target.savedConfig;
+        btnOpenDocIndex.hidden = false;
+        currentExistingSections = Array.isArray(target.existingSections)
+          ? target.existingSections
+          : [];
+        updateRegenButtons();
         updateGroupBySectionVisibility();
         updateExclusionsSectionVisibility();
         updateLocksSectionVisibility();
         updateMatrixGearVisibility();
+        updateAnatomyGearVisibility();
+        updateTokensGearVisibility();
+        updateActionButtons();
         showView("main");
+      }
+
+      // Dynamic label: "Propriétés & combinaisons" when the component exposes
+      // at least one axis (variant / boolean / instance_swap) — surfaces the
+      // matrix that's otherwise hidden behind the Props toggle.
+      function updatePropsRowLabel() {
+        const labelEl = document.getElementById("row-props-label");
+        const descEl = document.getElementById("row-props-desc");
+        const hasAxes = availableAxes.length > 0;
+        if (labelEl) labelEl.textContent = hasAxes ? "Propriétés & combinaisons" : "Propriétés";
+        if (descEl)
+          descEl.textContent = hasAxes
+            ? "Tableau des props + matrice visuelle des variants"
+            : "Tableau des props du composant";
       }
 
       // Restore previously saved options for this component (filtering out
@@ -1157,9 +2786,13 @@
         if (saved.options) {
           if (typeof saved.options.props === "boolean") propsBox.checked = saved.options.props;
           if (typeof saved.options.tokens === "boolean") tokensBox.checked = saved.options.tokens;
-          if (typeof saved.options.variants === "boolean" && !variantsBox.disabled) {
-            variantsBox.checked = saved.options.variants;
-          }
+          // saved.options.variants is no longer a user-controlled toggle —
+          // matrix rendering is auto-derived from matrixAvailable. The field
+          // is preserved on disk for backward compat but ignored here.
+          const layoutBox = document.getElementById("opt-layout");
+          if (typeof saved.options.layout === "boolean") layoutBox.checked = saved.options.layout;
+          const anatomyBox = document.getElementById("opt-anatomy");
+          if (typeof saved.options.anatomy === "boolean") anatomyBox.checked = saved.options.anatomy;
         }
         if (Array.isArray(saved.groupBy)) {
           groupByOrder = saved.groupBy.filter((n) => availableAxes.includes(n));
@@ -1200,15 +2833,88 @@
           matrixVisualBg = normalizeHex(saved.matrixVisualBg);
           renderVisualBgInputs();
         }
+        if (saved.anatomyVariant && typeof saved.anatomyVariant === "object") {
+          anatomyVariant = {};
+          for (const k of Object.keys(saved.anatomyVariant)) {
+            if (!variantAxes.includes(k)) continue;
+            const v = saved.anatomyVariant[k];
+            if (typeof v !== "string") continue;
+            if (!(availableAxisValues[k] || []).includes(v)) continue;
+            anatomyVariant[k] = v;
+          }
+        }
+        if (Array.isArray(saved.anatomyIncludedLayers)) {
+          anatomyIncludedLayers = saved.anatomyIncludedLayers.filter(
+            (k) => typeof k === "string"
+          );
+        } else {
+          anatomyIncludedLayers = null; // auto mode
+        }
+        if (saved.tokenVariant && typeof saved.tokenVariant === "object") {
+          tokenVariant = {};
+          for (const k of Object.keys(saved.tokenVariant)) {
+            if (!variantAxes.includes(k)) continue;
+            const v = saved.tokenVariant[k];
+            if (typeof v !== "string") continue;
+            if (!(availableAxisValues[k] || []).includes(v)) continue;
+            tokenVariant[k] = v;
+          }
+        }
+        if (Array.isArray(saved.tokenIncludedLayers)) {
+          tokenIncludedLayers = saved.tokenIncludedLayers.filter(
+            (k) => typeof k === "string"
+          );
+        } else {
+          tokenIncludedLayers = null;
+        }
+        anatomyConfigured = saved.anatomyConfigured === true;
+        tokensConfigured = saved.tokensConfigured === true;
         updateGearDot();
+        updateAnatomyGearDot();
+        updateTokensGearDot();
       }
 
       window.onmessage = (event) => {
         const msg = event.data && event.data.pluginMessage;
         if (!msg) return;
-        if (msg.type === "selection") {
+        if (msg.type === "init") {
+          // First-launch onboarding gate. Default to "already onboarded" if
+          // the storage flag couldn't be read (better than spamming the user).
+          if (msg.onboarded === false) {
+            document.getElementById("onboarding-overlay").hidden = false;
+          }
+        } else if (msg.type === "selection") {
           if (msg.target) renderTarget(msg.target);
-          else renderEmpty();
+          else renderEmpty(msg.emptyReason);
+        } else if (msg.type === "anatomy-layers") {
+          // Stale response — newer fetch in flight, ignore.
+          if (typeof msg.seq === "number" && msg.seq !== anatomyLayerFetchSeq) return;
+          const payload = msg.layers || {};
+          availableAnatomyTree = Array.isArray(payload.tree) ? payload.tree : [];
+          availableAnatomyAuto = Array.isArray(payload.autoSelected) ? payload.autoSelected : [];
+          // Drop stale keys from the manual selection (if any) so the visible
+          // checkbox state matches the new tree.
+          const treeKeys = new Set(availableAnatomyTree.map((l) => l.key));
+          if (Array.isArray(pendingAnatomyIncludedLayers)) {
+            pendingAnatomyIncludedLayers = pendingAnatomyIncludedLayers.filter((k) => treeKeys.has(k));
+          }
+          if (Array.isArray(anatomyIncludedLayers)) {
+            anatomyIncludedLayers = anatomyIncludedLayers.filter((k) => treeKeys.has(k));
+          }
+          renderAnatomyLayers();
+        } else if (msg.type === "tokens-layers") {
+          if (typeof msg.seq === "number" && msg.seq !== tokensLayerFetchSeq) return;
+          const payload = msg.layers || {};
+          availableTokensTree = Array.isArray(payload.tree) ? payload.tree : [];
+          availableTokensAuto = Array.isArray(payload.autoSelected) ? payload.autoSelected : [];
+          const treeKeys = new Set(availableTokensTree.map((l) => l.key));
+          if (Array.isArray(pendingTokenIncludedLayers)) {
+            pendingTokenIncludedLayers = pendingTokenIncludedLayers.filter((k) => treeKeys.has(k));
+          }
+          if (Array.isArray(tokenIncludedLayers)) {
+            tokenIncludedLayers = tokenIncludedLayers.filter((k) => treeKeys.has(k));
+          }
+          renderTokensLayers();
         } else if (msg.type === "pdf-export") {
           const pdf = buildMultiPagePdf(msg.jpegs);
           const blob = new Blob([pdf], { type: "application/pdf" });
@@ -1220,6 +2926,56 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
+          // PDF flow done — restore the button.
+          if (pdfTimeoutId) clearTimeout(pdfTimeoutId);
+          setButtonBusy(exportPdfBtn, false);
+        } else if (msg.type === "download") {
+          // Generic text-blob download (used by Markdown / JSON exports).
+          const blob = new Blob([msg.content || ""], { type: msg.mime || "text/plain" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = msg.filename || "documentation";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } else if (msg.type === "doc-index") {
+          renderDocIndex(Array.isArray(msg.items) ? msg.items : []);
+        } else if (msg.type === "progress") {
+          // Pick the busy button and update its label inline (e.g. "Génération 12/50…").
+          const busyBtn = generateBtn.classList.contains("is-loading")
+            ? generateBtn
+            : exportPdfBtn.classList.contains("is-loading")
+            ? exportPdfBtn
+            : null;
+          if (busyBtn) {
+            const label = busyBtn.querySelector(".btn-label");
+            if (label && typeof msg.current === "number" && typeof msg.total === "number") {
+              const prefix = busyBtn === generateBtn ? "Génération" : "Export";
+              label.textContent = `${prefix} ${msg.current}/${msg.total}…`;
+            }
+          }
+        } else if (msg.type === "generation-done") {
+          if (generateTimeoutId) clearTimeout(generateTimeoutId);
+          setButtonBusy(generateBtn, false);
+          // Per-section regen buttons share the same done event — restore them.
+          for (const btn of Object.values(regenButtons)) {
+            if (!btn) continue;
+            btn.classList.remove("is-busy");
+            btn.disabled = false;
+          }
+        } else if (msg.type === "generation-error") {
+          if (generateTimeoutId) clearTimeout(generateTimeoutId);
+          setButtonBusy(generateBtn, false);
+          for (const btn of Object.values(regenButtons)) {
+            if (!btn) continue;
+            btn.classList.remove("is-busy");
+            btn.disabled = false;
+          }
+        } else if (msg.type === "pdf-error") {
+          if (pdfTimeoutId) clearTimeout(pdfTimeoutId);
+          setButtonBusy(exportPdfBtn, false);
         }
       };
 
@@ -1231,7 +2987,16 @@
         return {
           props: document.getElementById("opt-props").checked,
           tokens: document.getElementById("opt-tokens").checked,
-          variants: !variantsBox.disabled && variantsBox.checked,
+          variants: matrixAvailable && propsBox.checked,
+          layout: document.getElementById("opt-layout").checked,
+          anatomy: document.getElementById("opt-anatomy").checked,
+          anatomyVariant: Object.assign({}, anatomyVariant),
+          // null = auto (don't send the field). Otherwise persist the explicit list.
+          anatomyIncludedLayers: anatomyIncludedLayers === null ? undefined : anatomyIncludedLayers.slice(),
+          tokenVariant: Object.assign({}, tokenVariant),
+          tokenIncludedLayers: tokenIncludedLayers === null ? undefined : tokenIncludedLayers.slice(),
+          anatomyConfigured: anatomyConfigured,
+          tokensConfigured: tokensConfigured,
           groupBy: groupByOrder.slice(),
           // Drop empty rules (no conditions selected)
           excludeRules: exclusionRules
@@ -1242,16 +3007,202 @@
         };
       }
 
+      // Safety timeout — if the sandbox somehow never sends a `*-done` event
+      // (crash, throw on infinity loops, etc.), we still restore the buttons
+      // after 30s so the UI doesn't stay stuck.
+      const BUSY_TIMEOUT_MS = 30_000;
+      let generateTimeoutId = null;
+      let pdfTimeoutId = null;
+
       document.getElementById("generate").addEventListener("click", () => {
+        setButtonBusy(generateBtn, true, "Génération…");
+        if (generateTimeoutId) clearTimeout(generateTimeoutId);
+        generateTimeoutId = setTimeout(
+          () => setButtonBusy(generateBtn, false),
+          BUSY_TIMEOUT_MS
+        );
         parent.postMessage({ pluginMessage: { type: "generate-doc", options: getOptions() } }, "*");
       });
 
       document.getElementById("export-pdf").addEventListener("click", () => {
+        setButtonBusy(exportPdfBtn, true, "Export…");
+        if (pdfTimeoutId) clearTimeout(pdfTimeoutId);
+        pdfTimeoutId = setTimeout(() => setButtonBusy(exportPdfBtn, false), BUSY_TIMEOUT_MS);
         parent.postMessage({ pluginMessage: { type: "export-pdf", options: getOptions() } }, "*");
+      });
+
+      // Markdown / JSON export — sandbox builds the string, UI streams it as a
+      // Blob download. No spinner needed: these are near-instant.
+      document.getElementById("export-md").addEventListener("click", () => {
+        parent.postMessage(
+          { pluginMessage: { type: "export-markdown", options: getOptions() } },
+          "*"
+        );
+      });
+      document.getElementById("export-json").addEventListener("click", () => {
+        parent.postMessage(
+          { pluginMessage: { type: "export-json", options: getOptions() } },
+          "*"
+        );
       });
 
       document.getElementById("close").addEventListener("click", () => {
         parent.postMessage({ pluginMessage: { type: "close" } }, "*");
+      });
+
+      // Onboarding dismiss — hides the overlay AND tells the sandbox to set
+      // the storage flag so it doesn't show up again on subsequent launches.
+      document.getElementById("onboarding-ok").addEventListener("click", () => {
+        document.getElementById("onboarding-overlay").hidden = true;
+        parent.postMessage({ pluginMessage: { type: "set-onboarded" } }, "*");
+      });
+
+      // Doc index: open / back / item click.
+      btnOpenDocIndex.addEventListener("click", () => {
+        // Render a transient "Chargement…" then ask the sandbox.
+        docIndexList.innerHTML = `<div class="doc-index-empty">Chargement…</div>`;
+        parent.postMessage({ pluginMessage: { type: "fetch-doc-index" } }, "*");
+        showView("doc-index");
+      });
+      docIndexBackBtn.addEventListener("click", () => showView("main"));
+
+      function renderDocIndex(items) {
+        docIndexList.innerHTML = "";
+        if (!items || items.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "doc-index-empty";
+          empty.textContent = "Aucune documentation détectée sur la page courante.";
+          docIndexList.appendChild(empty);
+          return;
+        }
+        for (const it of items) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "doc-index-item" + (it.missing ? " missing" : "");
+          btn.title = it.missing
+            ? "Le composant a été supprimé — la documentation est orpheline"
+            : "Cliquez pour zoomer sur la documentation";
+
+          const name = document.createElement("div");
+          name.className = "doc-index-name";
+          const nameSpan = document.createElement("span");
+          nameSpan.textContent = it.name;
+          name.appendChild(nameSpan);
+          if (it.missing) {
+            const tag = document.createElement("span");
+            tag.className = "missing-tag";
+            tag.textContent = "supprimé";
+            name.appendChild(tag);
+          }
+          btn.appendChild(name);
+
+          const sections = document.createElement("div");
+          sections.className = "doc-index-sections";
+          for (const s of it.sections) {
+            const badge = document.createElement("span");
+            badge.className = "badge";
+            badge.textContent = s;
+            sections.appendChild(badge);
+          }
+          btn.appendChild(sections);
+
+          btn.addEventListener("click", () => {
+            parent.postMessage(
+              { pluginMessage: { type: "locate-component-doc", targetId: it.targetId } },
+              "*"
+            );
+          });
+          docIndexList.appendChild(btn);
+        }
+      }
+
+      // Global keyboard shortcuts:
+      //   ⌘/Ctrl + Enter       → Generate
+      //   ⌘/Ctrl + Shift + P   → PDF
+      //   Esc                  → Back from any settings view to main
+      // Skipped when typing in <input>/<textarea> (except Esc which blurs).
+      document.addEventListener("keydown", (ev) => {
+        const target = ev.target;
+        const inEditableField =
+          target instanceof HTMLElement &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.isContentEditable);
+
+        if (ev.key === "Escape") {
+          if (inEditableField) {
+            target.blur();
+            return;
+          }
+          // Cancel any active settings view; on main view this is a no-op.
+          if (viewSettingsMatrix.classList.contains("view-active")) {
+            ev.preventDefault();
+            cancelMatrixSettings();
+          } else if (viewSettingsAnatomy.classList.contains("view-active")) {
+            ev.preventDefault();
+            cancelAnatomySettings();
+          } else if (viewSettingsTokens.classList.contains("view-active")) {
+            ev.preventDefault();
+            cancelTokensSettings();
+          }
+          return;
+        }
+
+        if (inEditableField) return;
+
+        const meta = ev.metaKey || ev.ctrlKey;
+        if (meta && ev.key === "Enter" && !ev.shiftKey) {
+          ev.preventDefault();
+          if (!generateBtn.disabled && !generateBtn.classList.contains("is-loading")) {
+            generateBtn.click();
+          }
+        } else if (meta && ev.shiftKey && (ev.key === "p" || ev.key === "P")) {
+          ev.preventDefault();
+          if (!exportPdfBtn.disabled && !exportPdfBtn.classList.contains("is-loading")) {
+            exportPdfBtn.click();
+          }
+        }
+      });
+
+      // Reset configuration — clears clientStorage for the current component
+      // and resets all per-component state in the UI back to defaults.
+      const btnResetConfig = document.getElementById("btn-reset-config");
+      btnResetConfig.addEventListener("click", () => {
+        if (!confirm("Effacer les paramètres mémorisés pour ce composant ?")) return;
+        // Reset every persisted slice to its default.
+        groupByOrder = [];
+        exclusionRules = [];
+        propLocks = {};
+        matrixVisualBg = VISUAL_BG_DEFAULT;
+        anatomyVariant = {};
+        anatomyIncludedLayers = null;
+        anatomyConfigured = false;
+        tokenVariant = {};
+        tokenIncludedLayers = null;
+        tokensConfigured = false;
+        // Drop any pending edits across settings views.
+        pendingGroupByOrder = null;
+        pendingExclusionRules = null;
+        pendingPropLocks = null;
+        pendingMatrixVisualBg = null;
+        pendingAnatomyVariant = null;
+        pendingAnatomyIncludedLayers = undefined;
+        pendingAnatomyIncludedTouched = false;
+        pendingTokenVariant = null;
+        pendingTokenIncludedLayers = undefined;
+        pendingTokenIncludedTouched = false;
+        // Re-render every dependent UI bit.
+        renderRules();
+        renderLocks();
+        renderVisualBgInputs();
+        updateChipsDisplay();
+        recomputeCount();
+        updateGearDot();
+        updateAnatomyGearDot();
+        updateTokensGearDot();
+        btnResetConfig.hidden = true;
+        // Tell the sandbox to drop the persisted config.
+        parent.postMessage({ pluginMessage: { type: "clear-config" } }, "*");
       });
 
       // ── PDF builder (pure JS, no deps) ───────────────────────────────────────

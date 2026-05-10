@@ -1,4 +1,4 @@
-# DocPlugin — guide pour Claude
+# DocYourProps — guide pour Claude
 
 Plugin Figma (Figma Design uniquement). TypeScript + UI HTML vanilla.
 
@@ -61,9 +61,10 @@ Fonts (`loadFonts`) : on tente `Colfax` (titres) et `Roboto` (table) en plus d'`
 - Fonts : Inter Regular + Inter Semi Bold (baseline garantie). En plus, `loadFonts()` tente `Colfax` (Regular + Medium) et `Roboto` (Regular + Medium) en best-effort via `tryLoadFont` ; les nodes texte de la fiche "admin" lisent `FONT.title / titleMed / body / bodyMed` qui pointent sur la première famille disponible. Pour le mono (codeBlock), même approche : JetBrains Mono → Source Code Pro → Roboto Mono → fallback Inter Regular.
 - `boundVariables` : forme polymorphe (alias direct, array, objet imbriqué) ; `collectBoundVariableIds` lit `.id` partout.
 - Cards de matrice : tout en FIXED — `card`, `propsArea` et chaque mini-card. Hauteur calculée **analytiquement** (pas de flip AUTO/FIXED par card) : `cardH = visualH + 1 + (28 + n × miniH + (n-1) × 6)`. `miniH` est mesuré une fois par génération via `getMiniCardHeight()` (cache `cachedMiniCardH`, reset par `resetCardMetricsCache()` au début de `generateDoc`/`exportAsPdf`). Le cache mesure les deux variantes (texte vs booléen avec switch) et garde le max.
-- **Bug évité (1px-collapse)** : `layoutWrap: "WRAP"` est sensible — il peut produire un parent ou des enfants à 1px de hauteur dans deux cas distincts :
+- **Bug évité (1px-collapse)** : Figma peut figer un auto-layout à 1px de hauteur (ou de largeur) au premier reflow. Le bug touche WRAP **mais aussi** les VERTICAL/HORIZONTAL classiques dès qu'on combine `resize(_, 1)` avec une dimension en sizing AUTO. Cas observés :
   1. **Parent WRAP créé directement avec `counterAxisSizingMode: "AUTO"`** : la première reflow peut figer la hauteur à 1px. Solution : créer le WRAP en `counterAxisSizingMode: "FIXED"` avec une hauteur initiale non-nulle (ex. 200), `appendChild` tous les enfants, **puis** flipper en `"AUTO"`. C'est le pattern utilisé dans `buildAdminFlatGrid` et `buildFlatGridFromCards`.
   2. **Enfants WRAP en `primaryAxisSizingMode: "AUTO"`** : Figma peut les ramener à 1px. Solution : tous les enfants du WRAP sont en FIXED hauteur, calculée analytiquement (`cardH = 16 + visualH + 8 + N*32 + (N-1)*4` pour les admin cards).
+  3. **Auto-layout VERTICAL/HORIZONTAL avec `primaryAxisSizingMode: "AUTO"` puis `resize(width, 1)`** : la frame reste collée à 1px même après `appendChild` (cas rencontré sur la légende anatomie). **Pattern à suivre** : créer la frame avec **les deux axes en FIXED**, faire `resize(width, ≥nonZero)` (ex. 200 pour de la place), append les enfants, **puis** flipper en `"AUTO"` la dimension qu'on veut hugger. Idem pour les rows internes (FIXED both → resize → append → flip counter à AUTO). Règle générale : ne jamais combiner `resize(*, 1)` (ou width=1) avec une dimension AUTO sur la même frame avant l'append des enfants.
 - **Mini-card props (admin)** : la row HORIZONTAL en FIXED both axes utilise `primaryAxisAlignItems: "SPACE_BETWEEN"` + `counterAxisAlignItems: "CENTER"` avec des textes en sizing par défaut (WIDTH_AND_HEIGHT). Ne **pas** combiner `layoutGrow: 1` + `textAutoResize: "HEIGHT"` sur les textes d'une row entièrement FIXED — Figma peut produire des textes à 1px de hauteur lors du premier layout pass.
 - **Pipeline combinaisons (refactor perf)** : `enumerateValidCombinations(target, allAxes)` valide les combos AVANT toute création d'instance. Pour `COMPONENT_SET`, un `VariantIndex: Map<canonicalKey, ComponentNode>` indexe les enfants existants ; chaque combo théorique fait un lookup O(1) → si le variant n'existe pas, skip immédiat (aucune instance jetée). `IndexedCombination` porte aussi `labelMap` (lookup O(1) pour `buildLayoutFromCards` au lieu de `.find()` linéaire) et `setPropsPayload` (props non-VARIANT à appliquer sur l'instance — VARIANT déjà locked-in via `variantSource`).
 - **Async batching** : `buildAllCards()` crée les cards par batches de `CARD_BATCH_SIZE = 50`, avec `await new Promise(r => setTimeout(r, 0))` entre batches → l'UI Figma reste interactive sur les gros volumes. Notification de progression via `figma.notify(..., { timeout: 800 })`.
@@ -85,7 +86,7 @@ npm run build      # compile une fois
 npm run watch      # recompile en continu
 ```
 
-Pour tester : Figma Desktop → Plugins → Development → Import plugin from manifest → `manifest.json`. Après chaque `build`, recharger via Plugins → Development → DocPlugin (Figma recharge le `code.js` à chaque lancement).
+Pour tester : Figma Desktop → Plugins → Development → Import plugin from manifest → `manifest.json`. Après chaque `build`, recharger via Plugins → Development → DocYourProps (Figma recharge le `code.js` à chaque lancement).
 
 ## Architecture
 
