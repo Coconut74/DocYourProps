@@ -736,7 +736,40 @@
         transition: transform 0.18s ease;
         flex-shrink: 0;
         opacity: 0.7;
+        margin-left: auto;
       }
+      .collapse-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 6px;
+        background: rgba(13, 153, 255, 0.14);
+        color: var(--figma-color-bg-brand, #0d99ff);
+        border-radius: 100px;
+        font-size: 10px;
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+      .collapse-badge.dot {
+        min-width: 8px;
+        width: 8px;
+        height: 8px;
+        padding: 0;
+        border-radius: 50%;
+        background: var(--figma-color-bg-brand, #0d99ff);
+      }
+      .collapse-badge.swatch {
+        min-width: 14px;
+        width: 14px;
+        height: 14px;
+        padding: 0;
+        border-radius: 4px;
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        background: var(--badge-swatch, #fff);
+      }
+      .collapse-badge[hidden] { display: none; }
       .collapse-section.collapsed .collapse-header .chevron {
         transform: rotate(-90deg);
       }
@@ -1453,6 +1486,7 @@
           <div class="collapse-section" id="matrix-group-collapse">
             <button class="collapse-header" id="matrix-group-header" type="button">
               <span>Trier par</span>
+              <span class="collapse-badge" id="badge-matrix-group" hidden></span>
               <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
               </svg>
@@ -1468,6 +1502,7 @@
           <div class="collapse-section collapsed" id="matrix-exclusions-collapse">
             <button class="collapse-header" id="matrix-exclusions-header" type="button">
               <span>Exclusions</span>
+              <span class="collapse-badge" id="badge-matrix-exclusions" hidden></span>
               <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
               </svg>
@@ -1484,6 +1519,7 @@
           <div class="collapse-section collapsed" id="matrix-locks-collapse">
             <button class="collapse-header" id="matrix-locks-header" type="button">
               <span>Verrouiller</span>
+              <span class="collapse-badge" id="badge-matrix-locks" hidden></span>
               <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
               </svg>
@@ -1499,6 +1535,7 @@
           <div class="collapse-section collapsed" id="matrix-bg-collapse">
             <button class="collapse-header" id="matrix-bg-header" type="button">
               <span>Couleur de fond du visuel</span>
+              <span class="collapse-badge swatch" id="badge-matrix-bg" hidden></span>
               <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
               </svg>
@@ -1539,6 +1576,7 @@
         <div class="collapse-section" id="anatomy-combo-collapse">
           <button class="collapse-header" id="anatomy-combo-header" type="button">
             <span>Combinaison</span>
+            <span class="collapse-badge" id="badge-anatomy-combo" hidden></span>
             <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
               <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
             </svg>
@@ -1552,6 +1590,7 @@
         <div class="collapse-section collapsed" id="anatomy-layers-collapse">
           <button class="collapse-header" id="anatomy-layers-header" type="button">
             <span>Calques affichés</span>
+            <span class="collapse-badge dot" id="badge-anatomy-layers" hidden></span>
             <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
               <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
             </svg>
@@ -1589,6 +1628,7 @@
         <div class="collapse-section" id="tokens-combo-collapse">
           <button class="collapse-header" id="tokens-combo-header" type="button">
             <span>Combinaison</span>
+            <span class="collapse-badge" id="badge-tokens-combo" hidden></span>
             <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
               <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
             </svg>
@@ -1602,6 +1642,7 @@
         <div class="collapse-section collapsed" id="tokens-layers-collapse">
           <button class="collapse-header" id="tokens-layers-header" type="button">
             <span>Calques cherchés</span>
+            <span class="collapse-badge dot" id="badge-tokens-layers" hidden></span>
             <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
               <path d="M2.5 4.5l3.5 3.5 3.5-3.5"/>
             </svg>
@@ -1973,6 +2014,7 @@
         visualBgFill.style.background = v;
         if (visualBgColorInput.value.toUpperCase() !== v) visualBgColorInput.value = v;
         if (!opts || !opts.skipHexInput) visualBgHexInput.value = v;
+        updateCollapseBadges();
       }
       visualBgColorInput.addEventListener("input", (ev) => {
         markHexValidity(ev.target.value);
@@ -2137,6 +2179,7 @@
           card.appendChild(conditions);
           rulesList.appendChild(card);
         });
+        updateCollapseBadges();
       }
 
       function toggleAxisInGroupBy(axisName) {
@@ -2158,6 +2201,7 @@
             chip.classList.remove("selected");
           }
         });
+        updateCollapseBadges();
       }
 
       // Section visibility inside the settings view depends only on axis count.
@@ -2332,6 +2376,7 @@
           if (total > 0 && kept > 0) count = Math.round((count * kept) / total);
         }
         updateCountTag(count);
+        updateCollapseBadges();
       }
 
       function hasActiveMatrixSettings() {
@@ -2345,6 +2390,56 @@
 
       function updateGearDot() {
         gearDotMatrix.hidden = !hasActiveMatrixSettings();
+      }
+
+      // Update small badges on collapse headers when a section has active values.
+      function setBadgeCount(id, count) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (count > 0) {
+          el.textContent = String(count);
+          el.hidden = false;
+        } else {
+          el.textContent = "";
+          el.hidden = true;
+        }
+      }
+      function setBadgeDot(id, on) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.hidden = !on;
+        el.textContent = "";
+      }
+      function setBadgeSwatch(id, hex) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (hex && hex !== VISUAL_BG_DEFAULT) {
+          el.style.setProperty("--badge-swatch", hex);
+          el.hidden = false;
+        } else {
+          el.style.removeProperty("--badge-swatch");
+          el.hidden = true;
+        }
+      }
+      function updateCollapseBadges() {
+        // Matrix
+        setBadgeCount("badge-matrix-group", activeGroupBy().length);
+        const rulesActive = activeRules().filter((r) => Object.keys(r).length > 0).length;
+        setBadgeCount("badge-matrix-exclusions", rulesActive);
+        const locks = activeLocks();
+        const locksActive = Object.keys(locks).filter(
+          (k) => Array.isArray(locks[k]) && locks[k].length > 0
+        ).length;
+        setBadgeCount("badge-matrix-locks", locksActive);
+        setBadgeSwatch("badge-matrix-bg", activeVisualBg());
+        // Anatomy
+        const aVar = activeAnatomyVariant() || {};
+        setBadgeCount("badge-anatomy-combo", Object.keys(aVar).length);
+        setBadgeDot("badge-anatomy-layers", activeAnatomyIncluded() !== null);
+        // Tokens
+        const tVar = activeTokenVariant() || {};
+        setBadgeCount("badge-tokens-combo", Object.keys(tVar).length);
+        setBadgeDot("badge-tokens-layers", activeTokenIncluded() !== null);
       }
 
       function updateMatrixGearVisibility() {
@@ -2391,6 +2486,7 @@
         renderLocks();
         renderVisualBgInputs();
         updateChipsDisplay();
+        updateCollapseBadges();
         updateGroupBySectionVisibility();
         updateExclusionsSectionVisibility();
         updateLocksSectionVisibility();
@@ -2480,6 +2576,7 @@
             pendingAnatomyIncludedLayers = undefined;
             pendingAnatomyIncludedTouched = false;
             fetchAnatomyLayers();
+            updateCollapseBadges();
           });
           row.appendChild(select);
           anatomyVariantList.appendChild(row);
@@ -2593,6 +2690,7 @@
 
           anatomyLayersList.appendChild(row);
         });
+        updateCollapseBadges();
       }
 
       // Returns the set of layer keys that should be displayed for the given
@@ -2674,6 +2772,7 @@
         renderAnatomyVariant();
         renderAnatomyLayers();
         fetchAnatomyLayers();
+        updateCollapseBadges();
         showView("settings-anatomy");
       }
 
@@ -2766,6 +2865,7 @@
             pendingTokenIncludedLayers = undefined;
             pendingTokenIncludedTouched = false;
             fetchTokensLayers();
+            updateCollapseBadges();
           });
           row.appendChild(select);
           tokensVariantList.appendChild(row);
@@ -2869,6 +2969,7 @@
 
           tokensLayersList.appendChild(row);
         });
+        updateCollapseBadges();
       }
 
       function openTokensSettings() {
@@ -2888,6 +2989,7 @@
         renderTokensVariant();
         renderTokensLayers();
         fetchTokensLayers();
+        updateCollapseBadges();
         showView("settings-tokens");
       }
 
