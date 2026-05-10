@@ -289,23 +289,34 @@
         color: var(--figma-color-text-secondary, #888);
         margin-bottom: 4px;
       }
-      .options { display: flex; flex-direction: column; gap: 12px; }
-      .option-group { display: flex; flex-direction: column; gap: 1px; }
+      .options {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        border: 1px solid rgba(13, 153, 255, 0.30);
+        border-radius: 8px;
+        overflow: hidden;
+        background: rgba(13, 153, 255, 0.06);
+      }
+      .option-group { display: flex; flex-direction: column; gap: 0; }
 
       .option {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 10px;
-        padding: 8px 10px;
-        border-radius: 8px;
+        padding: 10px 12px;
+        border-radius: 0;
         cursor: pointer;
-        transition: background 0.1s;
+        transition: background 0.12s ease;
         -webkit-user-select: none;
         user-select: none;
+        border-bottom: 1px solid rgba(13, 153, 255, 0.18);
       }
+      .options .option-group:last-child .option:last-child,
+      .options > .option:last-child { border-bottom: 0; }
       .option:hover:not(.disabled) {
-        background: var(--figma-color-bg-hover, #f5f5f5);
+        background: rgba(13, 153, 255, 0.12);
       }
       .option.disabled {
         opacity: 0.38;
@@ -1104,29 +1115,23 @@
       .doc-index-list {
         display: flex;
         flex-direction: column;
-        gap: 0;
+        gap: 6px;
         margin-top: 8px;
-        border: 1px solid rgba(13, 153, 255, 0.35);
-        border-radius: 8px;
-        overflow: hidden;
       }
       .doc-index-item {
         display: flex;
-        flex-direction: column;
-        gap: 4px;
+        align-items: center;
+        gap: 6px;
         padding: 10px 12px;
-        border: 0;
-        border-bottom: 1px solid rgba(13, 153, 255, 0.20);
-        border-radius: 0;
+        border: 1px solid var(--figma-color-border, #e5e5e5);
+        border-radius: 8px;
         cursor: pointer;
-        background: rgba(13, 153, 255, 0.06);
+        background: transparent;
         text-align: left;
         font: inherit;
         color: var(--figma-color-text, #1e1e1e);
-        transition: background 120ms ease;
       }
-      .doc-index-item:last-child { border-bottom: 0; }
-      .doc-index-item:hover { background: rgba(13, 153, 255, 0.14); }
+      .doc-index-item:hover { background: var(--figma-color-bg-hover, #f5f5f5); }
       .doc-index-item.missing { opacity: 0.6; }
       .doc-index-name {
         font-size: 12px;
@@ -1142,15 +1147,6 @@
         background: rgba(239, 68, 68, 0.12);
         padding: 1px 6px;
         border-radius: 4px;
-      }
-      .doc-index-sections {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-      }
-      .doc-index-sections .badge {
-        font-size: 9.5px;
-        padding: 1px 6px;
       }
       .doc-index-empty {
         font-size: 11px;
@@ -3419,16 +3415,6 @@
             name.appendChild(tag);
           }
           btn.appendChild(name);
-
-          const sections = document.createElement("div");
-          sections.className = "doc-index-sections";
-          for (const s of it.sections) {
-            const badge = document.createElement("span");
-            badge.className = "badge";
-            badge.textContent = s;
-            sections.appendChild(badge);
-          }
-          btn.appendChild(sections);
 
           btn.addEventListener("click", () => {
             if (it.missing) {
