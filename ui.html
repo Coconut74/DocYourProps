@@ -602,26 +602,6 @@
         overflow: hidden;
         white-space: nowrap;
       }
-      .axis-select {
-        flex: 1;
-        max-width: 240px;
-        font: inherit;
-        font-size: 11px;
-        padding: 5px 8px;
-        background: var(--figma-color-bg, #fff);
-        border: 1px solid var(--figma-color-border, #e6e6e6);
-        border-radius: 6px;
-        color: var(--figma-color-text, #1e1e1e);
-        outline: none;
-        cursor: pointer;
-        transition: border-color 120ms ease, box-shadow 120ms ease;
-      }
-      .axis-select:hover { border-color: var(--figma-color-text-secondary, #c8c8c8); }
-      .axis-select:focus {
-        border-color: var(--figma-color-bg-brand, #0d99ff);
-        box-shadow: 0 0 0 2px rgba(13,153,255,0.18);
-      }
-
       /* ── Multi-select dropdown (matrix locks) ───────────────────── */
       .multiselect {
         position: relative;
@@ -689,7 +669,13 @@
         align-items: center;
         gap: 8px;
         padding: 6px 8px;
+        width: 100%;
+        background: none;
+        border: 0;
+        text-align: left;
+        font: inherit;
         font-size: 11px;
+        color: inherit;
         cursor: pointer;
         border-radius: 4px;
         -webkit-user-select: none;
@@ -697,6 +683,21 @@
       }
       .multiselect-item:hover { background: var(--figma-color-bg-hover, #f5f5f5); }
       .multiselect-item input { margin: 0; cursor: pointer; }
+      .multiselect-item.is-selected {
+        background: rgba(13, 153, 255, 0.10);
+        color: var(--figma-color-bg-brand, #0d99ff);
+        font-weight: 500;
+      }
+      .multiselect-item.is-selected:hover {
+        background: rgba(13, 153, 255, 0.16);
+      }
+      .multiselect-item .item-check {
+        margin-left: auto;
+        opacity: 0;
+        flex-shrink: 0;
+        color: var(--figma-color-bg-brand, #0d99ff);
+      }
+      .multiselect-item.is-selected .item-check { opacity: 1; }
       .multiselect-empty {
         padding: 8px;
         color: var(--figma-color-text-secondary, #888);
@@ -2156,23 +2157,17 @@
             label.title = axis;
             row.appendChild(label);
 
-            const select = document.createElement("select");
-            const anyOpt = document.createElement("option");
-            anyOpt.value = "";
-            anyOpt.textContent = "(toutes)";
-            select.appendChild(anyOpt);
-            for (const v of availableAxisValues[axis] || []) {
-              const opt = document.createElement("option");
-              opt.value = v;
-              opt.textContent = v;
-              select.appendChild(opt);
-            }
-            select.value = rule[axis] || "";
-            select.addEventListener("change", () => {
-              if (select.value === "") delete rule[axis];
-              else rule[axis] = select.value;
-            });
-            row.appendChild(select);
+            const dropdown = makeSingleSelectDropdown(
+              availableAxisValues[axis] || [],
+              rule[axis] != null ? rule[axis] : null,
+              (newValue) => {
+                if (newValue == null) delete rule[axis];
+                else rule[axis] = newValue;
+                updateCollapseBadges();
+              },
+              { placeholder: "(toutes)" }
+            );
+            row.appendChild(dropdown);
 
             conditions.appendChild(row);
           }
@@ -2314,6 +2309,116 @@
             item.appendChild(txt);
             pop.appendChild(item);
           }
+        }
+
+        trigger.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          const wasOpen = wrap.classList.contains("open");
+          closeOpenMultiselect();
+          if (!wasOpen) {
+            wrap.classList.add("open");
+            pop.hidden = false;
+            trigger.setAttribute("aria-expanded", "true");
+            openMultiselect = wrap;
+          }
+        });
+
+        refreshLabel();
+        wrap.appendChild(trigger);
+        wrap.appendChild(pop);
+        return wrap;
+      }
+
+      function makeSingleSelectDropdown(options, currentValue, onChange, opts) {
+        const placeholder = (opts && opts.placeholder) || "— Défaut —";
+        const wrap = document.createElement("div");
+        wrap.className = "multiselect";
+
+        const trigger = document.createElement("button");
+        trigger.type = "button";
+        trigger.className = "multiselect-trigger";
+        trigger.setAttribute("aria-haspopup", "listbox");
+        trigger.setAttribute("aria-expanded", "false");
+
+        const labelEl = document.createElement("span");
+        labelEl.className = "multiselect-label";
+        const chev = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        chev.setAttribute("class", "multiselect-chevron");
+        chev.setAttribute("width", "10");
+        chev.setAttribute("height", "10");
+        chev.setAttribute("viewBox", "0 0 12 12");
+        chev.setAttribute("fill", "none");
+        chev.setAttribute("stroke", "currentColor");
+        chev.setAttribute("stroke-width", "1.4");
+        chev.setAttribute("stroke-linecap", "round");
+        chev.setAttribute("stroke-linejoin", "round");
+        const chevPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        chevPath.setAttribute("d", "M2.5 4.5l3.5 3.5 3.5-3.5");
+        chev.appendChild(chevPath);
+
+        trigger.appendChild(labelEl);
+        trigger.appendChild(chev);
+
+        const pop = document.createElement("div");
+        pop.className = "multiselect-popover";
+        pop.hidden = true;
+
+        let current = currentValue == null || currentValue === "" ? null : currentValue;
+
+        function refreshLabel() {
+          if (current == null) {
+            labelEl.textContent = placeholder;
+            labelEl.classList.add("placeholder");
+            labelEl.removeAttribute("title");
+          } else {
+            labelEl.textContent = current;
+            labelEl.classList.remove("placeholder");
+            labelEl.title = current;
+          }
+        }
+
+        function makeItem(value, isCurrent) {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "multiselect-item" + (isCurrent ? " is-selected" : "");
+          const txt = document.createElement("span");
+          txt.textContent = value == null ? placeholder : value;
+          item.appendChild(txt);
+          const check = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          check.setAttribute("class", "item-check");
+          check.setAttribute("width", "10");
+          check.setAttribute("height", "10");
+          check.setAttribute("viewBox", "0 0 12 12");
+          check.setAttribute("fill", "none");
+          check.setAttribute("stroke", "currentColor");
+          check.setAttribute("stroke-width", "1.8");
+          check.setAttribute("stroke-linecap", "round");
+          check.setAttribute("stroke-linejoin", "round");
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", "M2.5 6.2l2.4 2.4L9.5 3.6");
+          check.appendChild(path);
+          item.appendChild(check);
+          item.addEventListener("click", () => {
+            current = value;
+            pop.querySelectorAll(".multiselect-item").forEach((el) => {
+              el.classList.remove("is-selected");
+            });
+            item.classList.add("is-selected");
+            refreshLabel();
+            closeOpenMultiselect();
+            onChange(value);
+          });
+          return item;
+        }
+
+        pop.appendChild(makeItem(null, current == null));
+        if (!options || options.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "multiselect-empty";
+          empty.textContent = "Aucune valeur";
+          pop.appendChild(empty);
+        } else {
+          for (const v of options) pop.appendChild(makeItem(v, current === v));
         }
 
         trigger.addEventListener("click", (ev) => {
@@ -2539,6 +2644,7 @@
       function renderAnatomyVariant() {
         const sel = activeAnatomyVariant();
         anatomyVariantList.innerHTML = "";
+        closeOpenMultiselect();
         if (variantAxes.length === 0) {
           const hint = document.createElement("div");
           hint.className = "hint";
@@ -2556,29 +2662,20 @@
           label.title = axis;
           row.appendChild(label);
 
-          const select = document.createElement("select");
-          select.className = "axis-select";
-          const empty = document.createElement("option");
-          empty.value = "";
-          empty.textContent = "— Défaut —";
-          select.appendChild(empty);
-          for (const v of availableAxisValues[axis] || []) {
-            const opt = document.createElement("option");
-            opt.value = v;
-            opt.textContent = v;
-            if (sel[axis] === v) opt.selected = true;
-            select.appendChild(opt);
-          }
-          select.addEventListener("change", () => {
-            const cur = activeAnatomyVariant();
-            if (select.value === "") delete cur[axis];
-            else cur[axis] = select.value;
-            pendingAnatomyIncludedLayers = undefined;
-            pendingAnatomyIncludedTouched = false;
-            fetchAnatomyLayers();
-            updateCollapseBadges();
-          });
-          row.appendChild(select);
+          const dropdown = makeSingleSelectDropdown(
+            availableAxisValues[axis] || [],
+            sel[axis] != null ? sel[axis] : null,
+            (newValue) => {
+              const cur = activeAnatomyVariant();
+              if (newValue == null) delete cur[axis];
+              else cur[axis] = newValue;
+              pendingAnatomyIncludedLayers = undefined;
+              pendingAnatomyIncludedTouched = false;
+              fetchAnatomyLayers();
+              updateCollapseBadges();
+            }
+          );
+          row.appendChild(dropdown);
           anatomyVariantList.appendChild(row);
         }
       }
@@ -2829,6 +2926,7 @@
       function renderTokensVariant() {
         const sel = activeTokenVariant();
         tokensVariantList.innerHTML = "";
+        closeOpenMultiselect();
         if (variantAxes.length === 0) {
           const hint = document.createElement("div");
           hint.className = "hint";
@@ -2845,29 +2943,20 @@
           label.title = axis;
           row.appendChild(label);
 
-          const select = document.createElement("select");
-          select.className = "axis-select";
-          const empty = document.createElement("option");
-          empty.value = "";
-          empty.textContent = "— Défaut —";
-          select.appendChild(empty);
-          for (const v of availableAxisValues[axis] || []) {
-            const opt = document.createElement("option");
-            opt.value = v;
-            opt.textContent = v;
-            if (sel[axis] === v) opt.selected = true;
-            select.appendChild(opt);
-          }
-          select.addEventListener("change", () => {
-            const cur = activeTokenVariant();
-            if (select.value === "") delete cur[axis];
-            else cur[axis] = select.value;
-            pendingTokenIncludedLayers = undefined;
-            pendingTokenIncludedTouched = false;
-            fetchTokensLayers();
-            updateCollapseBadges();
-          });
-          row.appendChild(select);
+          const dropdown = makeSingleSelectDropdown(
+            availableAxisValues[axis] || [],
+            sel[axis] != null ? sel[axis] : null,
+            (newValue) => {
+              const cur = activeTokenVariant();
+              if (newValue == null) delete cur[axis];
+              else cur[axis] = newValue;
+              pendingTokenIncludedLayers = undefined;
+              pendingTokenIncludedTouched = false;
+              fetchTokensLayers();
+              updateCollapseBadges();
+            }
+          );
+          row.appendChild(dropdown);
           tokensVariantList.appendChild(row);
         }
       }
