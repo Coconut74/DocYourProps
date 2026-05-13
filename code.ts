@@ -3777,6 +3777,7 @@ type AiExtractedMetadata = {
   width: number;
   height: number;
   variantProperties: Record<string, { values: string[] }> | null;
+  componentProperties: Record<string, { type: string; defaultValue: unknown }> | null;
   variants: AiExtractedVariant[];
 };
 
@@ -3996,6 +3997,21 @@ async function extractAiMetadata(node: DocTarget): Promise<AiExtractedMetadata> 
           | Record<string, { values: string[] }>
           | null)
       : null,
+    componentProperties: (() => {
+      const defs = node.componentPropertyDefinitions || {};
+      const result: Record<string, { type: string; defaultValue: unknown }> = {};
+      let hasAny = false;
+      for (const rawKey in defs) {
+        const d = defs[rawKey];
+        if (d.type === "VARIANT") continue;
+        result[stripPropKey(rawKey)] = {
+          type: d.type,
+          defaultValue: (d as { defaultValue?: unknown }).defaultValue ?? null,
+        };
+        hasAny = true;
+      }
+      return hasAny ? result : null;
+    })(),
     variants,
   };
 }

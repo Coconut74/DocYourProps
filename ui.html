@@ -2016,7 +2016,10 @@
         <div class="generated-doc-card" id="generated-doc-card" hidden>
           <div class="generated-doc-header">
             <span class="generated-doc-title">Document généré</span>
-            <button class="btn-ghost btn-sm" id="btn-download-md" type="button">Télécharger .md</button>
+            <div style="display:flex;gap:6px;">
+              <button class="btn-ghost btn-sm" id="btn-copy-md" type="button">Copier</button>
+              <button class="btn-ghost btn-sm" id="btn-download-md" type="button">Télécharger .md</button>
+            </div>
           </div>
           <pre class="generated-doc-pre" id="generated-doc-pre"></pre>
         </div>
@@ -4559,26 +4562,30 @@
         "Tu es un expert design system qui rédige les descriptions des propriétés d'un composant Figma.",
         "",
         "Tu reçois un payload JSON :",
-        "- metadata : nom, description, variantProperties + properties par variant, anatomie 2 niveaux, boundVariables résolues vers leur valeur effective (hex, px, nom de token).",
+        "- metadata.variantProperties : props de type VARIANT (dimensions, états…).",
+        "- metadata.componentProperties : props de type BOOLEAN, INSTANCE_SWAP ou TEXT définies sur le composant.",
+        "- metadata.variants[*].properties : valeurs des props VARIANT pour chaque variant.",
         "- css : CSS calculé par variante (radii, couleurs, ombres).",
-        "- documentation : arbre reading-order des frames de doc liées par l'utilisateur, et images PNG si fournies.",
+        "- documentation : arbre reading-order des frames de doc liées, images PNG si fournies.",
         "",
         "Tu réponds UNIQUEMENT avec un objet JSON strict — pas de Markdown, pas de backticks, pas de préambule :",
         "",
         "{",
-        '  "generalDescription": "Une à trois phrases en français qui expliquent à quoi sert le composant.",',
+        '  "generalDescription": "Une à deux phrases en français qui expliquent à quoi sert le composant.",',
         '  "propDescriptions": {',
-        '    "<nomDeProp>": "Une phrase concise (15-25 mots) qui décrit le rôle fonctionnel de cette propriété."',
+        '    "<nomDeProp>": "Une phrase très courte (≤ 10 mots) décrivant le rôle de cette propriété."',
         "  }",
         "}",
         "",
         "Règles :",
-        "- Inclus une entrée pour CHAQUE propriété trouvée dans metadata.variantProperties ET dans metadata.variants[*].properties.",
+        "- Inclus une entrée pour CHAQUE prop de metadata.variantProperties, metadata.componentProperties ET metadata.variants[*].properties.",
+        "- Pour les props BOOLEAN et INSTANCE_SWAP, utilise le nom exact de la clé dans componentProperties (sans préfixe).",
         "- Quand la documentation Figma traite explicitement d'une prop, priorité absolue à cette source.",
         "- Sinon, infère depuis les valeurs des variantes, le CSS et les noms.",
-        "- Langage naturel français, sans jargon technique (« kebab-case », « layoutMode »…).",
-        "- Pas d'invention : si une info manque, description courte et générique.",
-        "- Si le composant n'a aucune propriété variante, propDescriptions = {}.",
+        "- Descriptions très courtes : une seule idée, pas de répétition du nom de la prop.",
+        "- Langage naturel français, sans jargon technique.",
+        "- Pas d'invention : si une info manque, reste générique.",
+        "- Si le composant n'a aucune propriété, propDescriptions = {}.",
       ].join("\n");
 
       const aiBlock = document.getElementById("ai-block");
@@ -4595,20 +4602,47 @@
         if (card && pre) {
           pre.textContent = generatedMarkdown;
           card.hidden = false;
-          card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          // scrollIntoView is unreliable inside Figma's iframe — scroll the
+          // actual overflow container (.body div) to its bottom instead.
+          const bodyDiv = card.closest(".body");
+          if (bodyDiv) requestAnimationFrame(() => { bodyDiv.scrollTop = bodyDiv.scrollHeight; });
         }
       }
 
       document.getElementById("btn-download-md").addEventListener("click", () => {
         if (!generatedMarkdown) return;
-        const blob = new Blob([generatedMarkdown], { type: "text/markdown;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = generatedComponentName + ".md";
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 0);
+        // Try native download first; fall back to clipboard copy if the
+        // Figma sandbox blocks the anchor click (e.g. on Figma Web).
+        try {
+          const blob = new Blob([generatedMarkdown], { type: "text/markdown;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = generatedComponentName + ".md";
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 0);
+        } catch (_) {}
+      });
+
+      document.getElementById("btn-copy-md").addEventListener("click", () => {
+        if (!generatedMarkdown) return;
+        navigator.clipboard.writeText(generatedMarkdown).then(() => {
+          const btn = document.getElementById("btn-copy-md");
+          const orig = btn.textContent;
+          btn.textContent = "Copié !";
+          setTimeout(() => { btn.textContent = orig; }, 1500);
+        }).catch(() => {
+          // Clipboard API unavailable — select the pre text for manual copy
+          const pre = document.getElementById("generated-doc-pre");
+          if (pre) {
+            const sel = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(pre);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        });
       });
 
       function showAiError(title, detail) {
