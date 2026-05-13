@@ -1,0 +1,9 @@
+{
+  "name": "DS Extractor",
+  "id": "ds-extractor-001",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page"
+}

@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>DS Extractor</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1e1e1e;
+    --muted: #6b6b6b;
+    --border: #e5e5e5;
+    --accent: #18a0fb;
+    --accent-hover: #0d8de0;
+    --danger: #d93025;
+    --ok: #1e8e3e;
+    --code-bg: #f6f8fa;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    font-size: 12px;
+    color: var(--fg);
+    background: var(--bg);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .selection-name {
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .selection-meta {
+    color: var(--muted);
+    font-size: 11px;
+  }
+  main {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  button {
+    font: inherit;
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: #f5f5f5; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .progress {
+    display: flex;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .progress .step {
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #f0f0f0;
+  }
+  .progress .step.active { background: var(--accent); color: #fff; }
+  .progress .step.done { background: var(--ok); color: #fff; }
+  .progress .step.error { background: var(--danger); color: #fff; }
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+  }
+  .tab.active {
+    color: var(--fg);
+    border-bottom-color: var(--accent);
+    font-weight: 500;
+  }
+  pre {
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 10px;
+    margin: 0;
+    overflow: auto;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 320px;
+  }
+  .md-preview {
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    max-height: 320px;
+    overflow: auto;
+  }
+  .config-footer {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border);
+    background: #f5f5f5;
+    max-height: 50vh;
+    overflow-y: auto;
+  }
+  .config-footer .config {
+    border: none;
+    border-radius: 0;
+  }
+  .config-footer .config summary {
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .config-footer .config[open] summary { color: var(--fg); }
+  .config {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .config summary {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-weight: 500;
+    user-select: none;
+  }
+  .config[open] summary { border-bottom: 1px solid var(--border); }
+  .config-body {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  input, select {
+    font: inherit;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #fff;
+  }
+  .message {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+  .message.error { background: #fce8e6; color: var(--danger); }
+  .message.info { background: #e8f0fe; color: #1967d2; }
+  .hidden { display: none; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Root tabs (Extraction / Chat) */
+  .root-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: #f5f5f5;
+    flex-shrink: 0;
+  }
+  .root-tab {
+    flex: 1;
+    padding: 12px 16px;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 13px;
+    text-align: center;
+    user-select: none;
+    transition: background 0.1s, color 0.1s;
+  }
+  .root-tab:hover:not(.active) { background: #ececec; color: var(--fg); }
+  .root-tab + .root-tab { border-left: 1px solid var(--border); }
+  .root-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    background: #fff;
+    font-weight: 600;
+  }
+  .rtab-panel {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    padding: 14px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    animation: panel-in 0.18s ease-out;
+  }
+  .rtab-panel.hidden { display: none; }
+  #rtab-extract { background: var(--bg); }
+  #rtab-chat { background: #fbfbfd; }
+  @keyframes panel-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .panel-header {
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-title {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--fg);
+  }
+  .panel-subtitle {
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
+  /* Extraction — Zone A : carte sélection */
+  .selection-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+  }
+  .selection-card-info { flex: 1; min-width: 0; }
+  .selection-card .selection-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .selection-card button { white-space: nowrap; }
+
+  /* Extraction — Zone C : résultat */
+  .result-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .result-title {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tokens-badge {
+    font-size: 10px;
+    color: var(--muted);
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 2px 8px;
+    white-space: nowrap;
+  }
+  .md-result {
+    max-height: none;
+    min-height: 220px;
+    padding: 14px;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .result-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .result-actions button.ok {
+    background: var(--ok);
+    border-color: var(--ok);
+    color: #fff;
+  }
+  .debug-payload {
+    margin-top: 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--code-bg);
+  }
+  .debug-payload summary {
+    padding: 6px 10px;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 11px;
+    user-select: none;
+  }
+  .debug-payload pre {
+    margin: 0;
+    border-radius: 0 0 6px 6px;
+    max-height: 240px;
+  }
+
+  /* Chat — méta tokens */
+  .chat-msg-meta {
+    align-self: flex-start;
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: -6px;
+    padding: 0 4px;
+  }
+
+  /* Chat */
+  .docs-list {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: var(--code-bg);
+    font-size: 11px;
+  }
+  .docs-list .docs-list-title {
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 4px;
+  }
+  .docs-list .docs-list-empty {
+    color: var(--muted);
+    font-style: italic;
+  }
+  .docs-list ul { margin: 4px 0 0; padding-left: 0; list-style: none; }
+  .docs-list li {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 3px 0;
+    gap: 8px;
+  }
+  .docs-list li .doc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .docs-list li .doc-size { color: var(--muted); font-size: 10px; }
+  .docs-list li button {
+    padding: 2px 8px;
+    font-size: 10px;
+    color: var(--danger);
+    border-color: transparent;
+    background: transparent;
+  }
+  .docs-list li button:hover:not(:disabled) { background: #fce8e6; }
+  .docs-list.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+  .chat-thread {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 360px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .chat-msg {
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .chat-msg.q {
+    background: #e8f0fe;
+    color: #1967d2;
+    align-self: flex-end;
+    max-width: 90%;
+  }
+  .chat-msg.a {
+    background: var(--code-bg);
+    color: var(--fg);
+    align-self: flex-start;
+    max-width: 100%;
+  }
+  .chat-msg.a.pending { font-style: italic; color: var(--muted); }
+  .chat-input-area textarea {
+    width: 100%;
+    font: inherit;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    resize: vertical;
+    min-height: 60px;
+  }
+</style>
+</head>
+<body>
+  <div class="root-tabs">
+    <div class="root-tab active" data-rtab="extract">Extraction</div>
+    <div class="root-tab" data-rtab="chat">Chat doc</div>
+  </div>
+
+  <main>
+    <section id="rtab-extract" class="rtab-panel">
+      <div class="panel-header">
+        <div class="panel-title">Extraction depuis Figma</div>
+        <div class="panel-subtitle">Sélectionne un composant (+ frames de doc) puis lance l'analyse.</div>
+      </div>
+
+      <!-- Zone A : sélection courante -->
+      <div class="selection-card">
+        <div class="selection-card-info">
+          <div class="selection-name" id="sel-name">Aucune sélection</div>
+          <div class="selection-meta" id="sel-meta">Sélectionne un composant dans Figma</div>
+        </div>
+        <button id="extract-btn" class="primary" disabled>Extraire ce composant</button>
+      </div>
+
+      <!-- Zone B : progression (visible pendant l'extraction) -->
+      <div id="progress-zone" class="progress hidden">
+        <span class="step" id="step-extract">Extraction</span>
+        <span class="step" id="step-ai">Analyse IA</span>
+        <span class="step" id="step-gen">Génération</span>
+      </div>
+
+      <div id="msg" class="message hidden"></div>
+
+      <!-- Zone C : résultat -->
+      <div id="result" class="hidden">
+        <div class="result-header">
+          <div class="result-title" id="result-title">Composant</div>
+          <div class="tokens-badge" id="tokens-badge"></div>
+        </div>
+        <div class="md-preview md-result" id="md-view"></div>
+        <div class="result-actions">
+          <button id="dl-md" class="primary">Télécharger .md</button>
+          <button id="add-to-docs-btn">+ Ajouter aux docs du chat</button>
+          <button id="retry-btn">Refaire</button>
+        </div>
+        <details class="debug-payload">
+          <summary>Voir le payload brut (debug)</summary>
+          <pre id="raw-view"></pre>
+        </details>
+      </div>
+    </section>
+
+    <section id="rtab-chat" class="rtab-panel hidden">
+      <div class="panel-header">
+        <div class="panel-title">Chat sur la documentation</div>
+        <div class="panel-subtitle">Importe tes .md, puis pose des questions — les réponses s'appuient uniquement sur ces docs.</div>
+      </div>
+
+      <div class="docs-list" id="chat-docs-list"></div>
+      <div class="row">
+        <button id="docs-import-btn">+ Importer des .md</button>
+        <button id="docs-clear-btn">Tout supprimer</button>
+        <span id="docs-status" class="selection-meta"></span>
+        <input id="docs-file-input" type="file" accept=".md,text/markdown" multiple style="display: none;" />
+      </div>
+      <div id="chat-msg" class="message hidden"></div>
+      <div class="chat-thread" id="chat-thread"></div>
+      <div class="chat-input-area">
+        <textarea id="chat-input" placeholder="Pose une question sur la doc importée…  (Cmd/Ctrl+Enter pour envoyer)"></textarea>
+      </div>
+      <div class="row">
+        <button id="chat-send" class="primary" disabled>Envoyer</button>
+        <button id="chat-clear">Effacer le thread</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="config-footer">
+    <details class="config" id="config">
+      <summary>Configuration LLM</summary>
+      <div class="config-body">
+        <label>Provider
+          <select id="cfg-provider">
+            <option value="openai-compatible">OpenAI-compatible (Groq, OpenAI, Mistral…)</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+          </select>
+        </label>
+        <label>Endpoint
+          <input id="cfg-endpoint" type="text" />
+        </label>
+        <label>Modèle
+          <input id="cfg-model" type="text" />
+        </label>
+        <label>Clé API
+          <input id="cfg-key" type="password" placeholder="gsk_..." />
+        </label>
+        <label class="row" style="flex-direction: row; align-items: center; gap: 6px;">
+          <input id="cfg-vision" type="checkbox" style="width: auto;" />
+          <span>Envoyer les images des frames de doc (vision) — nécessite un modèle compatible</span>
+        </label>
+        <div class="row">
+          <button id="cfg-save">Enregistrer</button>
+          <span id="cfg-status" class="selection-meta"></span>
+        </div>
+      </div>
+    </details>
+  </footer>
+
+<script>
+let chatDocs = []; // [{ name, content }] — persisté via figma.clientStorage
+
+const CHAT_SYSTEM_PROMPT = `Tu es un assistant design system. Tu réponds aux questions de l'utilisateur en te basant UNIQUEMENT sur les documents fournis ci-dessous.
+
+Règles :
+- Si la réponse est dans les docs, réponds en citant le nom du fichier source entre parenthèses (ex: "(button.md)").
+- Si l'info n'y est pas, dis-le explicitement ("Cette information n'est pas dans la documentation fournie.") plutôt que d'inventer.
+- Réponds en Markdown, concis mais complet.
+- Conserve la langue de la question (FR si question FR, EN si question EN).`;
+
+const DEFAULT_CONFIG = {
+  provider: 'openai-compatible',
+  endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+  model: 'llama-3.3-70b-versatile',
+  apiKey: '',
+  vision: true,
+};
+
+const PRESETS = {
+  'openai-compatible': {
+    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    model: 'llama-3.3-70b-versatile',
+  },
+  'anthropic': {
+    endpoint: 'https://api.anthropic.com/v1/messages',
+    model: 'claude-sonnet-4-20250514',
+  },
+};
+
+const SYSTEM_PROMPT = `Tu es un expert design system qui rédige des fiches de composants pour TOUS les profils de l'équipe : designers, développeurs, product managers, nouveaux arrivants. Ton style est CLAIR, PÉDAGOGIQUE, sans jargon inutile.
+
+Tu reçois des données techniques extraites d'un composant Figma (métadonnées JSON, CSS exporté, documentation structurée des frames sélectionnées, et — quand la vision est activée — des images PNG des frames de doc). Ton rôle est de produire UN SEUL DOCUMENT MARKDOWN, lisible de bout en bout, qui décrit le composant comme tu l'expliquerais à quelqu'un qui ne le connaît pas.
+
+—
+
+CONSIGNES DE STYLE
+- Tu écris en langage NATUREL, pas en liste de specs brutes. Phrases complètes, tutoiement, ton accessible.
+- Tu commences chaque section par une phrase qui pose le sujet, pas par une liste à puces sèche.
+- Tu n'utilises AUCUN terme technique interne ("kebab-case", "boundVariables", "fillStyleId", "layoutMode"…). Si tu dois parler d'une variable Figma, dis par exemple : la variable couleur \`color/primary/500\` (#1a73e8).
+- Tu rends les valeurs visuellement utiles : couleurs en hexadécimal (#xxxxxx), espacements en px, exemples concrets.
+- Tu utilises les variables Figma résolues (champs \`boundVariables\` du payload, chaque entrée a un \`name\` sémantique et une \`value\` effective) comme vérité terrain pour les couleurs et tokens.
+- Quand des images sont fournies, croise systématiquement le visuel (alignements, états, exemples Do/Don't, schémas d'anatomie) avec les données numériques.
+
+—
+
+STRUCTURE OBLIGATOIRE (titres niveau 2, dans cet ordre)
+
+## À quoi sert ce composant
+Une à trois phrases qui décrivent en langage simple ce que fait ce composant et quand on l'utilise.
+
+## Variantes disponibles
+Liste des variantes en langage humain ("Trois tailles : petite, moyenne, grande" plutôt que "size: sm | md | lg"). Mentionne aussi les états (par défaut, survol, focus, désactivé, chargement, erreur) repérés via les noms de variantes ou les images.
+
+## Anatomie
+Décris les éléments visibles, dans l'ordre où on les rencontre quand on regarde le composant. Un court paragraphe par élément clé (icône, label, indicateur, etc.), pas un tableau sec.
+
+## Couleurs et tokens
+Liste les tokens utilisés en croisant nom sémantique + valeur résolue. Exemple : \`color/surface/default\` (#FFFFFF) pour le fond. Fais la même chose pour les typographies, les espacements, les rayons et les ombres. Si certains tokens ne sont pas nommés mais que tu vois leur valeur (CSS exporté, images), liste-les avec la mention « valeur brute ».
+
+## Règles d'usage
+Énonce les règles métier : ce qui DOIT être respecté, ce qui ne doit PAS être fait. Numérote-les (1., 2., 3.…) pour qu'on puisse y faire référence. Formule de façon vérifiable quand c'est possible ("Le padding intérieur gauche doit être de 16 px" plutôt que "Le padding est correct"). Préfère les données numériques du CSS aux estimations visuelles.
+
+## Bons et mauvais usages
+Deux sous-sections \`### À faire\` et \`### À éviter\`, chacune avec des exemples concrets vus dans la doc Figma (textes, instances, cellules nommées "Do" / "Don't") ou inférés du visuel des images.
+
+## Notes
+Tout ce qui ne rentre pas ailleurs : cas limites, accessibilité (contraste, focus visible, tailles minimales), états spéciaux, dépendances avec d'autres composants. Si tu n'as rien à dire ici, écris « Rien à signaler. »
+
+—
+
+EXIGENCES NON NÉGOCIABLES
+- Tu réponds UNIQUEMENT avec le Markdown, sans aucun texte avant ou après, sans backticks englobants (pas de \`\`\`markdown), sans préambule type "Voici la fiche…".
+- Tu es EXHAUSTIF : toute variante détectée, tout token utilisé, toute règle énoncée (textuelle ou visuelle), tout exemple Do/Don't, toute annotation ou callout doit apparaître dans la fiche. Préfère long et fidèle à court et lisse.
+- Tu n'inventes rien. Si une info manque dans les données reçues, tu ne la mentionnes pas.
+- Tu parcours systématiquement le payload dans son ordre : \`documentation.frames[]\` et leurs \`children[]\` sont déjà fournis dans l'ordre de lecture visuel (top → bottom, puis left → right). Respecte-le pour la narration.
+- Pour CHAQUE image jointe, tu l'examines en détail (titres, sous-titres, exemples, swatches de couleur, annotations, états visuels, cellules Do/Don't) avant d'écrire. L'image contient souvent ce que le tree texte ne capture pas.
+
+—
+
+CHECKLIST INTERNE (à passer mentalement AVANT de répondre)
+- [ ] Chaque frame de doc a été lue dans l'ordre.
+- [ ] Chaque image jointe a été analysée.
+- [ ] Toutes les variantes (propriétés du composant + instances vues dans la doc) sont mentionnées.
+- [ ] Tous les tokens (couleurs, typo, spacing, radius, shadow) sont listés avec leur valeur résolue.
+- [ ] Toutes les règles documentées sont reformulées en langage clair et numérotées.
+- [ ] Les cellules Do/Don't repérées sont classées dans les bonnes sous-sections.
+- [ ] La fiche respecte les 7 sections obligatoires dans le bon ordre.
+
+Si une case ne peut pas être cochée, complète la fiche avant de répondre.`;
+
+const MAX_PAYLOAD_CHARS = 80000;
+
+let currentPayload = null;
+let currentResult = null;
+let currentSelection = null;
+let currentConfig = Object.assign({}, DEFAULT_CONFIG);
+
+// --- Config (via figma.clientStorage, bridged through postMessage) ---
+function applyConfigToUI(cfg) {
+  currentConfig = Object.assign({}, DEFAULT_CONFIG, cfg || {});
+  document.getElementById('cfg-provider').value = currentConfig.provider;
+  document.getElementById('cfg-endpoint').value = currentConfig.endpoint;
+  document.getElementById('cfg-model').value = currentConfig.model;
+  document.getElementById('cfg-key').value = currentConfig.apiKey;
+  document.getElementById('cfg-vision').checked = currentConfig.vision !== false;
+  if (!currentConfig.apiKey) {
+    document.getElementById('config').open = true;
+  }
+  refreshExtractButton();
+  refreshChatButton();
+}
+
+function initConfigUI() {
+  applyConfigToUI(DEFAULT_CONFIG);
+  parent.postMessage({ pluginMessage: { type: 'get-config' } }, '*');
+
+  document.getElementById('cfg-provider').addEventListener('change', (e) => {
+    const preset = PRESETS[e.target.value];
+    if (preset) {
+      document.getElementById('cfg-endpoint').value = preset.endpoint;
+      document.getElementById('cfg-model').value = preset.model;
+    }
+  });
+
+  document.getElementById('cfg-save').addEventListener('click', () => {
+    const newCfg = {
+      provider: document.getElementById('cfg-provider').value,
+      endpoint: document.getElementById('cfg-endpoint').value.trim(),
+      model: document.getElementById('cfg-model').value.trim(),
+      apiKey: document.getElementById('cfg-key').value.trim(),
+      vision: document.getElementById('cfg-vision').checked,
+    };
+    currentConfig = newCfg;
+    document.getElementById('cfg-status').textContent = 'Enregistrement…';
+    parent.postMessage({ pluginMessage: { type: 'save-config', data: newCfg } }, '*');
+    refreshExtractButton();
+    refreshChatButton();
+  });
+}
+
+// --- Selection & UI state ---
+function refreshExtractButton() {
+  const btn = document.getElementById('extract-btn');
+  const components = (currentSelection && currentSelection.components) || [];
+  const docs = (currentSelection && currentSelection.docs) || [];
+  const hasComponent = components.length >= 1;
+  const hasKey = !!(currentConfig && currentConfig.apiKey);
+  btn.disabled = !hasComponent || !hasKey;
+
+  if (!hasComponent) {
+    btn.textContent = 'Sélectionne un composant';
+  } else if (!hasKey) {
+    btn.textContent = 'Configure ta clé API';
+  } else {
+    btn.textContent = 'Extraire (1 composant + ' + docs.length + ' doc)';
+  }
+}
+
+function setProgress(state) {
+  const zone = document.getElementById('progress-zone');
+  if (state === null) {
+    zone.classList.add('hidden');
+    return;
+  }
+  zone.classList.remove('hidden');
+  for (const id of ['step-extract', 'step-ai', 'step-gen']) {
+    const el = document.getElementById(id);
+    el.classList.remove('active', 'done', 'error');
+  }
+  if (state.extract) document.getElementById('step-extract').classList.add(state.extract);
+  if (state.ai) document.getElementById('step-ai').classList.add(state.ai);
+  if (state.gen) document.getElementById('step-gen').classList.add(state.gen);
+}
+
+function showMessage(text, kind) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'message ' + (kind || 'info');
+}
+
+function hideMessage() {
+  document.getElementById('msg').className = 'message hidden';
+}
+
+// --- Root tabs (Extraction / Chat) ---
+function initRootTabs() {
+  document.querySelectorAll('.root-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.root-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.rtab-panel').forEach(p => p.classList.add('hidden'));
+      tab.classList.add('active');
+      document.getElementById('rtab-' + tab.dataset.rtab).classList.remove('hidden');
+    });
+  });
+}
+
+// --- Chat doc ---
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function formatBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+function renderDocsList() {
+  const el = document.getElementById('chat-docs-list');
+  if (chatDocs.length === 0) {
+    el.innerHTML = '<div class="docs-list-title">Aucun document importé</div>'
+      + '<div class="docs-list-empty">Clique sur « + Importer des .md » ou glisse-dépose tes fichiers ici. Les docs sont stockées localement dans le plugin (figma.clientStorage).</div>';
+    return;
+  }
+  const items = chatDocs.map((d, i) =>
+    '<li>'
+    + '<span class="doc-name" title="' + escapeHtml(d.name) + '">' + escapeHtml(d.name) + '</span>'
+    + '<span class="doc-size">' + formatBytes(d.content.length) + '</span>'
+    + '<button data-idx="' + i + '" class="doc-del" title="Supprimer">Supprimer</button>'
+    + '</li>'
+  ).join('');
+  el.innerHTML = '<div class="docs-list-title">Documents importés (' + chatDocs.length + ')</div><ul>' + items + '</ul>';
+  el.querySelectorAll('.doc-del').forEach(btn => {
+    btn.addEventListener('click', () => removeDoc(parseInt(btn.dataset.idx, 10)));
+  });
+}
+
+function refreshChatButton() {
+  const btn = document.getElementById('chat-send');
+  const hasKey = !!(currentConfig && currentConfig.apiKey);
+  const hasDocs = chatDocs.length > 0;
+  const hasText = document.getElementById('chat-input').value.trim().length > 0;
+  btn.disabled = !hasKey || !hasDocs || !hasText;
+  if (!hasDocs) btn.textContent = 'Aucun .md importé';
+  else if (!hasKey) btn.textContent = 'Configure ta clé API';
+  else btn.textContent = 'Envoyer';
+}
+
+function persistDocs() {
+  const status = document.getElementById('docs-status');
+  status.textContent = 'Enregistrement…';
+  parent.postMessage({ pluginMessage: { type: 'save-docs', data: chatDocs } }, '*');
+}
+
+function upsertDoc(name, content) {
+  const idx = chatDocs.findIndex(d => d.name === name);
+  if (idx >= 0) chatDocs[idx] = { name, content };
+  else chatDocs.push({ name, content });
+}
+
+async function importFiles(fileList) {
+  const files = Array.from(fileList || []).filter(f => /\.md$/i.test(f.name) || f.type === 'text/markdown');
+  if (files.length === 0) return;
+  for (const file of files) {
+    try {
+      const content = await file.text();
+      upsertDoc(file.name, content);
+    } catch (e) {
+      console.warn('Failed to read', file.name, e);
+    }
+  }
+  renderDocsList();
+  refreshChatButton();
+  persistDocs();
+}
+
+function removeDoc(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= chatDocs.length) return;
+  chatDocs.splice(index, 1);
+  renderDocsList();
+  refreshChatButton();
+  persistDocs();
+}
+
+function clearAllDocs() {
+  if (chatDocs.length === 0) return;
+  if (!confirm('Supprimer tous les documents importés ?')) return;
+  chatDocs = [];
+  renderDocsList();
+  refreshChatButton();
+  persistDocs();
+}
+
+function appendChatMessage(kind, text, opts) {
+  const thread = document.getElementById('chat-thread');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + kind + (opts && opts.pending ? ' pending' : '');
+  div.textContent = text;
+  thread.appendChild(div);
+  thread.scrollTop = thread.scrollHeight;
+  return div;
+}
+
+function buildChatUserText(question) {
+  let out = '=== DOCUMENTATION ===\n\n';
+  for (const d of chatDocs) {
+    out += '## ' + d.name + '\n' + d.content + '\n\n';
+  }
+  out += '=== QUESTION ===\n' + question + '\n';
+  return out;
+}
+
+function appendChatMeta(usage) {
+  if (!usage || usage.total == null) return;
+  const thread = document.getElementById('chat-thread');
+  const meta = document.createElement('div');
+  meta.className = 'chat-msg-meta';
+  const parts = [];
+  parts.push(usage.total.toLocaleString('fr-FR') + ' tokens');
+  if (usage.input != null && usage.output != null) {
+    parts.push('(' + usage.input + ' in · ' + usage.output + ' out)');
+  }
+  if (usage.model) parts.push('· ' + usage.model);
+  meta.textContent = parts.join(' ');
+  thread.appendChild(meta);
+  thread.scrollTop = thread.scrollHeight;
+}
+
+async function runChat() {
+  const input = document.getElementById('chat-input');
+  const question = input.value.trim();
+  if (!question) return;
+  const sendBtn = document.getElementById('chat-send');
+  sendBtn.disabled = true;
+  appendChatMessage('q', question);
+  input.value = '';
+  const pending = appendChatMessage('a', '…', { pending: true });
+
+  try {
+    const userText = buildChatUserText(question);
+    const { text, usage } = await callLLMRaw({
+      systemPrompt: CHAT_SYSTEM_PROMPT,
+      userText,
+      images: null,
+      config: currentConfig,
+    });
+    pending.classList.remove('pending');
+    pending.textContent = text;
+    appendChatMeta(usage);
+  } catch (err) {
+    pending.classList.remove('pending');
+    pending.classList.add('chat-msg', 'a');
+    pending.textContent = 'Erreur LLM : ' + err.message;
+  } finally {
+    refreshChatButton();
+  }
+}
+
+function initChat() {
+  renderDocsList();
+  refreshChatButton();
+  parent.postMessage({ pluginMessage: { type: 'get-docs' } }, '*');
+
+  const input = document.getElementById('chat-input');
+  input.addEventListener('input', refreshChatButton);
+  input.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      runChat();
+    }
+  });
+  document.getElementById('chat-send').addEventListener('click', runChat);
+  document.getElementById('chat-clear').addEventListener('click', () => {
+    document.getElementById('chat-thread').innerHTML = '';
+  });
+
+  const fileInput = document.getElementById('docs-file-input');
+  document.getElementById('docs-import-btn').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    importFiles(fileInput.files);
+    fileInput.value = '';
+  });
+  document.getElementById('docs-clear-btn').addEventListener('click', clearAllDocs);
+
+  // Drag & drop sur la liste de docs
+  const dropZone = document.getElementById('chat-docs-list');
+  ['dragenter', 'dragover'].forEach(evt => {
+    dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  });
+  ['dragleave', 'drop'].forEach(evt => {
+    dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.classList.remove('drag-over'); });
+  });
+  dropZone.addEventListener('drop', (e) => {
+    if (e.dataTransfer && e.dataTransfer.files) importFiles(e.dataTransfer.files);
+  });
+}
+
+// --- Vision : sépare les images du payload texte ---
+// Renvoie { textPayload, images: [{ index, name, mediaType, base64, width, height }] }
+function splitImagesFromPayload(payload, includeVision) {
+  const clone = JSON.parse(JSON.stringify(payload));
+  const images = [];
+  const frames = clone.documentation && Array.isArray(clone.documentation.frames)
+    ? clone.documentation.frames
+    : [];
+
+  for (const f of frames) {
+    if (f && f.image && f.image.base64) {
+      if (includeVision) {
+        images.push({
+          index: typeof f.index === 'number' ? f.index : images.length,
+          name: f.name,
+          mediaType: f.image.mediaType || 'image/png',
+          base64: f.image.base64,
+          width: f.image.width,
+          height: f.image.height,
+        });
+        f.image = {
+          attached: true,
+          index: images.length - 1,
+          width: f.image.width,
+          height: f.image.height,
+        };
+      } else {
+        f.image = null;
+      }
+    }
+  }
+  return { textPayload: clone, images };
+}
+
+// --- Payload truncation ---
+function truncatePayloadIfNeeded(payload) {
+  let json = JSON.stringify(payload);
+  if (json.length <= MAX_PAYLOAD_CHARS) return payload;
+
+  const clone = JSON.parse(json);
+  const flags = [];
+
+  // 1. Deduplicate CSS properties across variants
+  if (clone.css) {
+    const seen = new Set();
+    for (const variantName of Object.keys(clone.css)) {
+      const css = clone.css[variantName];
+      if (!css || typeof css !== 'object') continue;
+      const filtered = {};
+      for (const prop of Object.keys(css)) {
+        const sig = prop + '=' + css[prop];
+        if (!seen.has(sig)) {
+          seen.add(sig);
+          filtered[prop] = css[prop];
+        }
+      }
+      clone.css[variantName] = filtered;
+    }
+    flags.push('css-dedupe');
+  }
+
+  // 2. If still too big: drop schema CSS from docs
+  if (JSON.stringify(clone).length > MAX_PAYLOAD_CHARS && clone.documentation && clone.documentation.frames) {
+    let dropped = 0;
+    const stripSchemas = (node) => {
+      if (!node || typeof node !== 'object') return;
+      if (node.kind === 'schema' && node.css) { node.css = null; node.cssStripped = true; dropped++; }
+      if (Array.isArray(node.children)) node.children.forEach(stripSchemas);
+    };
+    for (const f of clone.documentation.frames) stripSchemas(f.tree);
+    if (dropped > 0) flags.push('docs-schemas');
+  }
+
+  // 3. If still too big: collapse empty containers
+  if (JSON.stringify(clone).length > MAX_PAYLOAD_CHARS && clone.documentation && clone.documentation.frames) {
+    const collapse = (node) => {
+      if (!node || typeof node !== 'object') return node;
+      if (Array.isArray(node.children)) {
+        node.children = node.children
+          .map(collapse)
+          .filter(c => c && !(c.kind === 'container' && (!c.children || c.children.length === 0)));
+      }
+      return node;
+    };
+    for (const f of clone.documentation.frames) f.tree = collapse(f.tree);
+    flags.push('docs-collapse');
+  }
+
+  // 4. Last resort: drop textFallback (redundant with tree texts)
+  if (JSON.stringify(clone).length > MAX_PAYLOAD_CHARS && clone.documentation) {
+    clone.documentation.textFallback = [];
+    flags.push('docs-fallback');
+  }
+
+  clone.meta = clone.meta || {};
+  clone.meta.truncated = flags;
+  return clone;
+}
+
+// --- LLM call (low-level, retourne le texte brut) ---
+async function callLLMRaw({ systemPrompt, userText, images, config }) {
+  const { endpoint, model, apiKey, provider } = config;
+  let headers, requestBody;
+
+  if (provider === 'anthropic') {
+    headers = {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    };
+    const userContent = [{ type: 'text', text: userText }];
+    for (const img of (images || [])) {
+      userContent.push({
+        type: 'image',
+        source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
+      });
+    }
+    requestBody = {
+      model,
+      max_tokens: 8000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userContent }],
+    };
+  } else {
+    headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiKey,
+    };
+    let userContent;
+    if (images && images.length > 0) {
+      userContent = [{ type: 'text', text: userText }];
+      for (const img of images) {
+        userContent.push({
+          type: 'image_url',
+          image_url: { url: 'data:' + img.mediaType + ';base64,' + img.base64 },
+        });
+      }
+    } else {
+      userContent = userText;
+    }
+    requestBody = {
+      model,
+      max_tokens: 8000,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ],
+    };
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(requestBody),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const errMsg = (data && (data.error?.message || data.error || data.message)) || ('HTTP ' + response.status);
+    throw new Error(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg));
+  }
+
+  let text;
+  if (provider === 'anthropic') {
+    text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+  } else {
+    text = data.choices?.[0]?.message?.content || '';
+  }
+
+  // Normalise l'usage tokens quel que soit le provider.
+  let usage = null;
+  if (data && data.usage) {
+    const u = data.usage;
+    const input = u.input_tokens ?? u.prompt_tokens ?? null;
+    const output = u.output_tokens ?? u.completion_tokens ?? null;
+    const total = u.total_tokens ?? ((input != null && output != null) ? (input + output) : null);
+    usage = { input, output, total, model };
+  }
+
+  return { text, usage };
+}
+
+// Wrapper extraction : appelle le LLM avec le SYSTEM_PROMPT et renvoie le markdown brut + usage.
+async function callLLMForExtraction(payload, images, config) {
+  const { text, usage } = await callLLMRaw({
+    systemPrompt: SYSTEM_PROMPT,
+    userText: JSON.stringify(payload),
+    images,
+    config,
+  });
+  // Au cas où le modèle aurait quand même mis un fence — on le retire.
+  const markdown = text.replace(/^\s*```(?:markdown|md)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+  return { markdown, usage };
+}
+
+// --- Download ---
+function download(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function kebab(s) {
+  return (s || 'component')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+// --- Render ---
+function formatTokens(usage) {
+  if (!usage || usage.total == null) return '';
+  const total = usage.total.toLocaleString('fr-FR');
+  const detail = (usage.input != null && usage.output != null)
+    ? ' · ' + usage.input + ' in / ' + usage.output + ' out'
+    : '';
+  const model = usage.model ? ' · ' + usage.model : '';
+  return total + ' tokens' + detail + model;
+}
+
+function renderResult(payload, result) {
+  document.getElementById('result').classList.remove('hidden');
+  document.getElementById('raw-view').textContent = JSON.stringify(payload, null, 2);
+  const compName = (payload.metadata && payload.metadata.name) || 'Composant';
+  document.getElementById('result-title').textContent = compName;
+  document.getElementById('tokens-badge').textContent = formatTokens(result.usage);
+  document.getElementById('md-view').textContent = result.markdown || '(pas de documentation générée)';
+}
+
+// --- Main flow ---
+async function runExtraction() {
+  hideMessage();
+  document.getElementById('result').classList.add('hidden');
+  setProgress({ extract: 'active' });
+  parent.postMessage({ pluginMessage: { type: 'extract' } }, '*');
+}
+
+async function onPayloadReceived(payload) {
+  setProgress({ extract: 'done', ai: 'active' });
+
+  const visionEnabled = currentConfig.vision !== false;
+  const split = splitImagesFromPayload(payload, visionEnabled);
+  const images = split.images;
+  currentPayload = truncatePayloadIfNeeded(split.textPayload);
+
+  const notes = [];
+  if (currentPayload.meta && currentPayload.meta.truncated) {
+    const flags = Array.isArray(currentPayload.meta.truncated)
+      ? currentPayload.meta.truncated.join(', ')
+      : 'truncated';
+    notes.push('Payload tronqué (' + flags + ') — > ' + MAX_PAYLOAD_CHARS + ' caractères.');
+  }
+  if (images.length > 0) {
+    notes.push(images.length + ' image(s) jointe(s) au LLM (vision).');
+  } else if (visionEnabled) {
+    notes.push('Vision activée mais aucune image disponible.');
+  }
+  if (notes.length > 0) showMessage(notes.join(' '), 'info');
+
+  try {
+    const result = await callLLMForExtraction(currentPayload, images, currentConfig);
+    currentResult = result;
+    setProgress(null); // cache la zone progression une fois le résultat prêt
+    renderResult(currentPayload, result);
+  } catch (err) {
+    setProgress({ extract: 'done', ai: 'error' });
+    showMessage('Erreur LLM : ' + err.message, 'error');
+  }
+}
+
+// --- Window message listener ---
+window.onmessage = (event) => {
+  const msg = event.data.pluginMessage;
+  if (!msg) return;
+
+  if (msg.type === 'selection') {
+    const components = msg.components || [];
+    const docs = msg.docs || [];
+    currentSelection = { components, docs };
+    const nameEl = document.getElementById('sel-name');
+    const metaEl = document.getElementById('sel-meta');
+    if (components.length === 0) {
+      nameEl.textContent = 'Aucun composant';
+      metaEl.textContent = docs.length > 0
+        ? docs.length + ' frame(s) sélectionnée(s) — il manque un composant'
+        : 'Sélectionne un composant (+ frames de doc en option)';
+    } else {
+      nameEl.textContent = components[0].name;
+      const parts = [components[0].type];
+      parts.push(docs.length + ' frame(s) de doc');
+      if (components.length > 1) {
+        parts.push((components.length - 1) + ' composant(s) ignoré(s)');
+      }
+      metaEl.textContent = parts.join(' · ');
+    }
+    refreshExtractButton();
+  } else if (msg.type === 'payload') {
+    onPayloadReceived(msg.data);
+  } else if (msg.type === 'error') {
+    setProgress({ extract: 'error' });
+    showMessage(msg.message, 'error');
+  } else if (msg.type === 'progress') {
+    // optional fine-grained progress from code.js
+  } else if (msg.type === 'config') {
+    applyConfigToUI(msg.data);
+  } else if (msg.type === 'config-saved') {
+    const status = document.getElementById('cfg-status');
+    if (msg.ok) {
+      status.textContent = 'Enregistré.';
+      setTimeout(() => { status.textContent = ''; }, 2000);
+    } else {
+      status.textContent = 'Échec : ' + (msg.message || 'erreur inconnue');
+    }
+  } else if (msg.type === 'docs') {
+    chatDocs = Array.isArray(msg.data) ? msg.data : [];
+    renderDocsList();
+    refreshChatButton();
+  } else if (msg.type === 'docs-saved') {
+    const status = document.getElementById('docs-status');
+    if (msg.ok) {
+      status.textContent = 'Enregistré.';
+      setTimeout(() => { status.textContent = ''; }, 1500);
+    } else {
+      status.textContent = 'Échec : ' + (msg.message || 'erreur inconnue');
+    }
+  }
+};
+
+// --- Init ---
+document.getElementById('extract-btn').addEventListener('click', runExtraction);
+document.getElementById('retry-btn').addEventListener('click', runExtraction);
+
+function getResultMarkdownWithHeader() {
+  if (!currentResult || !currentPayload) return null;
+  const name = currentPayload.metadata?.name || 'Component';
+  const date = (currentPayload.meta.extractedAt || '').split('T')[0];
+  const body = currentResult.markdown || '';
+  const header = '# ' + name + '\n> Extrait le ' + date + ' depuis Figma · Analysé par ' + currentConfig.model + '\n\n';
+  return { name, body, header, full: header + body };
+}
+
+document.getElementById('dl-md').addEventListener('click', () => {
+  const r = getResultMarkdownWithHeader();
+  if (!r) return;
+  download('component-' + kebab(r.name) + '.docs.md', r.full, 'text/markdown');
+});
+
+document.getElementById('add-to-docs-btn').addEventListener('click', () => {
+  const r = getResultMarkdownWithHeader();
+  if (!r) return;
+  const filename = kebab(r.name) + '.md';
+  upsertDoc(filename, r.full);
+  renderDocsList();
+  refreshChatButton();
+  persistDocs();
+  showMessage('Ajouté aux docs du chat ✓ (' + filename + ')', 'info');
+  const btn = document.getElementById('add-to-docs-btn');
+  const original = btn.textContent;
+  btn.textContent = 'Ajouté ✓';
+  btn.classList.add('ok');
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.textContent = original;
+    btn.classList.remove('ok');
+    btn.disabled = false;
+    hideMessage();
+  }, 2500);
+});
+
+initConfigUI();
+initRootTabs();
+initChat();
+refreshExtractButton();
+</script>
+</body>
+</html>
