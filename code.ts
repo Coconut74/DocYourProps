@@ -359,7 +359,7 @@ async function saveConfig(targetId: string, options: DocOptions): Promise<void> 
   }
 }
 
-figma.showUI(__html__, { width: 440, height: 540 });
+figma.showUI(__html__, { width: 488, height: 860 });
 
 const ONBOARDED_KEY = "docyourprops:onboarded";
 
@@ -665,7 +665,10 @@ figma.ui.onmessage = async (msg: {
         ? `Documentation créée — ${generationWarnings.length} avertissement(s) : ${summary}`
         : "Documentation créée";
       figma.notify(message, { timeout: summary ? 4500 : 1800 });
-      figma.ui.postMessage({ type: "generation-done" });
+      const doc = await buildDocAsObject(target, opts);
+      const markdownContent = buildMarkdown(doc);
+      const safeName = target.name.replace(/[\\/:*?"<>|]/g, "_");
+      figma.ui.postMessage({ type: "generation-done", markdown: markdownContent, componentName: safeName });
     } catch (e) {
       figma.notify(`Erreur: ${(e as Error).message}`, { error: true });
       figma.ui.postMessage({ type: "generation-error" });

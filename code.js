@@ -211,7 +211,7 @@ function saveConfig(targetId, options) {
         }
     });
 }
-figma.showUI(__html__, { width: 440, height: 540 });
+figma.showUI(__html__, { width: 488, height: 860 });
 const ONBOARDED_KEY = "docyourprops:onboarded";
 // Global LLM config (endpoint, model, apiKey). Shared across all components —
 // not scoped per-target like CONFIG_KEY_PREFIX.
@@ -498,7 +498,10 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 ? `Documentation créée — ${generationWarnings.length} avertissement(s) : ${summary}`
                 : "Documentation créée";
             figma.notify(message, { timeout: summary ? 4500 : 1800 });
-            figma.ui.postMessage({ type: "generation-done" });
+            const doc = yield buildDocAsObject(target, opts);
+            const markdownContent = buildMarkdown(doc);
+            const safeName = target.name.replace(/[\\/:*?"<>|]/g, "_");
+            figma.ui.postMessage({ type: "generation-done", markdown: markdownContent, componentName: safeName });
         }
         catch (e) {
             figma.notify(`Erreur: ${e.message}`, { error: true });
