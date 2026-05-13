@@ -3283,6 +3283,23 @@ function extractAiMetadata(node) {
             variantProperties: isSet
                 ? node.variantGroupProperties
                 : null,
+            componentProperties: (() => {
+                var _a;
+                const defs = node.componentPropertyDefinitions || {};
+                const result = {};
+                let hasAny = false;
+                for (const rawKey in defs) {
+                    const d = defs[rawKey];
+                    if (d.type === "VARIANT")
+                        continue;
+                    result[stripPropKey(rawKey)] = {
+                        type: d.type,
+                        defaultValue: (_a = d.defaultValue) !== null && _a !== void 0 ? _a : null,
+                    };
+                    hasAny = true;
+                }
+                return hasAny ? result : null;
+            })(),
             variants,
         };
     });
