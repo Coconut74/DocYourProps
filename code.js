@@ -2182,6 +2182,47 @@ function segmentCrossesRect(p1, p2, rect) {
     }
     return t1 > t0;
 }
+// Walks the segment `from → to` (where `to` lies inside `rect`) and returns the
+// point where it first crosses the rect's border. Used so leader lines stop at
+// the edge of the documented layer instead of piercing through to its center.
+// Falls back to `to` when no edge crossing is found (e.g. `from` is also inside
+// the rect, or the segment is degenerate).
+function rayToRectEdge(from, to, rect) {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9)
+        return to;
+    const xMin = rect.x;
+    const xMax = rect.x + rect.w;
+    const yMin = rect.y;
+    const yMax = rect.y + rect.h;
+    let best = Infinity;
+    const consider = (t, x, y) => {
+        if (t < 0 || t > 1)
+            return;
+        if (x < xMin - 1e-6 || x > xMax + 1e-6)
+            return;
+        if (y < yMin - 1e-6 || y > yMax + 1e-6)
+            return;
+        if (t < best)
+            best = t;
+    };
+    if (Math.abs(dx) > 1e-9) {
+        let t = (xMin - from.x) / dx;
+        consider(t, xMin, from.y + t * dy);
+        t = (xMax - from.x) / dx;
+        consider(t, xMax, from.y + t * dy);
+    }
+    if (Math.abs(dy) > 1e-9) {
+        let t = (yMin - from.y) / dy;
+        consider(t, from.x + t * dx, yMin);
+        t = (yMax - from.y) / dy;
+        consider(t, from.x + t * dx, yMax);
+    }
+    if (!isFinite(best))
+        return to;
+    return { x: from.x + best * dx, y: from.y + best * dy };
+}
 function pointToSegmentDistance(pt, a, b) {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
@@ -2496,13 +2537,22 @@ function buildPinnedVisualBlock(base, booleanPayload, anchors, legendRows, conte
         const badgeCY = p.cy + visualOffsetY;
         const targetCX = p.tx;
         const targetCY = p.ty + visualOffsetY;
-        const dx = targetCX - badgeCX;
-        const dy = targetCY - badgeCY;
+        const tRect = targetRects[i];
+        const targetRectFinal = {
+            x: tRect.x,
+            y: tRect.y + visualOffsetY,
+            w: tRect.w,
+            h: tRect.h,
+        };
+        // Stop the leader at the target rect's border rather than its center.
+        const tipPt = rayToRectEdge({ x: badgeCX, y: badgeCY }, { x: targetCX, y: targetCY }, targetRectFinal);
+        const dx = tipPt.x - badgeCX;
+        const dy = tipPt.y - badgeCY;
         const len = Math.sqrt(dx * dx + dy * dy);
         if (len > BADGE_R + 1) {
             const edgeX = badgeCX + (BADGE_R / len) * dx;
             const edgeY = badgeCY + (BADGE_R / len) * dy;
-            const leader = makeLeaderLine(edgeX, edgeY, targetCX, targetCY);
+            const leader = makeLeaderLine(edgeX, edgeY, tipPt.x, tipPt.y);
             visual.appendChild(leader);
         }
     }
