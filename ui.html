@@ -2406,12 +2406,17 @@
         linkedDocFrameInfo: [], // [{ id, name, type }]
         generalDescription: null,
         propDescriptions: null,
+        analyzedDocFrameIds: [], // snapshot of linkedDocFrameIds at last successful AI run
         generatedAt: null,
         model: null,
       };
       let listenActive = false;
       let listenCandidate = null;
       let aiAnalysisInFlight = false;
+      // When set, the next ai-extract-ready / ai-extract-error / LLM success or
+      // failure settles this deferred — used by the Generate flow to await the
+      // AI step before posting generate-doc.
+      let aiAnalysisDeferred = null;
       let baseCombinationCount = 0; // Last reported total combinations (cartesian post-dedup)
 
       // Pending state — populated when entering settings, applied on Valider, dropped on Annuler.
@@ -4025,6 +4030,10 @@
           showAiError("Échec de l'extraction côté sandbox", msg.message || "(aucun détail fourni)");
           console.error("ai-extract-error:", msg.message);
           renderAiBlock();
+          if (aiAnalysisDeferred) {
+            aiAnalysisDeferred.reject(new Error(msg.message || "ai-extract-error"));
+            aiAnalysisDeferred = null;
+          }
           return;
         }
         if (msg.type === "init") {
@@ -4201,9 +4210,32 @@
       let generateTimeoutId = null;
       let pdfTimeoutId = null;
 
-      document.getElementById("generate").addEventListener("click", () => {
-        setButtonBusy(generateBtn, true, "Génération…");
+      document.getElementById("generate").addEventListener("click", async () => {
         if (generateTimeoutId) clearTimeout(generateTimeoutId);
+
+        // Optional AI pre-step: when an LLM key is configured and the cached
+        // analysis is stale (or absent), re-run the LLM so the canvas sheets
+        // pick up fresh per-prop descriptions. Skipped silently when no key
+        // is set — falls back to the placeholder "À compléter".
+        if (
+          currentLlmConfig &&
+          currentLlmConfig.apiKey &&
+          currentAiTargetId &&
+          aiNeedsAnalysis()
+        ) {
+          setButtonBusy(generateBtn, true, "Analyse IA…");
+          try {
+            await runAiAnalysisPromise();
+          } catch (e) {
+            // showAiError + console.error already done by the AI flow.
+            // Block the generation — user must address the error first.
+            console.error("Generate blocked: AI analysis failed", e);
+            setButtonBusy(generateBtn, false);
+            return;
+          }
+        }
+
+        setButtonBusy(generateBtn, true, "Génération…");
         generateTimeoutId = setTimeout(
           () => setButtonBusy(generateBtn, false),
           BUSY_TIMEOUT_MS
@@ -4661,6 +4693,7 @@
           linkedDocFrameInfo: [],
           generalDescription: null,
           propDescriptions: null,
+          analyzedDocFrameIds: [],
           generatedAt: null,
           model: null,
         };
@@ -4682,10 +4715,24 @@
             data.propDescriptions && typeof data.propDescriptions === "object"
               ? data.propDescriptions
               : null;
+          aiState.analyzedDocFrameIds = Array.isArray(data.analyzedDocFrameIds)
+            ? data.analyzedDocFrameIds.slice()
+            : [];
           aiState.generatedAt = typeof data.generatedAt === "string" ? data.generatedAt : null;
           aiState.model = typeof data.model === "string" ? data.model : null;
         }
         renderAiBlock();
+      }
+
+      // The cached analysis is stale whenever the set of linked doc frames
+      // doesn't match what was analyzed last. Used by the Generate flow to
+      // decide whether to re-run the LLM before generating the sheets.
+      function aiCacheKey(ids) {
+        return ids.slice().sort().join("|");
+      }
+      function aiNeedsAnalysis() {
+        if (!aiState.propDescriptions) return true;
+        return aiCacheKey(aiState.linkedDocFrameIds) !== aiCacheKey(aiState.analyzedDocFrameIds);
       }
 
       function persistAiState() {
@@ -4700,6 +4747,7 @@
                 linkedDocFrameInfo: aiState.linkedDocFrameInfo,
                 generalDescription: aiState.generalDescription,
                 propDescriptions: aiState.propDescriptions,
+                analyzedDocFrameIds: aiState.analyzedDocFrameIds,
                 generatedAt: aiState.generatedAt,
                 model: aiState.model,
               },
@@ -5022,6 +5070,9 @@
               : {};
           aiState.generatedAt = new Date().toISOString();
           aiState.model = currentLlmConfig.model || null;
+          // Snapshot the doc frames that were actually analyzed so the cache
+          // invalidation logic (aiNeedsAnalysis) can detect future changes.
+          aiState.analyzedDocFrameIds = aiState.linkedDocFrameIds.slice();
           persistAiState();
           aiAnalysisInFlight = false;
           aiStatus.classList.remove("is-busy");
@@ -5032,6 +5083,10 @@
           aiStatus.textContent = parts.join(" · ");
           clearAiError();
           renderAiBlock();
+          if (aiAnalysisDeferred) {
+            aiAnalysisDeferred.resolve();
+            aiAnalysisDeferred = null;
+          }
         } catch (e) {
           aiAnalysisInFlight = false;
           aiStatus.classList.remove("is-busy");
@@ -5043,12 +5098,48 @@
           );
           console.error("continueAiAnalysisWithPayload error at stage=" + stage, e);
           renderAiBlock();
+          if (aiAnalysisDeferred) {
+            aiAnalysisDeferred.reject(e instanceof Error ? e : new Error(String(e)));
+            aiAnalysisDeferred = null;
+          }
         }
       }
 
       btnAnalyzeAi.addEventListener("click", () => {
         runAiAnalysis();
       });
+
+      // Awaitable wrapper around the existing fire-and-forget runAiAnalysis.
+      // The Generate flow calls this to run the AI step BEFORE the generate-doc
+      // message hits the sandbox, so the canvas sheets pick up fresh
+      // propDescriptions. The deferred is settled by the success / failure
+      // branches of continueAiAnalysisWithPayload / ai-extract-error.
+      function runAiAnalysisPromise() {
+        // Pre-validate so failure cases reject immediately without ever
+        // setting aiAnalysisDeferred (avoids dangling promises).
+        if (!currentAiTargetId) {
+          return Promise.reject(new Error("Aucun composant sélectionné."));
+        }
+        if (!currentLlmConfig.apiKey) {
+          return Promise.reject(
+            new Error("Clé API manquante — renseigne-la dans le footer Configuration LLM.")
+          );
+        }
+        if (aiAnalysisInFlight && aiAnalysisDeferred) {
+          // Piggy-back on the in-flight analysis.
+          return new Promise((resolve, reject) => {
+            const prev = aiAnalysisDeferred;
+            aiAnalysisDeferred = {
+              resolve: () => { prev.resolve(); resolve(); },
+              reject: (e) => { prev.reject(e); reject(e); },
+            };
+          });
+        }
+        return new Promise((resolve, reject) => {
+          aiAnalysisDeferred = { resolve, reject };
+          runAiAnalysis();
+        });
+      }
 
       // ── Chat tab (Phase E) ───────────────────────────────────────────────
       const CHAT_SYSTEM_PROMPT = [

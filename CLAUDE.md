@@ -29,7 +29,11 @@ Plugin Figma (Figma Design uniquement). TypeScript + UI HTML vanilla.
 > - **E — Chat** : port de l'onglet Chat de DSExtract (import `.md`, thread Q&A, persistance `CHAT_DOCS_KEY = "docyourcomp:chat-docs"`). ← *terminé*
 > - **V2** (hors scope V1) : boucle de vérification visuelle IA (inspection des pins/badges).
 >
-> **Flux IA (Phases B + C)** : sélection d'un composant → bloc *Documentation technique* (en bas de l'onglet Docs) → bouton **« + Lier une frame de doc »** entre en mode écoute (`ai-link-doc-start` / `ai-link-doc-candidate` / `ai-link-doc-end`), le sandbox lock le target et émet la frame sélectionnée comme candidate avec preview PNG, l'UI valide et stocke → bouton **« Analyser avec l'IA »** déclenche `ai-extract` qui assemble `AiPayload` (metadata + CSS + docs walker + PNG vision), l'UI `fetch()` le proxy OpenAI-compatible, parse le JSON `{ generalDescription, propDescriptions }`, persiste dans `AI_DESCRIPTIONS_KEY_PREFIX + targetId`. Les descriptions seront consommées par `buildPropsSection` en Phase D.
+> **Flux IA (Phases B + C)** : sélection d'un composant → bloc *Documentation technique* (en bas de l'onglet Docs) → bouton **« + Lier une frame de doc »** entre en mode écoute (`ai-link-doc-start` / `ai-link-doc-candidate` / `ai-link-doc-end`), le sandbox lock le target et émet la frame sélectionnée comme candidate avec preview PNG, l'UI valide et stocke. Deux entrées pour l'appel LLM :
+> - **Bouton « Analyser avec l'IA »** — appel explicite, pour pré-visualiser le statut avant génération.
+> - **Bouton « Générer la doc »** — appelle automatiquement le LLM **avant** la génération si le cache est invalide (premier passage, ou changement de frames liées depuis le dernier `analyzedDocFrameIds`). Bloque la génération en cas d'échec LLM (l'erreur s'affiche dans la carte rouge du bloc IA). Si pas de clé API, l'étape IA est silencieusement sautée — la génération utilise le placeholder « À compléter ».
+>
+> Les deux entrées déclenchent `ai-extract` qui assemble `AiPayload` (metadata + CSS + docs walker + PNG vision), l'UI `fetch()` le proxy OpenAI-compatible, parse le JSON `{ generalDescription, propDescriptions }`, persiste dans `AI_DESCRIPTIONS_KEY_PREFIX + targetId` avec un snapshot `analyzedDocFrameIds`. Les descriptions sont consommées par `buildPropsSection` (canvas), `buildPdfPropsPage` (PDF) et `buildDocAsObject` (MD/JSON).
 
 ## Fonctionnalité actuelle
 
