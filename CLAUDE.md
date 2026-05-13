@@ -1,6 +1,35 @@
-# DocYourProps — guide pour Claude
+# DocYourComp — guide pour Claude
 
 Plugin Figma (Figma Design uniquement). TypeScript + UI HTML vanilla.
+
+> **Refonte en cours** — ce plugin s'appelait initialement *DocYourProps* (génération
+> mécanique de fiches). Il fusionne progressivement les capacités d'un second plugin
+> maison, *DSExtract* (extraction enrichie + appel LLM), pour devenir **DocYourComp**.
+> Le contenu de DSExtract est conservé dans `DSExtract/` comme référence pendant la
+> migration et sera supprimé une fois la fusion terminée.
+>
+> **Architecture cible (en cours)** :
+> - **Top-bar 2 onglets** : `Docs` (génération + extraction IA) et `Chat` (Q&A RAG sur `.md`).
+> - **Footer global** : `<details>` *Configuration LLM* avec endpoint (path éditable),
+>   modèle, clé API. Pas de dropdown provider — toujours OpenAI-compatible.
+> - **Provider unique** : proxy maison `https://proxy-llm.progiapps.fr` (déclaré dans
+>   `manifest.json` → `networkAccess.allowedDomains`).
+> - **Persistance `clientStorage`** :
+>   - `CONFIG_KEY_PREFIX + targetId` — config matrice/anatomie/tokens par composant (existant).
+>   - `ONBOARDED_KEY` — flag onboarding (existant).
+>   - `LLM_CONFIG_KEY = "docyourcomp:llm-config"` — config LLM globale `{ endpoint, model, apiKey }`.
+>   - `AI_DESCRIPTIONS_KEY + targetId` (à venir) — descriptions IA par prop, scopées par composant.
+>   - `CHAT_DOCS_KEY` (à venir) — corpus `.md` du chat, global.
+>
+> **Phasing de la refonte** (cf. `/root/.claude/plans/serene-chasing-swan.md` pour le plan complet) :
+> - **A — Squelette** : renommage, top-bar, footer config, manifest réseau. ← *terminé*
+> - **B — Extraction sandbox** : port des 3 extracteurs (metadata + CSS + docs frames) dans `code.ts`. ← *terminé*
+> - **C — Lier doc + appel LLM** : mode écoute pour lier des frames de doc, appel LLM côté UI. ← *terminé*
+> - **D — Injection canvas + export MD** : `buildPropsSection` consomme `propDescriptions` IA, nouveau bouton « Exporter MD ».
+> - **E — Chat** : port de l'onglet Chat de DSExtract.
+> - **V2** (hors scope V1) : boucle de vérification visuelle IA (inspection des pins/badges).
+>
+> **Flux IA (Phases B + C)** : sélection d'un composant → bloc *Documentation technique* (en bas de l'onglet Docs) → bouton **« + Lier une frame de doc »** entre en mode écoute (`ai-link-doc-start` / `ai-link-doc-candidate` / `ai-link-doc-end`), le sandbox lock le target et émet la frame sélectionnée comme candidate avec preview PNG, l'UI valide et stocke → bouton **« Analyser avec l'IA »** déclenche `ai-extract` qui assemble `AiPayload` (metadata + CSS + docs walker + PNG vision), l'UI `fetch()` le proxy OpenAI-compatible, parse le JSON `{ generalDescription, propDescriptions }`, persiste dans `AI_DESCRIPTIONS_KEY_PREFIX + targetId`. Les descriptions seront consommées par `buildPropsSection` en Phase D.
 
 ## Fonctionnalité actuelle
 

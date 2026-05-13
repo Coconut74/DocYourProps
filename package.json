@@ -1,7 +1,7 @@
 {
-  "name": "docyourprops",
-  "version": "0.1.0",
-  "description": "Figma plugin DocYourProps",
+  "name": "docyourcomp",
+  "version": "0.2.0",
+  "description": "Figma plugin DocYourComp",
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.json",

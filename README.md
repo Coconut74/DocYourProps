@@ -1,4 +1,4 @@
-# DocYourProps
+# DocYourComp
 
 Plugin Figma (Figma Design) — squelette de base.
 
@@ -20,7 +20,7 @@ npm run watch      # recompile à chaque modification
 1. Ouvrir Figma Desktop
 2. Menu → Plugins → Development → Import plugin from manifest…
 3. Sélectionner `manifest.json` à la racine de ce dossier
-4. Lancer via Plugins → Development → DocYourProps
+4. Lancer via Plugins → Development → DocYourComp
 
 ## Structure
 

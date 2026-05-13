@@ -198,6 +198,79 @@ function saveConfig(targetId, options) {
 }
 figma.showUI(__html__, { width: 440, height: 540 });
 const ONBOARDED_KEY = "docyourprops:onboarded";
+// Global LLM config (endpoint, model, apiKey). Shared across all components —
+// not scoped per-target like CONFIG_KEY_PREFIX.
+const LLM_CONFIG_KEY = "docyourcomp:llm-config";
+function loadLlmConfig() {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const raw = yield figma.clientStorage.getAsync(LLM_CONFIG_KEY);
+            if (raw && typeof raw === "object")
+                return raw;
+        }
+        catch (_a) {
+            /* ignore */
+        }
+        return null;
+    });
+}
+// Per-component AI artifacts: linked doc frame IDs + LLM-generated descriptions.
+const AI_DESCRIPTIONS_KEY_PREFIX = "docyourcomp:ai-descriptions:";
+function loadAiDescriptions(targetId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const raw = yield figma.clientStorage.getAsync(AI_DESCRIPTIONS_KEY_PREFIX + targetId);
+            if (raw && typeof raw === "object")
+                return raw;
+        }
+        catch (_a) {
+            /* ignore */
+        }
+        return null;
+    });
+}
+function saveAiDescriptions(targetId, data) {
+    return __awaiter(this, void 0, void 0, function* () {
+        yield figma.clientStorage.setAsync(AI_DESCRIPTIONS_KEY_PREFIX + targetId, data);
+    });
+}
+// Listen-mode state: while true, selectionchange feeds the UI a doc-frame
+// candidate instead of triggering the normal sendSelection() pipeline.
+let aiListenForDocFrames = false;
+let aiListenTargetId = null;
+function sendDocFrameCandidate() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const sel = figma.currentPage.selection;
+        if (sel.length !== 1) {
+            figma.ui.postMessage({ type: "ai-link-doc-candidate", data: null });
+            return;
+        }
+        const node = sel[0];
+        if (node.id === aiListenTargetId) {
+            figma.ui.postMessage({ type: "ai-link-doc-candidate", data: null });
+            return;
+        }
+        if (node.type !== "FRAME" && node.type !== "SECTION" && node.type !== "GROUP") {
+            figma.ui.postMessage({ type: "ai-link-doc-candidate", data: null });
+            return;
+        }
+        let preview = null;
+        try {
+            const bytes = yield node.exportAsync({
+                format: "PNG",
+                constraint: { type: "SCALE", value: 0.5 },
+            });
+            preview = figma.base64Encode(bytes);
+        }
+        catch (_a) {
+            preview = null;
+        }
+        figma.ui.postMessage({
+            type: "ai-link-doc-candidate",
+            data: { id: node.id, name: node.name, type: node.type, preview },
+        });
+    });
+}
 function sendInit() {
     return __awaiter(this, void 0, void 0, function* () {
         let onboarded = true;
@@ -213,12 +286,122 @@ function sendInit() {
 }
 figma.on("selectionchange", () => {
     combosCache = null; // stale once the target changes
+    if (aiListenForDocFrames) {
+        // In listen mode we feed the UI a candidate frame instead of swapping
+        // the documented component. The locked target is kept until the user
+        // clicks "Terminer" (which posts ai-link-doc-end).
+        void sendDocFrameCandidate();
+        return;
+    }
     void sendSelection();
 });
 void sendInit();
 void sendSelection();
 figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
     var _a, _b, _c, _d, _e, _f, _g;
+    if (msg.type === "ai-extract") {
+        const target = yield resolveTarget();
+        if (!target) {
+            figma.ui.postMessage({
+                type: "ai-extract-error",
+                message: "Sélectionne un composant.",
+            });
+            return;
+        }
+        const docFrameIds = Array.isArray(msg.docFrameIds) ? msg.docFrameIds : [];
+        const docFrames = [];
+        for (const id of docFrameIds) {
+            const node = yield figma.getNodeByIdAsync(id);
+            if (node &&
+                (node.type === "FRAME" || node.type === "SECTION" || node.type === "GROUP")) {
+                docFrames.push(node);
+            }
+        }
+        try {
+            const payload = yield buildAiPayload(target, docFrames);
+            figma.ui.postMessage({ type: "ai-extract-ready", data: payload });
+        }
+        catch (e) {
+            figma.ui.postMessage({
+                type: "ai-extract-error",
+                message: e instanceof Error ? e.message : String(e),
+            });
+        }
+        return;
+    }
+    if (msg.type === "get-llm-config") {
+        const cfg = yield loadLlmConfig();
+        figma.ui.postMessage({ type: "llm-config", data: cfg });
+        return;
+    }
+    if (msg.type === "save-llm-config") {
+        try {
+            yield figma.clientStorage.setAsync(LLM_CONFIG_KEY, msg.data || {});
+            figma.ui.postMessage({ type: "llm-config-saved", ok: true });
+        }
+        catch (e) {
+            figma.ui.postMessage({
+                type: "llm-config-saved",
+                ok: false,
+                message: e instanceof Error ? e.message : String(e),
+            });
+        }
+        return;
+    }
+    if (msg.type === "ai-link-doc-start") {
+        aiListenForDocFrames = true;
+        const t = yield resolveTarget();
+        aiListenTargetId = t ? t.id : null;
+        figma.notify("Sélectionne une frame de documentation dans Figma puis valide.");
+        void sendDocFrameCandidate();
+        return;
+    }
+    if (msg.type === "ai-link-doc-end") {
+        aiListenForDocFrames = false;
+        // Restore the documented component as the active Figma selection so the UI
+        // stays in context (the user may have clicked random frames while linking).
+        if (aiListenTargetId) {
+            try {
+                const locked = yield figma.getNodeByIdAsync(aiListenTargetId);
+                if (locked && "type" in locked) {
+                    figma.currentPage.selection = [locked];
+                }
+            }
+            catch (_h) {
+                /* selection restore is best-effort */
+            }
+        }
+        aiListenTargetId = null;
+        void sendSelection();
+        return;
+    }
+    if (msg.type === "get-ai-descriptions") {
+        if (!msg.targetId) {
+            figma.ui.postMessage({ type: "ai-descriptions", data: null });
+            return;
+        }
+        const data = yield loadAiDescriptions(msg.targetId);
+        figma.ui.postMessage({ type: "ai-descriptions", data });
+        return;
+    }
+    if (msg.type === "save-ai-descriptions") {
+        if (!msg.targetId) {
+            figma.ui.postMessage({ type: "ai-descriptions-saved", ok: false, message: "No targetId" });
+            return;
+        }
+        try {
+            yield saveAiDescriptions(msg.targetId, msg.data || {});
+            figma.ui.postMessage({ type: "ai-descriptions-saved", ok: true });
+        }
+        catch (e) {
+            figma.ui.postMessage({
+                type: "ai-descriptions-saved",
+                ok: false,
+                message: e instanceof Error ? e.message : String(e),
+            });
+        }
+        return;
+    }
     const defaultOptions = {
         props: true,
         tokens: true,
@@ -333,7 +516,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.clientStorage.deleteAsync(CONFIG_KEY_PREFIX + target.id);
             }
-            catch (_h) {
+            catch (_j) {
                 /* best effort */
             }
         }
@@ -342,7 +525,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             yield figma.clientStorage.setAsync(ONBOARDED_KEY, true);
         }
-        catch (_j) {
+        catch (_k) {
             /* best effort */
         }
     }
@@ -391,7 +574,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     missing = false;
                 }
             }
-            catch (_k) {
+            catch (_l) {
                 /* node unavailable — keep missing flag */
             }
             items.push({
@@ -431,7 +614,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             node = yield figma.getNodeByIdAsync(msg.targetId);
         }
-        catch (_l) {
+        catch (_m) {
             node = null;
         }
         if (!node || node.removed) {
@@ -452,7 +635,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.setCurrentPageAsync(page);
             }
-            catch (_m) {
+            catch (_o) {
                 // ignore — fall back to current page scrollAndZoom
             }
         }
@@ -549,6 +732,7 @@ function sendSelection() {
                     existingSections.push(section);
             }
             payload = {
+                id: target.id,
                 name: target.name,
                 kind: target.type,
                 props,
@@ -2848,6 +3032,462 @@ function findAllVisibleLayersWithPositions(inst) {
     };
     recurse(inst, 0, 0, 0, "");
     return out;
+}
+// ─── AI extractors (DSExtract port) ─────────────────────────────────────────
+//
+// Three independent extractors that collect everything the LLM needs to write
+// per-prop descriptions and general narration for a component:
+//   1. extractAiMetadata — variants, anatomy (2 levels deep), boundVariables
+//      resolved to their effective values (hex / px / token name).
+//   2. extractAiCSS       — getCSSAsync() per variant; the computed values that
+//      Figma resolves natively (radii, colors, shadows…).
+//   3. extractAiDocs      — walker over user-linked documentation frames with a
+//      reading-order traversal, a node budget, and a PNG capture of each frame
+//      for vision-capable models.
+// buildAiPayload assembles them in parallel and is exposed via the "ai-extract"
+// message handler (UI ↔ sandbox). All helpers are prefixed Ai* / ai* to keep
+// them distinct from DocYourProps' own pipeline.
+const AI_DOC_MAX_DEPTH = 6;
+const AI_DOC_NODE_BUDGET = 400;
+const AI_SCHEMA_CONCURRENCY = 30;
+const AI_PROP_VALUE_MAX_CHARS = 200;
+const AI_IMAGE_MAX_DIMENSION = 1024;
+const AI_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+const AI_ROW_TOLERANCE = 8;
+function aiChannelToHex(c) {
+    const n = Math.round(Math.max(0, Math.min(1, c)) * 255);
+    const s = n.toString(16);
+    return s.length < 2 ? "0" + s : s;
+}
+function aiRgbToHex(color) {
+    const hex = "#" + aiChannelToHex(color.r) + aiChannelToHex(color.g) + aiChannelToHex(color.b);
+    if (typeof color.a === "number" && color.a < 1)
+        return hex + aiChannelToHex(color.a);
+    return hex;
+}
+function describeAiVariable(varId, consumerNode) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const v = yield figma.variables.getVariableByIdAsync(varId);
+            if (!v)
+                return { id: varId, name: null, type: null, value: null };
+            const out = { name: v.name, type: v.resolvedType, value: null };
+            const resolved = v.resolveForConsumer(consumerNode);
+            if (resolved && resolved.value !== undefined && resolved.value !== null) {
+                if (resolved.resolvedType === "COLOR" && typeof resolved.value === "object") {
+                    const col = resolved.value;
+                    out.value = aiRgbToHex(col);
+                    if (typeof col.a === "number")
+                        out.alpha = col.a;
+                }
+                else {
+                    out.value = resolved.value;
+                }
+            }
+            return out;
+        }
+        catch (e) {
+            return {
+                id: varId,
+                name: null,
+                type: null,
+                value: null,
+                error: e instanceof Error ? e.message : String(e),
+            };
+        }
+    });
+}
+function summarizeAiBoundVariables(bv, consumerNode) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const result = {};
+        for (const key of Object.keys(bv)) {
+            const binding = bv[key];
+            try {
+                if (Array.isArray(binding)) {
+                    result[key] = yield Promise.all(binding.map((b) => describeAiVariable(b.id, consumerNode)));
+                }
+                else if (binding && binding.id) {
+                    result[key] = yield describeAiVariable(binding.id, consumerNode);
+                }
+            }
+            catch (_a) {
+                /* skip a malformed binding silently */
+            }
+        }
+        return result;
+    });
+}
+function extractAiChildren(node, depth, maxDepth) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (depth >= maxDepth || !("children" in node))
+            return [];
+        const out = [];
+        for (const child of node.children) {
+            const fill = child.fillStyleId;
+            const text = child.textStyleId;
+            const effect = child.effectStyleId;
+            const bv = child
+                .boundVariables;
+            const rec = {
+                name: child.name,
+                type: child.type,
+                visible: child.visible,
+                fillStyleId: typeof fill === "string" ? fill : null,
+                textStyleId: typeof text === "string" ? text : null,
+                effectStyleId: typeof effect === "string" ? effect : null,
+                boundVariables: bv ? yield summarizeAiBoundVariables(bv, child) : null,
+                children: yield extractAiChildren(child, depth + 1, maxDepth),
+            };
+            if (child.type === "TEXT") {
+                const t = child;
+                rec.characters = t.characters;
+                if (typeof t.fontSize === "number")
+                    rec.fontSize = t.fontSize;
+                if (typeof t.fontName === "object" && t.fontName !== null && "family" in t.fontName) {
+                    rec.fontName = t.fontName;
+                }
+            }
+            out.push(rec);
+        }
+        return out;
+    });
+}
+function extractAiVariantInfo(c) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const bv = c.boundVariables;
+        return {
+            name: c.name,
+            properties: c.variantProperties || {},
+            width: Math.round(c.width),
+            height: Math.round(c.height),
+            layoutMode: c.layoutMode,
+            padding: {
+                top: c.paddingTop,
+                right: c.paddingRight,
+                bottom: c.paddingBottom,
+                left: c.paddingLeft,
+            },
+            itemSpacing: c.itemSpacing,
+            primaryAxisAlignItems: c.primaryAxisAlignItems,
+            counterAxisAlignItems: c.counterAxisAlignItems,
+            boundVariables: bv ? yield summarizeAiBoundVariables(bv, c) : null,
+            children: yield extractAiChildren(c, 0, 2),
+        };
+    });
+}
+function extractAiMetadata(node) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const isSet = node.type === "COMPONENT_SET";
+        const components = isSet
+            ? node.children
+            : [node];
+        const variants = yield Promise.all(components.map((c) => extractAiVariantInfo(c)));
+        return {
+            id: node.id,
+            name: node.name,
+            type: node.type,
+            description: node.description || "",
+            width: Math.round(node.width),
+            height: Math.round(node.height),
+            variantProperties: isSet
+                ? node.variantGroupProperties
+                : null,
+            variants,
+        };
+    });
+}
+function extractAiCSS(node) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const components = node.type === "COMPONENT_SET"
+            ? node.children
+            : [node];
+        const cssMap = {};
+        yield Promise.all(components.map((variant) => __awaiter(this, void 0, void 0, function* () {
+            try {
+                const css = yield variant.getCSSAsync();
+                cssMap[variant.name] = css;
+            }
+            catch (_a) {
+                cssMap[variant.name] = null;
+            }
+        })));
+        return cssMap;
+    });
+}
+function aiSortByReadingOrder(nodes) {
+    return nodes.slice().sort((a, b) => {
+        const ay = typeof a.y === "number" ? a.y : 0;
+        const by = typeof b.y === "number" ? b.y : 0;
+        if (Math.abs(ay - by) < AI_ROW_TOLERANCE) {
+            const ax = typeof a.x === "number" ? a.x : 0;
+            const bx = typeof b.x === "number" ? b.x : 0;
+            return ax - bx;
+        }
+        return ay - by;
+    });
+}
+function aiTextLevel(fontSize) {
+    if (typeof fontSize !== "number")
+        return "body";
+    if (fontSize >= 24)
+        return "h1";
+    if (fontSize >= 18)
+        return "h2";
+    if (fontSize >= 14)
+        return "h3";
+    return "body";
+}
+function aiIsRowLayout(node) {
+    if (!("layoutMode" in node) || node.layoutMode !== "HORIZONTAL")
+        return false;
+    if (!("children" in node))
+        return false;
+    const f = node;
+    return f.children.length >= 2 && f.counterAxisAlignItems !== "CENTER";
+}
+function aiHasTextOrInstance(node) {
+    if (node.type === "TEXT" || node.type === "INSTANCE")
+        return true;
+    if (!("children" in node) || node.visible === false)
+        return false;
+    for (const child of node.children) {
+        if (aiHasTextOrInstance(child))
+            return true;
+    }
+    return false;
+}
+function aiSummarizeInstanceProperties(instanceNode) {
+    const out = {};
+    try {
+        const props = instanceNode.componentProperties;
+        if (!props)
+            return out;
+        for (const key of Object.keys(props)) {
+            const entry = props[key];
+            let v = entry && "value" in entry ? entry.value : entry;
+            if (typeof v === "string" && v.length > AI_PROP_VALUE_MAX_CHARS) {
+                v = v.slice(0, AI_PROP_VALUE_MAX_CHARS) + "…";
+            }
+            out[key] = v;
+        }
+    }
+    catch (_a) {
+        /* ignore */
+    }
+    return out;
+}
+function walkAiDocNode(node, depth, budget, schemaPlaceholders, instancePlaceholders, textFallback, visited) {
+    if (budget.remaining <= 0)
+        return { kind: "truncated", reason: "budget" };
+    if (visited.has(node))
+        return { kind: "truncated", reason: "cycle" };
+    visited.add(node);
+    budget.remaining -= 1;
+    if (node.type === "TEXT") {
+        const t = node;
+        const text = typeof t.characters === "string" ? t.characters : "";
+        if (text)
+            textFallback.push(text);
+        return {
+            kind: "text",
+            text,
+            fontSize: typeof t.fontSize === "number" ? t.fontSize : null,
+            level: aiTextLevel(t.fontSize),
+        };
+    }
+    if (node.type === "INSTANCE") {
+        const inst = {
+            kind: "instance",
+            componentName: null,
+            properties: aiSummarizeInstanceProperties(node),
+            _node: node,
+        };
+        instancePlaceholders.push(inst);
+        return inst;
+    }
+    const hasChildren = "children" in node && node.children.length > 0;
+    const w = node.width || 0;
+    const h = node.height || 0;
+    const hasVisualPresence = w >= 4 && h >= 4;
+    if (depth >= 1 && hasVisualPresence && !aiHasTextOrInstance(node)) {
+        const placeholder = {
+            kind: "schema",
+            name: node.name,
+            nodeType: node.type,
+            width: Math.round(w),
+            height: Math.round(h),
+            css: null,
+            _node: node,
+        };
+        schemaPlaceholders.push(placeholder);
+        return placeholder;
+    }
+    if (depth >= AI_DOC_MAX_DEPTH) {
+        return { kind: "truncated", reason: "depth", name: node.name };
+    }
+    const container = {
+        kind: "container",
+        name: node.name,
+        type: node.type,
+        layout: ("layoutMode" in node ? node.layoutMode : "NONE") || "NONE",
+        isRow: aiIsRowLayout(node),
+        children: [],
+    };
+    if (hasChildren) {
+        const children = node.children;
+        const isAutoLayout = "layoutMode" in node &&
+            (node.layoutMode === "HORIZONTAL" ||
+                node.layoutMode === "VERTICAL");
+        const ordered = isAutoLayout
+            ? children
+            : aiSortByReadingOrder(children);
+        for (let i = 0; i < ordered.length; i++) {
+            const child = ordered[i];
+            if (child.visible === false)
+                continue;
+            container.children.push(walkAiDocNode(child, depth + 1, budget, schemaPlaceholders, instancePlaceholders, textFallback, visited));
+            if (budget.remaining <= 0) {
+                const remaining = ordered.length - (i + 1);
+                if (remaining > 0)
+                    container.children.push({ kind: "truncated", reason: "budget", remaining });
+                break;
+            }
+        }
+    }
+    return container;
+}
+function resolveAiSchemaCSS(placeholders) {
+    return __awaiter(this, void 0, void 0, function* () {
+        for (let i = 0; i < placeholders.length; i += AI_SCHEMA_CONCURRENCY) {
+            const batch = placeholders.slice(i, i + AI_SCHEMA_CONCURRENCY);
+            yield Promise.all(batch.map((p) => __awaiter(this, void 0, void 0, function* () {
+                try {
+                    if (p._node && "getCSSAsync" in p._node) {
+                        p.css = yield p._node.getCSSAsync();
+                    }
+                }
+                catch (e) {
+                    p.css = null;
+                    p.cssError = e instanceof Error ? e.message : String(e);
+                }
+                delete p._node;
+            })));
+        }
+    });
+}
+function resolveAiInstanceNames(placeholders) {
+    return __awaiter(this, void 0, void 0, function* () {
+        for (let i = 0; i < placeholders.length; i += AI_SCHEMA_CONCURRENCY) {
+            const batch = placeholders.slice(i, i + AI_SCHEMA_CONCURRENCY);
+            yield Promise.all(batch.map((p) => __awaiter(this, void 0, void 0, function* () {
+                try {
+                    const node = p._node;
+                    if (!node) {
+                        p.componentName = "(unknown)";
+                        return;
+                    }
+                    const mc = yield node.getMainComponentAsync();
+                    if (!mc) {
+                        p.componentName = "(detached)";
+                    }
+                    else if (mc.parent && mc.parent.type === "COMPONENT_SET") {
+                        p.componentName = mc.parent.name + " / " + mc.name;
+                    }
+                    else {
+                        p.componentName = mc.name;
+                    }
+                }
+                catch (_a) {
+                    p.componentName = "(unknown)";
+                }
+                delete p._node;
+            })));
+        }
+    });
+}
+function captureAiFrameImages(frames) {
+    return __awaiter(this, void 0, void 0, function* () {
+        yield Promise.all(frames.map((f) => __awaiter(this, void 0, void 0, function* () {
+            const node = f._node;
+            if (!node || !("exportAsync" in node)) {
+                f.image = null;
+                return;
+            }
+            try {
+                const w = node.width || 1;
+                const h = node.height || 1;
+                const scale = Math.min(2, AI_IMAGE_MAX_DIMENSION / Math.max(w, h));
+                const bytes = yield node.exportAsync({
+                    format: "PNG",
+                    constraint: { type: "SCALE", value: scale > 0 ? scale : 1 },
+                });
+                if (bytes.byteLength > AI_IMAGE_MAX_BYTES) {
+                    f.image = null;
+                    f.imageError = "image trop lourde (" + bytes.byteLength + " B)";
+                    return;
+                }
+                f.image = {
+                    mediaType: "image/png",
+                    base64: figma.base64Encode(bytes),
+                    width: Math.round(w * scale),
+                    height: Math.round(h * scale),
+                    bytes: bytes.byteLength,
+                };
+            }
+            catch (e) {
+                f.image = null;
+                f.imageError = e instanceof Error ? e.message : String(e);
+            }
+        })));
+    });
+}
+function extractAiDocs(docFrames) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (!docFrames || docFrames.length === 0) {
+            return { version: 2, frames: [], textFallback: [] };
+        }
+        const budget = { remaining: AI_DOC_NODE_BUDGET };
+        const schemaPlaceholders = [];
+        const instancePlaceholders = [];
+        const textFallback = [];
+        const ordered = aiSortByReadingOrder(docFrames);
+        const frames = ordered.map((frame, index) => ({
+            index,
+            name: frame.name,
+            type: frame.type,
+            width: Math.round(frame.width),
+            height: Math.round(frame.height),
+            tree: walkAiDocNode(frame, 0, budget, schemaPlaceholders, instancePlaceholders, textFallback, new WeakSet()),
+            _node: frame,
+        }));
+        yield Promise.all([
+            resolveAiSchemaCSS(schemaPlaceholders),
+            resolveAiInstanceNames(instancePlaceholders),
+            captureAiFrameImages(frames),
+        ]);
+        for (const f of frames)
+            delete f._node;
+        return { version: 2, frames, textFallback };
+    });
+}
+function buildAiPayload(componentNode, docFrames) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const [metadata, css, documentation] = yield Promise.all([
+            extractAiMetadata(componentNode),
+            extractAiCSS(componentNode),
+            extractAiDocs(docFrames),
+        ]);
+        return {
+            meta: {
+                extractedAt: new Date().toISOString(),
+                pageName: figma.currentPage.name,
+                fileName: figma.root.name,
+            },
+            metadata,
+            css,
+            documentation,
+        };
+    });
 }
 // Recursively collect all variable IDs referenced in a polymorphic
 // `boundVariables` value. Handles three shapes Figma uses:

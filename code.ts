@@ -83,6 +83,7 @@ type EmptyReason =
 
 type SelectionPayload =
   | {
+      id: string;
       name: string;
       kind: "COMPONENT" | "COMPONENT_SET";
       props: { name: string; type: string; values: string }[];
@@ -338,6 +339,91 @@ figma.showUI(__html__, { width: 440, height: 540 });
 
 const ONBOARDED_KEY = "docyourprops:onboarded";
 
+// Global LLM config (endpoint, model, apiKey). Shared across all components —
+// not scoped per-target like CONFIG_KEY_PREFIX.
+const LLM_CONFIG_KEY = "docyourcomp:llm-config";
+
+type LlmConfig = {
+  endpoint?: string;
+  model?: string;
+  apiKey?: string;
+};
+
+async function loadLlmConfig(): Promise<LlmConfig | null> {
+  try {
+    const raw = await figma.clientStorage.getAsync(LLM_CONFIG_KEY);
+    if (raw && typeof raw === "object") return raw as LlmConfig;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+// Per-component AI artifacts: linked doc frame IDs + LLM-generated descriptions.
+const AI_DESCRIPTIONS_KEY_PREFIX = "docyourcomp:ai-descriptions:";
+
+type AiDescriptionsStored = {
+  generalDescription?: string;
+  propDescriptions?: Record<string, string>;
+  linkedDocFrameIds?: string[];
+  linkedDocFrameInfo?: { id: string; name: string; type: string }[];
+  generatedAt?: string;
+  model?: string;
+};
+
+async function loadAiDescriptions(targetId: string): Promise<AiDescriptionsStored | null> {
+  try {
+    const raw = await figma.clientStorage.getAsync(AI_DESCRIPTIONS_KEY_PREFIX + targetId);
+    if (raw && typeof raw === "object") return raw as AiDescriptionsStored;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+async function saveAiDescriptions(
+  targetId: string,
+  data: AiDescriptionsStored
+): Promise<void> {
+  await figma.clientStorage.setAsync(AI_DESCRIPTIONS_KEY_PREFIX + targetId, data);
+}
+
+// Listen-mode state: while true, selectionchange feeds the UI a doc-frame
+// candidate instead of triggering the normal sendSelection() pipeline.
+let aiListenForDocFrames = false;
+let aiListenTargetId: string | null = null;
+
+async function sendDocFrameCandidate(): Promise<void> {
+  const sel = figma.currentPage.selection;
+  if (sel.length !== 1) {
+    figma.ui.postMessage({ type: "ai-link-doc-candidate", data: null });
+    return;
+  }
+  const node = sel[0];
+  if (node.id === aiListenTargetId) {
+    figma.ui.postMessage({ type: "ai-link-doc-candidate", data: null });
+    return;
+  }
+  if (node.type !== "FRAME" && node.type !== "SECTION" && node.type !== "GROUP") {
+    figma.ui.postMessage({ type: "ai-link-doc-candidate", data: null });
+    return;
+  }
+  let preview: string | null = null;
+  try {
+    const bytes = await (node as ExportMixin).exportAsync({
+      format: "PNG",
+      constraint: { type: "SCALE", value: 0.5 },
+    });
+    preview = figma.base64Encode(bytes);
+  } catch {
+    preview = null;
+  }
+  figma.ui.postMessage({
+    type: "ai-link-doc-candidate",
+    data: { id: node.id, name: node.name, type: node.type, preview },
+  });
+}
+
 async function sendInit(): Promise<void> {
   let onboarded = true;
   try {
@@ -351,6 +437,13 @@ async function sendInit(): Promise<void> {
 
 figma.on("selectionchange", () => {
   combosCache = null; // stale once the target changes
+  if (aiListenForDocFrames) {
+    // In listen mode we feed the UI a candidate frame instead of swapping
+    // the documented component. The locked target is kept until the user
+    // clicks "Terminer" (which posts ai-link-doc-end).
+    void sendDocFrameCandidate();
+    return;
+  }
   void sendSelection();
 });
 void sendInit();
@@ -365,7 +458,110 @@ figma.ui.onmessage = async (msg: {
   key?: string;
   section?: string;
   targetId?: string;
+  data?: unknown;
+  docFrameIds?: string[];
 }) => {
+  if (msg.type === "ai-extract") {
+    const target = await resolveTarget();
+    if (!target) {
+      figma.ui.postMessage({
+        type: "ai-extract-error",
+        message: "Sélectionne un composant.",
+      });
+      return;
+    }
+    const docFrameIds = Array.isArray(msg.docFrameIds) ? msg.docFrameIds : [];
+    const docFrames: SceneNode[] = [];
+    for (const id of docFrameIds) {
+      const node = await figma.getNodeByIdAsync(id);
+      if (
+        node &&
+        (node.type === "FRAME" || node.type === "SECTION" || node.type === "GROUP")
+      ) {
+        docFrames.push(node as SceneNode);
+      }
+    }
+    try {
+      const payload = await buildAiPayload(target, docFrames);
+      figma.ui.postMessage({ type: "ai-extract-ready", data: payload });
+    } catch (e) {
+      figma.ui.postMessage({
+        type: "ai-extract-error",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+    return;
+  }
+  if (msg.type === "get-llm-config") {
+    const cfg = await loadLlmConfig();
+    figma.ui.postMessage({ type: "llm-config", data: cfg });
+    return;
+  }
+  if (msg.type === "save-llm-config") {
+    try {
+      await figma.clientStorage.setAsync(LLM_CONFIG_KEY, msg.data || {});
+      figma.ui.postMessage({ type: "llm-config-saved", ok: true });
+    } catch (e) {
+      figma.ui.postMessage({
+        type: "llm-config-saved",
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+    return;
+  }
+  if (msg.type === "ai-link-doc-start") {
+    aiListenForDocFrames = true;
+    const t = await resolveTarget();
+    aiListenTargetId = t ? t.id : null;
+    figma.notify("Sélectionne une frame de documentation dans Figma puis valide.");
+    void sendDocFrameCandidate();
+    return;
+  }
+  if (msg.type === "ai-link-doc-end") {
+    aiListenForDocFrames = false;
+    // Restore the documented component as the active Figma selection so the UI
+    // stays in context (the user may have clicked random frames while linking).
+    if (aiListenTargetId) {
+      try {
+        const locked = await figma.getNodeByIdAsync(aiListenTargetId);
+        if (locked && "type" in locked) {
+          figma.currentPage.selection = [locked as SceneNode];
+        }
+      } catch {
+        /* selection restore is best-effort */
+      }
+    }
+    aiListenTargetId = null;
+    void sendSelection();
+    return;
+  }
+  if (msg.type === "get-ai-descriptions") {
+    if (!msg.targetId) {
+      figma.ui.postMessage({ type: "ai-descriptions", data: null });
+      return;
+    }
+    const data = await loadAiDescriptions(msg.targetId);
+    figma.ui.postMessage({ type: "ai-descriptions", data });
+    return;
+  }
+  if (msg.type === "save-ai-descriptions") {
+    if (!msg.targetId) {
+      figma.ui.postMessage({ type: "ai-descriptions-saved", ok: false, message: "No targetId" });
+      return;
+    }
+    try {
+      await saveAiDescriptions(msg.targetId, (msg.data as AiDescriptionsStored) || {});
+      figma.ui.postMessage({ type: "ai-descriptions-saved", ok: true });
+    } catch (e) {
+      figma.ui.postMessage({
+        type: "ai-descriptions-saved",
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+    return;
+  }
   const defaultOptions: DocOptions = {
     props: true,
     tokens: true,
@@ -674,6 +870,7 @@ async function sendSelection(): Promise<void> {
       if (section && existingSections.indexOf(section) === -1) existingSections.push(section);
     }
     payload = {
+      id: target.id,
       name: target.name,
       kind: target.type,
       props,
@@ -3404,6 +3601,633 @@ function findAllVisibleLayersWithPositions(inst: InstanceNode): AnatomyLayer[] {
   };
   recurse(inst, 0, 0, 0, "");
   return out;
+}
+
+// ─── AI extractors (DSExtract port) ─────────────────────────────────────────
+//
+// Three independent extractors that collect everything the LLM needs to write
+// per-prop descriptions and general narration for a component:
+//   1. extractAiMetadata — variants, anatomy (2 levels deep), boundVariables
+//      resolved to their effective values (hex / px / token name).
+//   2. extractAiCSS       — getCSSAsync() per variant; the computed values that
+//      Figma resolves natively (radii, colors, shadows…).
+//   3. extractAiDocs      — walker over user-linked documentation frames with a
+//      reading-order traversal, a node budget, and a PNG capture of each frame
+//      for vision-capable models.
+// buildAiPayload assembles them in parallel and is exposed via the "ai-extract"
+// message handler (UI ↔ sandbox). All helpers are prefixed Ai* / ai* to keep
+// them distinct from DocYourProps' own pipeline.
+
+const AI_DOC_MAX_DEPTH = 6;
+const AI_DOC_NODE_BUDGET = 400;
+const AI_SCHEMA_CONCURRENCY = 30;
+const AI_PROP_VALUE_MAX_CHARS = 200;
+const AI_IMAGE_MAX_DIMENSION = 1024;
+const AI_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+const AI_ROW_TOLERANCE = 8;
+
+type AiVariableSummary = {
+  id?: string;
+  name: string | null;
+  type: string | null;
+  value: string | number | boolean | null;
+  alpha?: number;
+  error?: string;
+};
+
+type AiBoundVariables = Record<string, AiVariableSummary | AiVariableSummary[]>;
+
+type AiExtractedChild = {
+  name: string;
+  type: string;
+  visible: boolean;
+  fillStyleId: string | null;
+  textStyleId: string | null;
+  effectStyleId: string | null;
+  boundVariables: AiBoundVariables | null;
+  characters?: string;
+  fontSize?: number;
+  fontName?: FontName;
+  children: AiExtractedChild[];
+};
+
+type AiExtractedVariant = {
+  name: string;
+  properties: Record<string, string>;
+  width: number;
+  height: number;
+  layoutMode: string;
+  padding: { top: number; right: number; bottom: number; left: number };
+  itemSpacing: number;
+  primaryAxisAlignItems: string;
+  counterAxisAlignItems: string;
+  boundVariables: AiBoundVariables | null;
+  children: AiExtractedChild[];
+};
+
+type AiExtractedMetadata = {
+  id: string;
+  name: string;
+  type: string;
+  description: string;
+  width: number;
+  height: number;
+  variantProperties: Record<string, { values: string[] }> | null;
+  variants: AiExtractedVariant[];
+};
+
+type AiDocImage = {
+  mediaType: string;
+  base64: string;
+  width: number;
+  height: number;
+  bytes: number;
+};
+
+type AiDocNode =
+  | { kind: "text"; text: string; fontSize: number | null; level: "h1" | "h2" | "h3" | "body" }
+  | { kind: "instance"; componentName: string | null; properties: Record<string, unknown> }
+  | {
+      kind: "schema";
+      name: string;
+      nodeType: string;
+      width: number;
+      height: number;
+      css: Record<string, string> | null;
+      cssError?: string;
+    }
+  | {
+      kind: "container";
+      name: string;
+      type: string;
+      layout: string;
+      isRow: boolean;
+      children: AiDocNode[];
+    }
+  | { kind: "truncated"; reason: string; name?: string; remaining?: number };
+
+type AiDocFrame = {
+  index: number;
+  name: string;
+  type: string;
+  width: number;
+  height: number;
+  tree: AiDocNode;
+  image?: AiDocImage | null;
+  imageError?: string;
+};
+
+type AiExtractedDocs = {
+  version: 2;
+  frames: AiDocFrame[];
+  textFallback: string[];
+};
+
+type AiPayload = {
+  meta: { extractedAt: string; pageName: string; fileName: string };
+  metadata: AiExtractedMetadata;
+  css: Record<string, Record<string, string> | null>;
+  documentation: AiExtractedDocs;
+};
+
+// Internal placeholders carry a transient `_node` reference that gets stripped
+// before the payload is sent to the UI.
+type AiSchemaPlaceholder = {
+  kind: "schema";
+  name: string;
+  nodeType: string;
+  width: number;
+  height: number;
+  css: Record<string, string> | null;
+  cssError?: string;
+  _node?: SceneNode;
+};
+type AiInstancePlaceholder = {
+  kind: "instance";
+  componentName: string | null;
+  properties: Record<string, unknown>;
+  _node?: InstanceNode;
+};
+type AiBudget = { remaining: number };
+
+function aiChannelToHex(c: number): string {
+  const n = Math.round(Math.max(0, Math.min(1, c)) * 255);
+  const s = n.toString(16);
+  return s.length < 2 ? "0" + s : s;
+}
+
+function aiRgbToHex(color: { r: number; g: number; b: number; a?: number }): string {
+  const hex = "#" + aiChannelToHex(color.r) + aiChannelToHex(color.g) + aiChannelToHex(color.b);
+  if (typeof color.a === "number" && color.a < 1) return hex + aiChannelToHex(color.a);
+  return hex;
+}
+
+async function describeAiVariable(
+  varId: string,
+  consumerNode: SceneNode
+): Promise<AiVariableSummary> {
+  try {
+    const v = await figma.variables.getVariableByIdAsync(varId);
+    if (!v) return { id: varId, name: null, type: null, value: null };
+    const out: AiVariableSummary = { name: v.name, type: v.resolvedType, value: null };
+    const resolved = v.resolveForConsumer(consumerNode);
+    if (resolved && resolved.value !== undefined && resolved.value !== null) {
+      if (resolved.resolvedType === "COLOR" && typeof resolved.value === "object") {
+        const col = resolved.value as { r: number; g: number; b: number; a?: number };
+        out.value = aiRgbToHex(col);
+        if (typeof col.a === "number") out.alpha = col.a;
+      } else {
+        out.value = resolved.value as string | number | boolean;
+      }
+    }
+    return out;
+  } catch (e) {
+    return {
+      id: varId,
+      name: null,
+      type: null,
+      value: null,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+async function summarizeAiBoundVariables(
+  bv: { [key: string]: VariableAlias | VariableAlias[] },
+  consumerNode: SceneNode
+): Promise<AiBoundVariables> {
+  const result: AiBoundVariables = {};
+  for (const key of Object.keys(bv)) {
+    const binding = bv[key];
+    try {
+      if (Array.isArray(binding)) {
+        result[key] = await Promise.all(
+          binding.map((b) => describeAiVariable(b.id, consumerNode))
+        );
+      } else if (binding && binding.id) {
+        result[key] = await describeAiVariable(binding.id, consumerNode);
+      }
+    } catch {
+      /* skip a malformed binding silently */
+    }
+  }
+  return result;
+}
+
+async function extractAiChildren(
+  node: SceneNode,
+  depth: number,
+  maxDepth: number
+): Promise<AiExtractedChild[]> {
+  if (depth >= maxDepth || !("children" in node)) return [];
+  const out: AiExtractedChild[] = [];
+  for (const child of (node as ChildrenMixin & SceneNode).children) {
+    const fill = (child as unknown as { fillStyleId?: unknown }).fillStyleId;
+    const text = (child as unknown as { textStyleId?: unknown }).textStyleId;
+    const effect = (child as unknown as { effectStyleId?: unknown }).effectStyleId;
+    const bv = (child as unknown as { boundVariables?: { [key: string]: VariableAlias | VariableAlias[] } })
+      .boundVariables;
+    const rec: AiExtractedChild = {
+      name: child.name,
+      type: child.type,
+      visible: child.visible,
+      fillStyleId: typeof fill === "string" ? fill : null,
+      textStyleId: typeof text === "string" ? text : null,
+      effectStyleId: typeof effect === "string" ? effect : null,
+      boundVariables: bv ? await summarizeAiBoundVariables(bv, child) : null,
+      children: await extractAiChildren(child, depth + 1, maxDepth),
+    };
+    if (child.type === "TEXT") {
+      const t = child as TextNode;
+      rec.characters = t.characters;
+      if (typeof t.fontSize === "number") rec.fontSize = t.fontSize;
+      if (typeof t.fontName === "object" && t.fontName !== null && "family" in t.fontName) {
+        rec.fontName = t.fontName as FontName;
+      }
+    }
+    out.push(rec);
+  }
+  return out;
+}
+
+async function extractAiVariantInfo(c: ComponentNode): Promise<AiExtractedVariant> {
+  const bv = c.boundVariables as
+    | { [key: string]: VariableAlias | VariableAlias[] }
+    | undefined;
+  return {
+    name: c.name,
+    properties: c.variantProperties || {},
+    width: Math.round(c.width),
+    height: Math.round(c.height),
+    layoutMode: c.layoutMode,
+    padding: {
+      top: c.paddingTop,
+      right: c.paddingRight,
+      bottom: c.paddingBottom,
+      left: c.paddingLeft,
+    },
+    itemSpacing: c.itemSpacing,
+    primaryAxisAlignItems: c.primaryAxisAlignItems,
+    counterAxisAlignItems: c.counterAxisAlignItems,
+    boundVariables: bv ? await summarizeAiBoundVariables(bv, c) : null,
+    children: await extractAiChildren(c, 0, 2),
+  };
+}
+
+async function extractAiMetadata(node: DocTarget): Promise<AiExtractedMetadata> {
+  const isSet = node.type === "COMPONENT_SET";
+  const components: ComponentNode[] = isSet
+    ? ((node as ComponentSetNode).children as ComponentNode[])
+    : [node as ComponentNode];
+  const variants = await Promise.all(components.map((c) => extractAiVariantInfo(c)));
+  return {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    description: node.description || "",
+    width: Math.round(node.width),
+    height: Math.round(node.height),
+    variantProperties: isSet
+      ? ((node as ComponentSetNode).variantGroupProperties as
+          | Record<string, { values: string[] }>
+          | null)
+      : null,
+    variants,
+  };
+}
+
+async function extractAiCSS(
+  node: DocTarget
+): Promise<Record<string, Record<string, string> | null>> {
+  const components: SceneNode[] =
+    node.type === "COMPONENT_SET"
+      ? ((node as ComponentSetNode).children as SceneNode[])
+      : [node];
+  const cssMap: Record<string, Record<string, string> | null> = {};
+  await Promise.all(
+    components.map(async (variant) => {
+      try {
+        const css = await (variant as ComponentNode).getCSSAsync();
+        cssMap[variant.name] = css;
+      } catch {
+        cssMap[variant.name] = null;
+      }
+    })
+  );
+  return cssMap;
+}
+
+function aiSortByReadingOrder<T extends { x?: number; y?: number }>(nodes: readonly T[]): T[] {
+  return nodes.slice().sort((a, b) => {
+    const ay = typeof a.y === "number" ? a.y : 0;
+    const by = typeof b.y === "number" ? b.y : 0;
+    if (Math.abs(ay - by) < AI_ROW_TOLERANCE) {
+      const ax = typeof a.x === "number" ? a.x : 0;
+      const bx = typeof b.x === "number" ? b.x : 0;
+      return ax - bx;
+    }
+    return ay - by;
+  });
+}
+
+function aiTextLevel(fontSize: unknown): "h1" | "h2" | "h3" | "body" {
+  if (typeof fontSize !== "number") return "body";
+  if (fontSize >= 24) return "h1";
+  if (fontSize >= 18) return "h2";
+  if (fontSize >= 14) return "h3";
+  return "body";
+}
+
+function aiIsRowLayout(node: SceneNode): boolean {
+  if (!("layoutMode" in node) || (node as FrameNode).layoutMode !== "HORIZONTAL") return false;
+  if (!("children" in node)) return false;
+  const f = node as FrameNode;
+  return f.children.length >= 2 && f.counterAxisAlignItems !== "CENTER";
+}
+
+function aiHasTextOrInstance(node: SceneNode): boolean {
+  if (node.type === "TEXT" || node.type === "INSTANCE") return true;
+  if (!("children" in node) || node.visible === false) return false;
+  for (const child of (node as ChildrenMixin & SceneNode).children) {
+    if (aiHasTextOrInstance(child)) return true;
+  }
+  return false;
+}
+
+function aiSummarizeInstanceProperties(instanceNode: InstanceNode): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  try {
+    const props = instanceNode.componentProperties;
+    if (!props) return out;
+    for (const key of Object.keys(props)) {
+      const entry = props[key];
+      let v: unknown = entry && "value" in entry ? entry.value : entry;
+      if (typeof v === "string" && v.length > AI_PROP_VALUE_MAX_CHARS) {
+        v = v.slice(0, AI_PROP_VALUE_MAX_CHARS) + "…";
+      }
+      out[key] = v;
+    }
+  } catch {
+    /* ignore */
+  }
+  return out;
+}
+
+function walkAiDocNode(
+  node: SceneNode,
+  depth: number,
+  budget: AiBudget,
+  schemaPlaceholders: AiSchemaPlaceholder[],
+  instancePlaceholders: AiInstancePlaceholder[],
+  textFallback: string[],
+  visited: WeakSet<SceneNode>
+): AiDocNode {
+  if (budget.remaining <= 0) return { kind: "truncated", reason: "budget" };
+  if (visited.has(node)) return { kind: "truncated", reason: "cycle" };
+  visited.add(node);
+  budget.remaining -= 1;
+
+  if (node.type === "TEXT") {
+    const t = node as TextNode;
+    const text = typeof t.characters === "string" ? t.characters : "";
+    if (text) textFallback.push(text);
+    return {
+      kind: "text",
+      text,
+      fontSize: typeof t.fontSize === "number" ? t.fontSize : null,
+      level: aiTextLevel(t.fontSize),
+    };
+  }
+
+  if (node.type === "INSTANCE") {
+    const inst: AiInstancePlaceholder = {
+      kind: "instance",
+      componentName: null,
+      properties: aiSummarizeInstanceProperties(node as InstanceNode),
+      _node: node as InstanceNode,
+    };
+    instancePlaceholders.push(inst);
+    return inst as unknown as AiDocNode;
+  }
+
+  const hasChildren =
+    "children" in node && (node as ChildrenMixin & SceneNode).children.length > 0;
+  const w = node.width || 0;
+  const h = node.height || 0;
+  const hasVisualPresence = w >= 4 && h >= 4;
+
+  if (depth >= 1 && hasVisualPresence && !aiHasTextOrInstance(node)) {
+    const placeholder: AiSchemaPlaceholder = {
+      kind: "schema",
+      name: node.name,
+      nodeType: node.type,
+      width: Math.round(w),
+      height: Math.round(h),
+      css: null,
+      _node: node,
+    };
+    schemaPlaceholders.push(placeholder);
+    return placeholder as unknown as AiDocNode;
+  }
+
+  if (depth >= AI_DOC_MAX_DEPTH) {
+    return { kind: "truncated", reason: "depth", name: node.name };
+  }
+
+  const container: { kind: "container"; name: string; type: string; layout: string; isRow: boolean; children: AiDocNode[] } = {
+    kind: "container",
+    name: node.name,
+    type: node.type,
+    layout: ("layoutMode" in node ? (node as FrameNode).layoutMode : "NONE") || "NONE",
+    isRow: aiIsRowLayout(node),
+    children: [],
+  };
+
+  if (hasChildren) {
+    const children = (node as ChildrenMixin & SceneNode).children;
+    const isAutoLayout =
+      "layoutMode" in node &&
+      ((node as FrameNode).layoutMode === "HORIZONTAL" ||
+        (node as FrameNode).layoutMode === "VERTICAL");
+    const ordered = isAutoLayout
+      ? (children as readonly SceneNode[])
+      : aiSortByReadingOrder(
+          children as readonly (SceneNode & { x?: number; y?: number })[]
+        );
+    for (let i = 0; i < ordered.length; i++) {
+      const child = ordered[i] as SceneNode;
+      if (child.visible === false) continue;
+      container.children.push(
+        walkAiDocNode(
+          child,
+          depth + 1,
+          budget,
+          schemaPlaceholders,
+          instancePlaceholders,
+          textFallback,
+          visited
+        )
+      );
+      if (budget.remaining <= 0) {
+        const remaining = ordered.length - (i + 1);
+        if (remaining > 0)
+          container.children.push({ kind: "truncated", reason: "budget", remaining });
+        break;
+      }
+    }
+  }
+
+  return container;
+}
+
+async function resolveAiSchemaCSS(placeholders: AiSchemaPlaceholder[]): Promise<void> {
+  for (let i = 0; i < placeholders.length; i += AI_SCHEMA_CONCURRENCY) {
+    const batch = placeholders.slice(i, i + AI_SCHEMA_CONCURRENCY);
+    await Promise.all(
+      batch.map(async (p) => {
+        try {
+          if (p._node && "getCSSAsync" in p._node) {
+            p.css = await (p._node as ComponentNode).getCSSAsync();
+          }
+        } catch (e) {
+          p.css = null;
+          p.cssError = e instanceof Error ? e.message : String(e);
+        }
+        delete p._node;
+      })
+    );
+  }
+}
+
+async function resolveAiInstanceNames(placeholders: AiInstancePlaceholder[]): Promise<void> {
+  for (let i = 0; i < placeholders.length; i += AI_SCHEMA_CONCURRENCY) {
+    const batch = placeholders.slice(i, i + AI_SCHEMA_CONCURRENCY);
+    await Promise.all(
+      batch.map(async (p) => {
+        try {
+          const node = p._node;
+          if (!node) {
+            p.componentName = "(unknown)";
+            return;
+          }
+          const mc = await node.getMainComponentAsync();
+          if (!mc) {
+            p.componentName = "(detached)";
+          } else if (mc.parent && mc.parent.type === "COMPONENT_SET") {
+            p.componentName = mc.parent.name + " / " + mc.name;
+          } else {
+            p.componentName = mc.name;
+          }
+        } catch {
+          p.componentName = "(unknown)";
+        }
+        delete p._node;
+      })
+    );
+  }
+}
+
+async function captureAiFrameImages(
+  frames: { _node?: SceneNode; image?: AiDocImage | null; imageError?: string }[]
+): Promise<void> {
+  await Promise.all(
+    frames.map(async (f) => {
+      const node = f._node;
+      if (!node || !("exportAsync" in node)) {
+        f.image = null;
+        return;
+      }
+      try {
+        const w = node.width || 1;
+        const h = node.height || 1;
+        const scale = Math.min(2, AI_IMAGE_MAX_DIMENSION / Math.max(w, h));
+        const bytes = await (node as ExportMixin).exportAsync({
+          format: "PNG",
+          constraint: { type: "SCALE", value: scale > 0 ? scale : 1 },
+        });
+        if (bytes.byteLength > AI_IMAGE_MAX_BYTES) {
+          f.image = null;
+          f.imageError = "image trop lourde (" + bytes.byteLength + " B)";
+          return;
+        }
+        f.image = {
+          mediaType: "image/png",
+          base64: figma.base64Encode(bytes),
+          width: Math.round(w * scale),
+          height: Math.round(h * scale),
+          bytes: bytes.byteLength,
+        };
+      } catch (e) {
+        f.image = null;
+        f.imageError = e instanceof Error ? e.message : String(e);
+      }
+    })
+  );
+}
+
+async function extractAiDocs(docFrames: SceneNode[]): Promise<AiExtractedDocs> {
+  if (!docFrames || docFrames.length === 0) {
+    return { version: 2, frames: [], textFallback: [] };
+  }
+
+  const budget: AiBudget = { remaining: AI_DOC_NODE_BUDGET };
+  const schemaPlaceholders: AiSchemaPlaceholder[] = [];
+  const instancePlaceholders: AiInstancePlaceholder[] = [];
+  const textFallback: string[] = [];
+
+  const ordered = aiSortByReadingOrder(
+    docFrames as readonly (SceneNode & { x?: number; y?: number })[]
+  );
+
+  type WorkingFrame = AiDocFrame & { _node?: SceneNode };
+  const frames: WorkingFrame[] = ordered.map((frame, index) => ({
+    index,
+    name: frame.name,
+    type: frame.type,
+    width: Math.round(frame.width),
+    height: Math.round(frame.height),
+    tree: walkAiDocNode(
+      frame as SceneNode,
+      0,
+      budget,
+      schemaPlaceholders,
+      instancePlaceholders,
+      textFallback,
+      new WeakSet<SceneNode>()
+    ),
+    _node: frame as SceneNode,
+  }));
+
+  await Promise.all([
+    resolveAiSchemaCSS(schemaPlaceholders),
+    resolveAiInstanceNames(instancePlaceholders),
+    captureAiFrameImages(frames),
+  ]);
+
+  for (const f of frames) delete f._node;
+
+  return { version: 2, frames, textFallback };
+}
+
+async function buildAiPayload(
+  componentNode: DocTarget,
+  docFrames: SceneNode[]
+): Promise<AiPayload> {
+  const [metadata, css, documentation] = await Promise.all([
+    extractAiMetadata(componentNode),
+    extractAiCSS(componentNode),
+    extractAiDocs(docFrames),
+  ]);
+  return {
+    meta: {
+      extractedAt: new Date().toISOString(),
+      pageName: figma.currentPage.name,
+      fileName: figma.root.name,
+    },
+    metadata,
+    css,
+    documentation,
+  };
 }
 
 // ─── Variable usage walker (for Variables liées) ────────────────────────────
