@@ -1414,6 +1414,12 @@
         font-style: italic;
         color: var(--figma-color-text-secondary, #757575);
       }
+      .chat-msg-bubble.a.is-error {
+        background: color-mix(in srgb, var(--figma-color-text-danger, #d4351c) 10%, transparent);
+        color: var(--figma-color-text-danger, #d4351c);
+        border: 1px solid color-mix(in srgb, var(--figma-color-text-danger, #d4351c) 30%, transparent);
+        font-style: normal;
+      }
       .chat-msg-meta {
         align-self: flex-start;
         font-size: 10px;
@@ -1575,6 +1581,23 @@
       }
       .ai-block-status.is-busy { color: var(--figma-color-bg-brand, #0d99ff); }
       .ai-block-status.is-error { color: var(--figma-color-text-danger, #d4351c); }
+      .ai-error {
+        font-size: 11px;
+        line-height: 1.4;
+        padding: 8px 10px;
+        background: color-mix(in srgb, var(--figma-color-text-danger, #d4351c) 10%, transparent);
+        color: var(--figma-color-text-danger, #d4351c);
+        border-radius: 6px;
+        border: 1px solid color-mix(in srgb, var(--figma-color-text-danger, #d4351c) 30%, transparent);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .ai-error[hidden] { display: none; }
+      .ai-error-title {
+        font-weight: 600;
+        display: block;
+        margin-bottom: 2px;
+      }
       .ai-block.is-analyzed .ai-block-status:not(.is-busy):not(.is-error) {
         color: var(--figma-color-icon-success, #14ae5c);
       }
@@ -1934,6 +1957,7 @@
             <button class="btn-ghost" id="btn-link-doc" type="button">+ Lier une frame de doc</button>
             <button class="btn-primary-soft" id="btn-analyze-ai" type="button" disabled>Analyser avec l'IA</button>
           </div>
+          <div class="ai-error" id="ai-error" role="alert" hidden></div>
         </div>
 
         <div class="listen-banner" id="listen-banner" role="region" aria-live="polite" aria-label="Sélection de frames de documentation" hidden>
@@ -3997,7 +4021,9 @@
           aiAnalysisInFlight = false;
           aiStatus.classList.remove("is-busy");
           aiStatus.classList.add("is-error");
-          aiStatus.textContent = "Extraction : " + (msg.message || "erreur");
+          aiStatus.textContent = "Extraction échouée";
+          showAiError("Échec de l'extraction côté sandbox", msg.message || "(aucun détail fourni)");
+          console.error("ai-extract-error:", msg.message);
           renderAiBlock();
           return;
         }
@@ -4016,6 +4042,7 @@
             if (newTargetId !== currentAiTargetId) {
               currentAiTargetId = newTargetId;
               resetAiState();
+              clearAiError();
               renderAiBlock();
               // Exit listen mode if user switches component.
               if (listenActive) {
@@ -4587,8 +4614,28 @@
       const aiBlock = document.getElementById("ai-block");
       const aiStatus = document.getElementById("ai-status");
       const aiLinked = document.getElementById("ai-linked");
+      const aiErrorEl = document.getElementById("ai-error");
       const btnLinkDoc = document.getElementById("btn-link-doc");
       const btnAnalyzeAi = document.getElementById("btn-analyze-ai");
+
+      function showAiError(title, detail) {
+        aiErrorEl.innerHTML = "";
+        if (title) {
+          const t = document.createElement("span");
+          t.className = "ai-error-title";
+          t.textContent = title;
+          aiErrorEl.appendChild(t);
+        }
+        if (detail) {
+          aiErrorEl.appendChild(document.createTextNode(detail));
+        }
+        aiErrorEl.hidden = false;
+      }
+
+      function clearAiError() {
+        aiErrorEl.hidden = true;
+        aiErrorEl.textContent = "";
+      }
       const listenBanner = document.getElementById("listen-banner");
       const listenCandidateEl = document.getElementById("listen-candidate");
       const listenCandidateThumb = document.getElementById("listen-candidate-thumb");
@@ -4789,8 +4836,14 @@
 
       async function callLlm({ systemPrompt, userText, images }) {
         const cfg = currentLlmConfig;
-        if (!cfg.endpoint || !cfg.apiKey) {
-          throw new Error("Endpoint ou clé API manquants — configure le footer LLM.");
+        if (!cfg.endpoint) {
+          throw new Error("Endpoint LLM manquant — renseigne-le dans le footer Configuration LLM.");
+        }
+        if (!cfg.apiKey) {
+          throw new Error("Clé API manquante — renseigne-la dans le footer Configuration LLM.");
+        }
+        if (!cfg.model) {
+          throw new Error("Nom du modèle manquant — renseigne-le dans le footer Configuration LLM.");
         }
         const userContent =
           images && images.length > 0
@@ -4811,29 +4864,65 @@
             { role: "user", content: userContent },
           ],
         };
-        const r = await fetch(cfg.endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + cfg.apiKey,
-          },
-          body: JSON.stringify(body),
-        });
-        let data;
+
+        // Network-level failure: domain not whitelisted in manifest, DNS error,
+        // offline, CORS, etc. We catch fetch's TypeError separately so the user
+        // gets a hint about manifest.json's allowedDomains.
+        let r;
         try {
-          data = await r.json();
-        } catch (e) {
-          throw new Error("Réponse non-JSON du LLM (HTTP " + r.status + ")");
+          r = await fetch(cfg.endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + cfg.apiKey,
+            },
+            body: JSON.stringify(body),
+          });
+        } catch (netErr) {
+          console.error("callLlm: network error", netErr);
+          const detail = netErr && netErr.message ? netErr.message : String(netErr);
+          throw new Error(
+            "Échec réseau vers " +
+              cfg.endpoint +
+              " : " +
+              detail +
+              ". Vérifie le domaine dans manifest.json → networkAccess.allowedDomains, et que le proxy est joignable."
+          );
         }
+
+        const bodyText = await r.text().catch(() => "");
+        let data = null;
+        if (bodyText) {
+          try { data = JSON.parse(bodyText); }
+          catch { /* keep raw text */ }
+        }
+
         if (!r.ok) {
-          const errMsg =
-            (data && data.error && (data.error.message || data.error)) ||
-            "HTTP " + r.status;
-          throw new Error(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
+          const apiMsg =
+            data && data.error && (data.error.message || data.error);
+          const reason =
+            (typeof apiMsg === "string" ? apiMsg : null) ||
+            (data && typeof data.message === "string" ? data.message : null) ||
+            (bodyText ? bodyText.slice(0, 400) : null) ||
+            r.statusText ||
+            "(corps vide)";
+          console.error("callLlm: HTTP " + r.status, { status: r.status, body: bodyText });
+          throw new Error("HTTP " + r.status + " " + (r.statusText || "") + " — " + reason);
         }
+
+        if (!data) {
+          console.error("callLlm: non-JSON success body", bodyText);
+          throw new Error(
+            "Réponse HTTP " + r.status + " non-JSON. Extrait : " + (bodyText.slice(0, 200) || "(vide)")
+          );
+        }
+
         const text =
           (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) ||
           "";
+        if (!text) {
+          console.warn("callLlm: empty choices content", data);
+        }
         return { text, usage: data.usage || null };
       }
 
@@ -4875,9 +4964,14 @@
         if (!currentLlmConfig.apiKey) {
           aiStatus.classList.add("is-error");
           aiStatus.textContent = "Clé API manquante";
+          showAiError(
+            "Clé API manquante",
+            "Renseigne ta clé API dans le footer Configuration LLM (en bas de la fenêtre)."
+          );
           document.getElementById("llm-config").open = true;
           return;
         }
+        clearAiError();
         aiAnalysisInFlight = true;
         aiStatus.classList.remove("is-error");
         aiStatus.classList.add("is-busy");
@@ -4898,16 +4992,28 @@
       }
 
       async function continueAiAnalysisWithPayload(payload) {
+        let stage = "analyse";
         try {
           aiStatus.textContent = "Analyse IA…";
           const images = collectPayloadImages(payload);
           const trimmed = stripPayloadImages(payload);
+          stage = "appel LLM";
           const { text, usage } = await callLlm({
             systemPrompt: AI_EXTRACT_SYSTEM_PROMPT,
             userText: JSON.stringify(trimmed),
             images,
           });
-          const parsed = parseLlmJson(text);
+          stage = "parsing JSON";
+          let parsed;
+          try {
+            parsed = parseLlmJson(text);
+          } catch (parseErr) {
+            console.error("continueAiAnalysisWithPayload: JSON parse failed", { text, parseErr });
+            throw new Error(
+              "Le LLM n'a pas renvoyé du JSON valide. Extrait reçu : " +
+                (text ? text.slice(0, 300) : "(vide)")
+            );
+          }
           aiState.generalDescription =
             typeof parsed.generalDescription === "string" ? parsed.generalDescription : null;
           aiState.propDescriptions =
@@ -4924,12 +5030,18 @@
           if (aiState.model) parts.push(aiState.model);
           if (usage && usage.total_tokens) parts.push(usage.total_tokens + " tokens");
           aiStatus.textContent = parts.join(" · ");
+          clearAiError();
           renderAiBlock();
         } catch (e) {
           aiAnalysisInFlight = false;
           aiStatus.classList.remove("is-busy");
           aiStatus.classList.add("is-error");
-          aiStatus.textContent = "Erreur : " + (e && e.message ? e.message : String(e));
+          aiStatus.textContent = "Échec (" + stage + ")";
+          showAiError(
+            "Échec de l'analyse IA (" + stage + ")",
+            e && e.message ? e.message : String(e)
+          );
+          console.error("continueAiAnalysisWithPayload error at stage=" + stage, e);
           renderAiBlock();
         }
       }
@@ -5116,7 +5228,7 @@
         const question = chatInputEl.value.trim();
         if (!question || chatSendInFlight) return;
         if (!currentLlmConfig.apiKey) {
-          chatMsgEl.textContent = "Configure la clé API dans le footer.";
+          chatMsgEl.textContent = "Clé API manquante — configure-la dans le footer Configuration LLM.";
           chatMsgEl.classList.remove("hidden");
           document.getElementById("llm-config").open = true;
           return;
@@ -5137,7 +5249,9 @@
           pending.textContent = text || "(réponse vide)";
           appendChatMeta(usage);
         } catch (err) {
+          console.error("runChat error:", err);
           pending.classList.remove("pending");
+          pending.classList.add("is-error");
           pending.textContent =
             "Erreur LLM : " + (err && err.message ? err.message : String(err));
         } finally {
