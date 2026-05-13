@@ -1734,6 +1734,45 @@
         font-size: 10px;
         color: var(--figma-color-text-tertiary, #999);
       }
+
+      /* ── Generated doc card ─────────────────────────────── */
+      .generated-doc-card {
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 8px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: var(--figma-color-bg-secondary, #f7f7f7);
+      }
+      .generated-doc-card[hidden] { display: none; }
+      .generated-doc-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .generated-doc-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--figma-color-text, #1e1e1e);
+      }
+      .btn-sm {
+        font-size: 10px;
+        padding: 3px 8px;
+        height: 22px;
+      }
+      .generated-doc-pre {
+        font-family: "JetBrains Mono", "Source Code Pro", "Roboto Mono", monospace;
+        font-size: 10px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-y: auto;
+        max-height: 320px;
+        margin: 0;
+        color: var(--figma-color-text, #1e1e1e);
+        scrollbar-width: thin;
+      }
     </style>
   </head>
   <body>
@@ -1955,7 +1994,6 @@
           <div class="ai-linked" id="ai-linked"></div>
           <div class="ai-actions">
             <button class="btn-ghost" id="btn-link-doc" type="button">+ Lier une frame de doc</button>
-            <button class="btn-primary-soft" id="btn-analyze-ai" type="button" disabled>Analyser avec l'IA</button>
           </div>
           <div class="ai-error" id="ai-error" role="alert" hidden></div>
         </div>
@@ -1974,34 +2012,18 @@
             <button class="btn-primary-soft" id="btn-listen-validate" type="button">Lier</button>
           </div>
         </div>
+
+        <div class="generated-doc-card" id="generated-doc-card" hidden>
+          <div class="generated-doc-header">
+            <span class="generated-doc-title">Document généré</span>
+            <button class="btn-ghost btn-sm" id="btn-download-md" type="button">Télécharger .md</button>
+          </div>
+          <pre class="generated-doc-pre" id="generated-doc-pre"></pre>
+        </div>
       </div>
 
       <div class="footer">
         <button class="btn-ghost" id="close" title="Fermer le plugin">Fermer</button>
-        <div class="export-menu-wrap">
-          <button class="btn-ghost" id="export-toggle" title="Exporter la documentation" aria-haspopup="menu" aria-expanded="false" disabled>
-            <span class="btn-spinner"></span>
-            <span class="btn-label">Exporter</span>
-            <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M2 3.5l2.5 2.5L7 3.5"/>
-            </svg>
-          </button>
-          <div class="export-menu" id="export-menu" role="menu" hidden>
-            <button class="export-menu-item" id="export-pdf" role="menuitem" title="Exporter en PDF (⌘⇧P)">
-              <span class="export-menu-key">PDF</span>
-              <span class="export-menu-desc">Document A4 imprimable</span>
-              <span class="export-menu-shortcut">⌘⇧P</span>
-            </button>
-            <button class="export-menu-item" id="export-md" role="menuitem" title="Exporter en Markdown">
-              <span class="export-menu-key">Markdown</span>
-              <span class="export-menu-desc">Tableau de props + sections texte</span>
-            </button>
-            <button class="export-menu-item" id="export-json" role="menuitem" title="Exporter en JSON">
-              <span class="export-menu-key">JSON</span>
-              <span class="export-menu-desc">Données structurées</span>
-            </button>
-          </div>
-        </div>
         <button class="btn-primary" id="generate" title="Générer la documentation sur le canvas (⌘↵)" disabled>
           <span class="btn-spinner"></span>
           <span class="btn-label">Générer la doc</span>
@@ -2285,11 +2307,6 @@
     <script>
       const content = document.getElementById("content");
       const generateBtn = document.getElementById("generate");
-      const exportPdfBtn = document.getElementById("export-pdf");
-      // Single export CTA in the footer — owns the spinner/disabled state.
-      // The actual PDF/MD/JSON triggers live inside its dropdown menu.
-      const exportToggleBtn = document.getElementById("export-toggle");
-      const exportMenu = document.getElementById("export-menu");
       const propsBox = document.getElementById("opt-props");
       const countTag = document.getElementById("count-tag");
       const groupBySection = document.getElementById("group-by-section");
@@ -2400,6 +2417,8 @@
 
       // ── AI state (Phase C — Documentation technique) ──────────────────────
       let currentLlmConfig = { endpoint: "", model: "", apiKey: "" };
+      let generatedMarkdown = "";
+      let generatedComponentName = "";
       let currentAiTargetId = null;
       let aiState = {
         linkedDocFrameIds: [],
@@ -2483,10 +2502,6 @@
         const hasTarget = !generateBtn.dataset.noTarget; // dataset flag set by renderEmpty/renderTarget
         const ok = hasTarget && anySectionEnabled();
         generateBtn.disabled = !ok;
-        // Export dropdown's toggle is the sole footer affordance — when it's
-        // disabled, the menu can't be opened, so the individual items don't
-        // need their own disabled state.
-        if (exportToggleBtn) exportToggleBtn.disabled = !ok;
       }
 
       // Toggle the inline spinner / loading state on a footer CTA. Called when
@@ -3787,7 +3802,6 @@
             <p class="empty-hint">${hint}</p>
           </div>`;
         generateBtn.dataset.noTarget = "1";
-        if (exportToggleBtn) exportToggleBtn.dataset.noTarget = "1";
         setMatrixAvailable(false);
         baseCombinationCount = 0;
         updateCountTag(0);
@@ -3841,7 +3855,6 @@
             </div>
           </div>`;
         delete generateBtn.dataset.noTarget;
-        if (exportToggleBtn) delete exportToggleBtn.dataset.noTarget;
         setMatrixAvailable(target.combinationCount > 0);
         baseCombinationCount = target.combinationCount || 0;
         updateCountTag(baseCombinationCount);
@@ -4053,6 +4066,11 @@
               resetAiState();
               clearAiError();
               renderAiBlock();
+              // Hide generated doc card when switching components.
+              const genCard = document.getElementById("generated-doc-card");
+              if (genCard) genCard.hidden = true;
+              generatedMarkdown = "";
+              generatedComponentName = "";
               // Exit listen mode if user switches component.
               if (listenActive) {
                 listenActive = false;
@@ -4073,6 +4091,10 @@
               currentAiTargetId = null;
               resetAiState();
               renderAiBlock();
+              const genCard = document.getElementById("generated-doc-card");
+              if (genCard) genCard.hidden = true;
+              generatedMarkdown = "";
+              generatedComponentName = "";
             }
           }
         } else if (msg.type === "anatomy-layers") {
@@ -4115,9 +4137,6 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
-          // PDF flow done — restore the dropdown CTA.
-          if (pdfTimeoutId) clearTimeout(pdfTimeoutId);
-          setButtonBusy(exportToggleBtn, false);
         } else if (msg.type === "download") {
           // Generic text-blob download (used by Markdown / JSON exports).
           const blob = new Blob([msg.content || ""], { type: msg.mime || "text/plain" });
@@ -4135,17 +4154,10 @@
             typeof msg.currentTargetId === "string" ? msg.currentTargetId : null
           );
         } else if (msg.type === "progress") {
-          // Pick the busy button and update its label inline (e.g. "Génération 12/50…").
-          const busyBtn = generateBtn.classList.contains("is-loading")
-            ? generateBtn
-            : exportToggleBtn && exportToggleBtn.classList.contains("is-loading")
-            ? exportToggleBtn
-            : null;
-          if (busyBtn) {
-            const label = busyBtn.querySelector(".btn-label");
+          if (generateBtn.classList.contains("is-loading")) {
+            const label = generateBtn.querySelector(".btn-label");
             if (label && typeof msg.current === "number" && typeof msg.total === "number") {
-              const prefix = busyBtn === generateBtn ? "Génération" : "Export";
-              label.textContent = `${prefix} ${msg.current}/${msg.total}…`;
+              label.textContent = `Génération ${msg.current}/${msg.total}…`;
             }
           }
         } else if (msg.type === "generation-done") {
@@ -4157,6 +4169,9 @@
             btn.classList.remove("is-busy");
             btn.disabled = false;
           }
+          if (msg.markdown) {
+            showGeneratedDoc(msg.markdown, msg.componentName);
+          }
         } else if (msg.type === "generation-error") {
           if (generateTimeoutId) clearTimeout(generateTimeoutId);
           setButtonBusy(generateBtn, false);
@@ -4165,13 +4180,6 @@
             btn.classList.remove("is-busy");
             btn.disabled = false;
           }
-        } else if (msg.type === "pdf-error") {
-          if (pdfTimeoutId) clearTimeout(pdfTimeoutId);
-          setButtonBusy(exportToggleBtn, false);
-        } else if (msg.type === "export-error") {
-          // MD/JSON ran into trouble — nothing to spin down (instant export),
-          // just keep the dropdown usable.
-          closeExportMenu();
         }
       };
 
@@ -4208,8 +4216,6 @@
       // after 30s so the UI doesn't stay stuck.
       const BUSY_TIMEOUT_MS = 30_000;
       let generateTimeoutId = null;
-      let pdfTimeoutId = null;
-
       document.getElementById("generate").addEventListener("click", async () => {
         if (generateTimeoutId) clearTimeout(generateTimeoutId);
 
@@ -4241,57 +4247,6 @@
           BUSY_TIMEOUT_MS
         );
         parent.postMessage({ pluginMessage: { type: "generate-doc", options: getOptions() } }, "*");
-      });
-
-      document.getElementById("export-pdf").addEventListener("click", () => {
-        closeExportMenu();
-        setButtonBusy(exportToggleBtn, true, "Export…");
-        if (pdfTimeoutId) clearTimeout(pdfTimeoutId);
-        pdfTimeoutId = setTimeout(() => setButtonBusy(exportToggleBtn, false), BUSY_TIMEOUT_MS);
-        parent.postMessage({ pluginMessage: { type: "export-pdf", options: getOptions() } }, "*");
-      });
-
-      // Markdown / JSON export — sandbox builds the string, UI streams it as a
-      // Blob download. No spinner needed: these are near-instant.
-      document.getElementById("export-md").addEventListener("click", () => {
-        closeExportMenu();
-        parent.postMessage(
-          { pluginMessage: { type: "export-markdown", options: getOptions() } },
-          "*"
-        );
-      });
-      document.getElementById("export-json").addEventListener("click", () => {
-        closeExportMenu();
-        parent.postMessage(
-          { pluginMessage: { type: "export-json", options: getOptions() } },
-          "*"
-        );
-      });
-
-      // Dropdown open / close logic. Click on the toggle, click outside, Esc
-      // and item-selection all close the menu. The button keeps a busy
-      // spinner so PDF exports remain visible while the menu is hidden.
-      function openExportMenu() {
-        if (!exportMenu || exportToggleBtn.disabled) return;
-        exportMenu.hidden = false;
-        exportToggleBtn.setAttribute("aria-expanded", "true");
-      }
-      function closeExportMenu() {
-        if (!exportMenu) return;
-        exportMenu.hidden = true;
-        exportToggleBtn.setAttribute("aria-expanded", "false");
-      }
-      exportToggleBtn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        if (exportMenu.hidden) openExportMenu();
-        else closeExportMenu();
-      });
-      // Close on click outside the dropdown.
-      document.addEventListener("click", (ev) => {
-        if (!exportMenu || exportMenu.hidden) return;
-        if (ev.target instanceof Node && exportMenu.contains(ev.target)) return;
-        if (ev.target === exportToggleBtn || (ev.target instanceof Node && exportToggleBtn.contains(ev.target))) return;
-        closeExportMenu();
       });
 
       document.getElementById("close").addEventListener("click", () => {
@@ -4403,12 +4358,6 @@
             target.blur();
             return;
           }
-          // Close export dropdown first if it's open.
-          if (exportMenu && !exportMenu.hidden) {
-            ev.preventDefault();
-            closeExportMenu();
-            return;
-          }
           // Cancel any active settings view; on main view this is a no-op.
           if (viewSettingsMatrix.classList.contains("view-active")) {
             ev.preventDefault();
@@ -4431,18 +4380,6 @@
           if (!generateBtn.disabled && !generateBtn.classList.contains("is-loading")) {
             generateBtn.click();
           }
-        } else if (meta && ev.shiftKey && (ev.key === "p" || ev.key === "P")) {
-          ev.preventDefault();
-          // Gate via the new export-toggle since that's where the
-          // disabled/busy state now lives.
-          if (
-            exportToggleBtn &&
-            !exportToggleBtn.disabled &&
-            !exportToggleBtn.classList.contains("is-loading")
-          ) {
-            exportPdfBtn.click();
-          }
-        }
       });
 
       // Reset configuration — clears clientStorage for the current component
@@ -4648,7 +4585,30 @@
       const aiLinked = document.getElementById("ai-linked");
       const aiErrorEl = document.getElementById("ai-error");
       const btnLinkDoc = document.getElementById("btn-link-doc");
-      const btnAnalyzeAi = document.getElementById("btn-analyze-ai");
+
+      function showGeneratedDoc(markdown, componentName) {
+        generatedMarkdown = markdown || "";
+        generatedComponentName = componentName || "composant";
+        const card = document.getElementById("generated-doc-card");
+        const pre = document.getElementById("generated-doc-pre");
+        if (card && pre) {
+          pre.textContent = generatedMarkdown;
+          card.hidden = false;
+          card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      }
+
+      document.getElementById("btn-download-md").addEventListener("click", () => {
+        if (!generatedMarkdown) return;
+        const blob = new Blob([generatedMarkdown], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = generatedComponentName + ".md";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 0);
+      });
 
       function showAiError(title, detail) {
         aiErrorEl.innerHTML = "";
@@ -4808,8 +4768,6 @@
         aiBlock.classList.toggle("is-analyzed", isAnalyzed);
         const aiCheckEl = document.getElementById("ai-block-check");
         if (aiCheckEl) aiCheckEl.hidden = !isAnalyzed;
-        // Analyze button enabled?
-        btnAnalyzeAi.disabled = !currentLlmConfig.apiKey || aiAnalysisInFlight;
         btnLinkDoc.disabled = listenActive || aiAnalysisInFlight;
       }
 
@@ -5104,10 +5062,6 @@
           }
         }
       }
-
-      btnAnalyzeAi.addEventListener("click", () => {
-        runAiAnalysis();
-      });
 
       // Awaitable wrapper around the existing fire-and-forget runAiAnalysis.
       // The Generate flow calls this to run the AI step BEFORE the generate-doc
