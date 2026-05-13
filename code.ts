@@ -338,6 +338,26 @@ figma.showUI(__html__, { width: 440, height: 540 });
 
 const ONBOARDED_KEY = "docyourprops:onboarded";
 
+// Global LLM config (endpoint, model, apiKey). Shared across all components —
+// not scoped per-target like CONFIG_KEY_PREFIX.
+const LLM_CONFIG_KEY = "docyourcomp:llm-config";
+
+type LlmConfig = {
+  endpoint?: string;
+  model?: string;
+  apiKey?: string;
+};
+
+async function loadLlmConfig(): Promise<LlmConfig | null> {
+  try {
+    const raw = await figma.clientStorage.getAsync(LLM_CONFIG_KEY);
+    if (raw && typeof raw === "object") return raw as LlmConfig;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 async function sendInit(): Promise<void> {
   let onboarded = true;
   try {
@@ -365,7 +385,26 @@ figma.ui.onmessage = async (msg: {
   key?: string;
   section?: string;
   targetId?: string;
+  data?: unknown;
 }) => {
+  if (msg.type === "get-llm-config") {
+    const cfg = await loadLlmConfig();
+    figma.ui.postMessage({ type: "llm-config", data: cfg });
+    return;
+  }
+  if (msg.type === "save-llm-config") {
+    try {
+      await figma.clientStorage.setAsync(LLM_CONFIG_KEY, msg.data || {});
+      figma.ui.postMessage({ type: "llm-config-saved", ok: true });
+    } catch (e) {
+      figma.ui.postMessage({
+        type: "llm-config-saved",
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+    return;
+  }
   const defaultOptions: DocOptions = {
     props: true,
     tokens: true,

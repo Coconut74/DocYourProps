@@ -2,7 +2,7 @@
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
-    <title>DocYourProps</title>
+    <title>DocYourComp</title>
     <style>
       :root { color-scheme: light dark; }
       * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1240,6 +1240,128 @@
         border-top: 1px solid var(--figma-color-border, #e6e6e6);
         flex-shrink: 0;
       }
+
+      /* ── Top tabs (Docs / Chat) ─────────────────────────── */
+      .top-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--figma-color-border, #e6e6e6);
+        flex-shrink: 0;
+        background: var(--figma-color-bg, #fff);
+      }
+      .tab-btn {
+        flex: 1;
+        padding: 9px 12px;
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--figma-color-text-secondary, #757575);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: color 120ms ease, border-color 120ms ease;
+      }
+      .tab-btn:hover { color: var(--figma-color-text, #1e1e1e); }
+      .tab-btn.tab-active {
+        color: var(--figma-color-text, #1e1e1e);
+        border-bottom-color: var(--figma-color-bg-brand, #0d99ff);
+      }
+
+      /* ── Tab panes ──────────────────────────────────────── */
+      .tab-pane { display: none; flex: 1; min-height: 0; flex-direction: column; }
+      .tab-pane.tab-active { display: flex; }
+
+      /* ── Chat tab placeholder (Phase E will replace it) ── */
+      .chat-empty {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        align-items: center;
+        justify-content: center;
+        padding: 32px;
+        text-align: center;
+        color: var(--figma-color-text-secondary, #757575);
+        gap: 8px;
+        font-size: 12px;
+      }
+      .chat-empty strong { color: var(--figma-color-text, #1e1e1e); font-size: 13px; }
+
+      /* ── LLM config footer ──────────────────────────────── */
+      .llm-config-footer {
+        border-top: 1px solid var(--figma-color-border, #e6e6e6);
+        background: var(--figma-color-bg-secondary, #fafafa);
+        flex-shrink: 0;
+      }
+      .llm-config-footer summary {
+        list-style: none;
+        padding: 8px 16px;
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--figma-color-text-secondary, #757575);
+        user-select: none;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .llm-config-footer summary::-webkit-details-marker { display: none; }
+      .llm-config-footer summary::before {
+        content: "▸";
+        font-size: 10px;
+        transition: transform 120ms ease;
+      }
+      .llm-config-footer[open] summary::before { transform: rotate(90deg); }
+      .llm-config-body {
+        padding: 4px 16px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .llm-config-body label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--figma-color-text-secondary, #757575);
+      }
+      .llm-config-body input {
+        padding: 6px 8px;
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 4px;
+        background: var(--figma-color-bg, #fff);
+        color: var(--figma-color-text, #1e1e1e);
+        font: inherit;
+        font-size: 12px;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .llm-config-body input:focus {
+        outline: none;
+        border-color: var(--figma-color-bg-brand, #0d99ff);
+      }
+      .llm-config-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .llm-config-row button {
+        padding: 6px 12px;
+        border: none;
+        border-radius: 4px;
+        background: var(--figma-color-bg-brand, #0d99ff);
+        color: white;
+        font: inherit;
+        font-size: 11px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      .llm-config-row button:hover { background: var(--figma-color-bg-brand-hover, #007be0); }
+      .llm-config-status {
+        font-size: 10px;
+        color: var(--figma-color-text-tertiary, #999);
+      }
     </style>
   </head>
   <body>
@@ -1253,7 +1375,7 @@
           <rect x="6.7" y="6.7" width="3.8" height="3.8" rx="0.9" fill="white"/>
         </svg>
       </div>
-      <span class="title">DocYourProps</span>
+      <span class="title">DocYourComp</span>
       <button class="topbar-btn" id="btn-open-doc-index" hidden>
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
           <path d="M2 2.5h3l1 1.5h3v5H2z"/>
@@ -1261,6 +1383,13 @@
         <span>Voir l'index</span>
       </button>
     </div>
+
+    <nav class="top-tabs">
+      <button class="tab-btn tab-active" data-tab="docs">Docs</button>
+      <button class="tab-btn" data-tab="chat">Chat</button>
+    </nav>
+
+    <div class="tab-pane tab-active" data-pane="docs">
 
     <div id="view-main" class="view view-active">
       <div class="body">
@@ -1682,6 +1811,34 @@
       </div>
     </div>
 
+    </div><!-- /tab-pane docs -->
+
+    <div class="tab-pane" data-pane="chat">
+      <div class="chat-empty">
+        <strong>Chat</strong>
+        <span>L'onglet Chat sera activé prochainement.<br/>Import de fichiers <code>.md</code> et Q&amp;A sur la documentation accumulée.</span>
+      </div>
+    </div>
+
+    <details class="llm-config-footer" id="llm-config">
+      <summary>Configuration LLM</summary>
+      <div class="llm-config-body">
+        <label>Endpoint
+          <input id="llm-endpoint" type="text" placeholder="https://proxy-llm.progiapps.fr/v1/chat/completions" />
+        </label>
+        <label>Modèle
+          <input id="llm-model" type="text" placeholder="llama-3.3-70b-versatile" />
+        </label>
+        <label>Clé API
+          <input id="llm-apikey" type="password" placeholder="sk-..." />
+        </label>
+        <div class="llm-config-row">
+          <button id="llm-save">Enregistrer</button>
+          <span class="llm-config-status" id="llm-status"></span>
+        </div>
+      </div>
+    </details>
+
     <div class="onboarding-overlay" id="onboarding-overlay" hidden>
       <div class="onboarding-card">
         <div class="onboarding-icon">
@@ -1689,7 +1846,7 @@
             <path d="M11 2.5l2.6 5.3 5.9.9-4.2 4.1 1 5.7L11 16l-5.3 2.5 1-5.7-4.2-4.1 5.9-.9z"/>
           </svg>
         </div>
-        <h3 class="onboarding-title">Bienvenue dans DocYourProps</h3>
+        <h3 class="onboarding-title">Bienvenue dans DocYourComp</h3>
         <p class="onboarding-text">
           Sélectionnez un composant Figma puis cliquez sur <strong>⚙</strong>
           dans une section pour ajuster sa combinaison ou ses calques. Vos
@@ -3373,6 +3530,15 @@
       window.onmessage = (event) => {
         const msg = event.data && event.data.pluginMessage;
         if (!msg) return;
+        if (msg.type === "llm-config") {
+          applyLlmConfig(msg.data);
+          return;
+        }
+        if (msg.type === "llm-config-saved") {
+          llmStatus.textContent = msg.ok ? "Enregistré" : "Échec : " + (msg.message || "");
+          setTimeout(() => { llmStatus.textContent = ""; }, 2000);
+          return;
+        }
         if (msg.type === "init") {
           // First-launch onboarding gate. Default to "already onboarded" if
           // the storage flag couldn't be read (better than spamming the user).
@@ -3838,6 +4004,48 @@
         for (const c of chunks) { result.set(c, offset); offset += c.length; }
         return result;
       }
+
+      // ── Top tabs (Docs / Chat) ───────────────────────────────────────────
+      document.querySelectorAll(".tab-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const target = btn.dataset.tab;
+          document.querySelectorAll(".tab-btn").forEach((b) =>
+            b.classList.toggle("tab-active", b === btn)
+          );
+          document.querySelectorAll(".tab-pane").forEach((p) =>
+            p.classList.toggle("tab-active", p.dataset.pane === target)
+          );
+        });
+      });
+
+      // ── LLM config (global, persisted via figma.clientStorage) ───────────
+      const llmEndpoint = document.getElementById("llm-endpoint");
+      const llmModel = document.getElementById("llm-model");
+      const llmApiKey = document.getElementById("llm-apikey");
+      const llmSaveBtn = document.getElementById("llm-save");
+      const llmStatus = document.getElementById("llm-status");
+
+      function applyLlmConfig(cfg) {
+        if (!cfg) return;
+        if (typeof cfg.endpoint === "string") llmEndpoint.value = cfg.endpoint;
+        if (typeof cfg.model === "string") llmModel.value = cfg.model;
+        if (typeof cfg.apiKey === "string") llmApiKey.value = cfg.apiKey;
+      }
+
+      llmSaveBtn.addEventListener("click", () => {
+        const cfg = {
+          endpoint: llmEndpoint.value.trim(),
+          model: llmModel.value.trim(),
+          apiKey: llmApiKey.value.trim(),
+        };
+        llmStatus.textContent = "Enregistrement…";
+        parent.postMessage(
+          { pluginMessage: { type: "save-llm-config", data: cfg } },
+          "*"
+        );
+      });
+
+      parent.postMessage({ pluginMessage: { type: "get-llm-config" } }, "*");
 
       renderEmpty();
     </script>

@@ -198,6 +198,22 @@ function saveConfig(targetId, options) {
 }
 figma.showUI(__html__, { width: 440, height: 540 });
 const ONBOARDED_KEY = "docyourprops:onboarded";
+// Global LLM config (endpoint, model, apiKey). Shared across all components —
+// not scoped per-target like CONFIG_KEY_PREFIX.
+const LLM_CONFIG_KEY = "docyourcomp:llm-config";
+function loadLlmConfig() {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const raw = yield figma.clientStorage.getAsync(LLM_CONFIG_KEY);
+            if (raw && typeof raw === "object")
+                return raw;
+        }
+        catch (_a) {
+            /* ignore */
+        }
+        return null;
+    });
+}
 function sendInit() {
     return __awaiter(this, void 0, void 0, function* () {
         let onboarded = true;
@@ -219,6 +235,25 @@ void sendInit();
 void sendSelection();
 figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
     var _a, _b, _c, _d, _e, _f, _g;
+    if (msg.type === "get-llm-config") {
+        const cfg = yield loadLlmConfig();
+        figma.ui.postMessage({ type: "llm-config", data: cfg });
+        return;
+    }
+    if (msg.type === "save-llm-config") {
+        try {
+            yield figma.clientStorage.setAsync(LLM_CONFIG_KEY, msg.data || {});
+            figma.ui.postMessage({ type: "llm-config-saved", ok: true });
+        }
+        catch (e) {
+            figma.ui.postMessage({
+                type: "llm-config-saved",
+                ok: false,
+                message: e instanceof Error ? e.message : String(e),
+            });
+        }
+        return;
+    }
     const defaultOptions = {
         props: true,
         tokens: true,
