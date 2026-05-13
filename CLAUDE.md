@@ -25,7 +25,7 @@ Plugin Figma (Figma Design uniquement). TypeScript + UI HTML vanilla.
 > - **A — Squelette** : renommage, top-bar, footer config, manifest réseau. ← *terminé*
 > - **B — Extraction sandbox** : port des 3 extracteurs (metadata + CSS + docs frames) dans `code.ts`. ← *terminé*
 > - **C — Lier doc + appel LLM** : mode écoute pour lier des frames de doc, appel LLM côté UI. ← *terminé*
-> - **D — Injection canvas + export MD** : `buildPropsSection` consomme `propDescriptions` IA, nouveau bouton « Exporter MD ».
+> - **D — Injection canvas + export MD** : `buildPropsSection` consomme `propDescriptions` IA, export MD enrichi de `generalDescription`. ← *terminé*
 > - **E — Chat** : port de l'onglet Chat de DSExtract.
 > - **V2** (hors scope V1) : boucle de vérification visuelle IA (inspection des pins/badges).
 >

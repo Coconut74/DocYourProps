@@ -11,6 +11,21 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 const PROP_COL_WIDTHS = [142, 212, 141, 141];
 const PROP_COL_HEADERS = ["Propriété", "Description", "Type", "Valeurs"];
 const PROP_DESCRIPTION_PLACEHOLDER = "À compléter";
+// Read an AI-generated description for `propDisplayName` (the kebab-cased
+// display name produced by `displayPropName`) from the propDescriptions map.
+// Tries the display name first, then the raw prop key (without the "Has a "
+// boolean prefix added by `displayPropName`). Falls back to the placeholder.
+function pickPropDescription(propRawName, propDisplayName, propDescriptions) {
+    if (!propDescriptions)
+        return PROP_DESCRIPTION_PLACEHOLDER;
+    const fromDisplay = propDescriptions[propDisplayName];
+    if (typeof fromDisplay === "string" && fromDisplay.trim().length > 0)
+        return fromDisplay;
+    const fromRaw = propDescriptions[propRawName];
+    if (typeof fromRaw === "string" && fromRaw.trim().length > 0)
+        return fromRaw;
+    return PROP_DESCRIPTION_PLACEHOLDER;
+}
 const ADMIN_SHEET_WIDTH_DEFAULT = 700;
 const ADMIN_SHEET_PADDING = 32;
 const ADMIN_CONTENT_WIDTH_DEFAULT = ADMIN_SHEET_WIDTH_DEFAULT - ADMIN_SHEET_PADDING * 2; // 636
@@ -431,6 +446,13 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             return;
         }
         const opts = (_c = msg.options) !== null && _c !== void 0 ? _c : defaultOptions;
+        const ai = yield loadAiDescriptions(target.id);
+        if (ai) {
+            if (ai.propDescriptions)
+                opts.propDescriptions = ai.propDescriptions;
+            if (ai.generalDescription)
+                opts.generalDescription = ai.generalDescription;
+        }
         resetGenerationWarnings();
         try {
             yield generateDoc(target, opts);
@@ -455,6 +477,13 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             return;
         }
         const opts = (_d = msg.options) !== null && _d !== void 0 ? _d : defaultOptions;
+        const ai = yield loadAiDescriptions(target.id);
+        if (ai) {
+            if (ai.propDescriptions)
+                opts.propDescriptions = ai.propDescriptions;
+            if (ai.generalDescription)
+                opts.generalDescription = ai.generalDescription;
+        }
         resetGenerationWarnings();
         try {
             yield exportAsPdf(target, opts);
@@ -480,6 +509,13 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             return;
         }
         const opts = (_e = msg.options) !== null && _e !== void 0 ? _e : defaultOptions;
+        const ai = yield loadAiDescriptions(target.id);
+        if (ai) {
+            if (ai.propDescriptions)
+                opts.propDescriptions = ai.propDescriptions;
+            if (ai.generalDescription)
+                opts.generalDescription = ai.generalDescription;
+        }
         resetGenerationWarnings();
         try {
             const doc = yield buildDocAsObject(target, opts);
@@ -818,11 +854,11 @@ function buildSheets(target, options) {
             : undefined;
         if (options.props && options.variants) {
             const layout = computeAdminCardLayout(target);
-            const content = yield buildPropsAndMatrixContent(target, (_a = options.groupBy) !== null && _a !== void 0 ? _a : [], (_b = options.excludeRules) !== null && _b !== void 0 ? _b : [], (_c = options.propLocks) !== null && _c !== void 0 ? _c : {}, layout, visualBg, instanceSwapNames);
+            const content = yield buildPropsAndMatrixContent(target, (_a = options.groupBy) !== null && _a !== void 0 ? _a : [], (_b = options.excludeRules) !== null && _b !== void 0 ? _b : [], (_c = options.propLocks) !== null && _c !== void 0 ? _c : {}, layout, visualBg, instanceSwapNames, options.propDescriptions);
             sheets.push(makeAdminSheet(target, "Propriétés", content, layout.sheetW));
         }
         else if (options.props) {
-            sheets.push(makeAdminSheet(target, "Propriétés", buildPropsSection(target, ADMIN_CONTENT_WIDTH_DEFAULT, instanceSwapNames)));
+            sheets.push(makeAdminSheet(target, "Propriétés", buildPropsSection(target, ADMIN_CONTENT_WIDTH_DEFAULT, instanceSwapNames, options.propDescriptions)));
         }
         if (options.layout) {
             sheets.push(makeAdminSheet(target, "Layout", buildLayoutSection(target)));
@@ -948,7 +984,7 @@ function exportAsPdf(target, options) {
             ? yield resolveInstanceSwapNames(target.componentPropertyDefinitions)
             : undefined;
         if (options.props)
-            pdfPages.push(buildPdfPropsPage(target, instanceSwapNames));
+            pdfPages.push(buildPdfPropsPage(target, instanceSwapNames, options.propDescriptions));
         if (options.layout)
             pdfPages.push(buildPdfLayoutPage(target));
         if (options.anatomy)
@@ -1050,7 +1086,7 @@ function makePdfHeader(componentName, sectionTitle, tag) {
 // Gap between the admin header (which has a built-in 16px paddingBottom on
 // its title row + divider) and the page body content.
 const PDF_BODY_GAP = 24;
-function buildPdfPropsPage(target, instanceSwapNames) {
+function buildPdfPropsPage(target, instanceSwapNames, propDescriptions) {
     const page = makePdfPage();
     const header = makePdfHeader(target.name, "Propriétés");
     page.appendChild(header);
@@ -1059,12 +1095,15 @@ function buildPdfPropsPage(target, instanceSwapNames) {
     const contentY = PDF_MARGIN + header.height + PDF_BODY_GAP;
     const props = extractProps(target);
     if (props.length > 0) {
-        const table = makeAdminTable(PROP_COL_HEADERS, PDF_PROP_COL_WIDTHS_A4, props.map((p) => [
-            displayPropName(p),
-            PROP_DESCRIPTION_PLACEHOLDER,
-            makeTypeChip(p.type),
-            makeBulletList(valuesAsItems(p, instanceSwapNames)),
-        ]));
+        const table = makeAdminTable(PROP_COL_HEADERS, PDF_PROP_COL_WIDTHS_A4, props.map((p) => {
+            const display = displayPropName(p);
+            return [
+                display,
+                pickPropDescription(p.name, display, propDescriptions),
+                makeTypeChip(p.type),
+                makeBulletList(valuesAsItems(p, instanceSwapNames)),
+            ];
+        }));
         page.appendChild(table);
         table.x = PDF_MARGIN;
         table.y = contentY;
@@ -1188,13 +1227,19 @@ function buildDocAsObject(target, options) {
                 combinationCount,
             },
         };
+        if (typeof options.generalDescription === "string" && options.generalDescription.trim().length > 0) {
+            doc.generalDescription = options.generalDescription.trim();
+        }
         if (options.props) {
-            doc.props = props.map((p) => ({
-                name: displayPropName(p),
-                type: p.type,
-                description: PROP_DESCRIPTION_PLACEHOLDER,
-                values: valuesAsItems(p, instanceSwapNames),
-            }));
+            doc.props = props.map((p) => {
+                const display = displayPropName(p);
+                return {
+                    name: display,
+                    type: p.type,
+                    description: pickPropDescription(p.name, display, options.propDescriptions),
+                    values: valuesAsItems(p, instanceSwapNames),
+                };
+            });
         }
         if (options.layout && base) {
             const sections = {};
@@ -1324,6 +1369,10 @@ function buildMarkdown(doc) {
     }
     lines.push(`> ${meta.join(" · ")}`);
     lines.push("");
+    if (doc.generalDescription) {
+        lines.push(doc.generalDescription);
+        lines.push("");
+    }
     if (doc.props && doc.props.length > 0) {
         lines.push("## Propriétés");
         lines.push("");
@@ -1639,19 +1688,22 @@ function scaleWidths(widths, targetTotal) {
     scaled.push(targetTotal - acc);
     return scaled;
 }
-function buildPropsSection(target, contentWidth = ADMIN_CONTENT_WIDTH_DEFAULT, instanceSwapNames) {
+function buildPropsSection(target, contentWidth = ADMIN_CONTENT_WIDTH_DEFAULT, instanceSwapNames, propDescriptions) {
     const props = extractProps(target);
     if (props.length === 0)
         return textFrame("Aucune propriété détectée.");
     const widths = scaleWidths(PROP_COL_WIDTHS, contentWidth);
-    return makeAdminTable(PROP_COL_HEADERS, widths, props.map((p) => [
-        displayPropName(p),
-        PROP_DESCRIPTION_PLACEHOLDER,
-        makeTypeChip(p.type),
-        makeBulletList(valuesAsItems(p, instanceSwapNames)),
-    ]));
+    return makeAdminTable(PROP_COL_HEADERS, widths, props.map((p) => {
+        const display = displayPropName(p);
+        return [
+            display,
+            pickPropDescription(p.name, display, propDescriptions),
+            makeTypeChip(p.type),
+            makeBulletList(valuesAsItems(p, instanceSwapNames)),
+        ];
+    }));
 }
-function buildPropsAndMatrixContent(target, groupBy, excludeRules, propLocks, layout, visualBg, instanceSwapNames) {
+function buildPropsAndMatrixContent(target, groupBy, excludeRules, propLocks, layout, visualBg, instanceSwapNames, propDescriptions) {
     return __awaiter(this, void 0, void 0, function* () {
         const wrapper = figma.createFrame();
         wrapper.name = "Body";
@@ -1676,7 +1728,7 @@ function buildPropsAndMatrixContent(target, groupBy, excludeRules, propLocks, la
         sectionTitle.characters = target.name;
         sectionTitle.fills = [{ type: "SOLID", color: COLOR.refTitlePrimary }];
         wrapper.appendChild(sectionTitle);
-        wrapper.appendChild(buildSubSection("Props list", buildPropsSection(target, layout.contentW, instanceSwapNames)));
+        wrapper.appendChild(buildSubSection("Props list", buildPropsSection(target, layout.contentW, instanceSwapNames, propDescriptions)));
         const variants = yield buildVariantsSection(target, groupBy, excludeRules, propLocks, layout, visualBg);
         const visualTag = variants.comboCount > 0
             ? makeTag(`${variants.comboCount} combinaison${variants.comboCount > 1 ? "s" : ""}`)
