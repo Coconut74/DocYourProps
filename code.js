@@ -249,6 +249,22 @@ function saveAiDescriptions(targetId, data) {
         yield figma.clientStorage.setAsync(AI_DESCRIPTIONS_KEY_PREFIX + targetId, data);
     });
 }
+// Global corpus of `.md` documents the user imported into the Chat tab — fed
+// to the LLM as the only source of truth for Q&A.
+const CHAT_DOCS_KEY = "docyourcomp:chat-docs";
+function loadChatDocs() {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const raw = yield figma.clientStorage.getAsync(CHAT_DOCS_KEY);
+            if (Array.isArray(raw))
+                return raw;
+        }
+        catch (_a) {
+            /* ignore */
+        }
+        return [];
+    });
+}
 // Listen-mode state: while true, selectionchange feeds the UI a doc-frame
 // candidate instead of triggering the normal sendSelection() pipeline.
 let aiListenForDocFrames = false;
@@ -411,6 +427,26 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         catch (e) {
             figma.ui.postMessage({
                 type: "ai-descriptions-saved",
+                ok: false,
+                message: e instanceof Error ? e.message : String(e),
+            });
+        }
+        return;
+    }
+    if (msg.type === "get-chat-docs") {
+        const docs = yield loadChatDocs();
+        figma.ui.postMessage({ type: "chat-docs", data: docs });
+        return;
+    }
+    if (msg.type === "save-chat-docs") {
+        try {
+            const data = Array.isArray(msg.data) ? msg.data : [];
+            yield figma.clientStorage.setAsync(CHAT_DOCS_KEY, data);
+            figma.ui.postMessage({ type: "chat-docs-saved", ok: true });
+        }
+        catch (e) {
+            figma.ui.postMessage({
+                type: "chat-docs-saved",
                 ok: false,
                 message: e instanceof Error ? e.message : String(e),
             });

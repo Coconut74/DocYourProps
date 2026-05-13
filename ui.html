@@ -1271,20 +1271,176 @@
       .tab-pane { display: none; flex: 1; min-height: 0; flex-direction: column; }
       .tab-pane.tab-active { display: flex; }
 
-      /* ── Chat tab placeholder (Phase E will replace it) ── */
-      .chat-empty {
+      /* ── Chat tab (Phase E) ───────────────────────────── */
+      .chat-body {
         display: flex;
         flex-direction: column;
         flex: 1;
-        align-items: center;
-        justify-content: center;
-        padding: 32px;
-        text-align: center;
-        color: var(--figma-color-text-secondary, #757575);
-        gap: 8px;
-        font-size: 12px;
+        min-height: 0;
+        padding: 14px 16px;
+        gap: 12px;
+        overflow-y: auto;
       }
-      .chat-empty strong { color: var(--figma-color-text, #1e1e1e); font-size: 13px; }
+      .chat-intro-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--figma-color-text, #1e1e1e);
+      }
+      .chat-intro-desc {
+        font-size: 11px;
+        color: var(--figma-color-text-secondary, #757575);
+        margin-top: 2px;
+        line-height: 1.4;
+      }
+      .chat-intro-desc code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 10px;
+        padding: 1px 4px;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        border-radius: 3px;
+      }
+      .chat-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .chat-status {
+        font-size: 10px;
+        color: var(--figma-color-text-tertiary, #999);
+        flex: 1;
+        text-align: right;
+      }
+      .docs-list {
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 6px;
+        padding: 10px 12px;
+        background: var(--figma-color-bg-secondary, #fafafa);
+        font-size: 11px;
+        color: var(--figma-color-text, #1e1e1e);
+      }
+      .docs-list.drag-over {
+        outline: 2px dashed var(--figma-color-bg-brand, #0d99ff);
+        outline-offset: -2px;
+      }
+      .docs-list-title {
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .docs-list-empty {
+        color: var(--figma-color-text-secondary, #757575);
+        font-style: italic;
+        line-height: 1.4;
+      }
+      .docs-list ul {
+        list-style: none;
+        margin: 4px 0 0;
+        padding: 0;
+      }
+      .docs-list li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 3px 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .docs-list li .doc-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .docs-list li .doc-size {
+        color: var(--figma-color-text-tertiary, #999);
+        font-size: 10px;
+      }
+      .docs-list li .doc-del {
+        padding: 2px 8px;
+        font-size: 10px;
+        color: var(--figma-color-text-danger, #d4351c);
+        border: 1px solid transparent;
+        background: transparent;
+        border-radius: 3px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 10px;
+      }
+      .docs-list li .doc-del:hover {
+        background: color-mix(in srgb, var(--figma-color-text-danger, #d4351c) 12%, transparent);
+      }
+      .chat-thread {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        flex: 1;
+        min-height: 80px;
+        max-height: none;
+        overflow-y: auto;
+        padding: 4px 2px;
+      }
+      .chat-thread:empty::before {
+        content: "Le thread est vide. Pose une première question.";
+        color: var(--figma-color-text-tertiary, #999);
+        font-style: italic;
+        font-size: 11px;
+        padding: 8px;
+        text-align: center;
+      }
+      .chat-msg-bubble {
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-width: 92%;
+      }
+      .chat-msg-bubble.q {
+        background: color-mix(in srgb, var(--figma-color-bg-brand, #0d99ff) 12%, transparent);
+        color: var(--figma-color-bg-brand, #0d99ff);
+        align-self: flex-end;
+      }
+      .chat-msg-bubble.a {
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        color: var(--figma-color-text, #1e1e1e);
+        align-self: flex-start;
+      }
+      .chat-msg-bubble.a.pending {
+        font-style: italic;
+        color: var(--figma-color-text-secondary, #757575);
+      }
+      .chat-msg-meta {
+        align-self: flex-start;
+        font-size: 10px;
+        color: var(--figma-color-text-tertiary, #999);
+        margin-top: -6px;
+        padding: 0 4px;
+      }
+      .chat-message {
+        font-size: 11px;
+        padding: 8px;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--figma-color-text-danger, #d4351c) 10%, transparent);
+        color: var(--figma-color-text-danger, #d4351c);
+      }
+      .chat-message.hidden { display: none; }
+      .chat-input {
+        width: 100%;
+        font: inherit;
+        font-size: 12px;
+        padding: 8px;
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 4px;
+        resize: vertical;
+        min-height: 60px;
+        background: var(--figma-color-bg, #fff);
+        color: var(--figma-color-text, #1e1e1e);
+      }
+      .chat-input:focus {
+        outline: none;
+        border-color: var(--figma-color-bg-brand, #0d99ff);
+      }
 
       /* ── LLM config footer ──────────────────────────────── */
       .llm-config-footer {
@@ -2001,9 +2157,27 @@
     </div><!-- /tab-pane docs -->
 
     <div class="tab-pane" data-pane="chat">
-      <div class="chat-empty">
-        <strong>Chat</strong>
-        <span>L'onglet Chat sera activé prochainement.<br/>Import de fichiers <code>.md</code> et Q&amp;A sur la documentation accumulée.</span>
+      <div class="chat-body">
+        <div class="chat-intro">
+          <div class="chat-intro-title">Chat sur la documentation</div>
+          <div class="chat-intro-desc">Importe tes <code>.md</code>, puis pose des questions — les réponses s'appuient uniquement sur ces docs.</div>
+        </div>
+
+        <div class="docs-list" id="chat-docs-list"></div>
+        <div class="chat-row">
+          <button class="btn-ghost" id="docs-import-btn">+ Importer des .md</button>
+          <button class="btn-ghost" id="docs-clear-btn">Tout supprimer</button>
+          <span class="chat-status" id="docs-status"></span>
+          <input id="docs-file-input" type="file" accept=".md,text/markdown" multiple style="display: none;" />
+        </div>
+
+        <div class="chat-message hidden" id="chat-msg"></div>
+        <div class="chat-thread" id="chat-thread"></div>
+        <textarea class="chat-input" id="chat-input" placeholder="Pose une question sur la doc importée…  (Cmd/Ctrl+Enter pour envoyer)"></textarea>
+        <div class="chat-row">
+          <button class="btn-primary-soft" id="chat-send" disabled>Envoyer</button>
+          <button class="btn-ghost" id="chat-clear">Effacer le thread</button>
+        </div>
       </div>
     </div>
 
@@ -3740,17 +3914,29 @@
         if (msg.type === "llm-config-saved") {
           llmStatus.textContent = msg.ok ? "Enregistré" : "Échec : " + (msg.message || "");
           setTimeout(() => { llmStatus.textContent = ""; }, 2000);
-          // Refresh AI block in case the apiKey just became available.
+          // Refresh AI block + Chat in case the apiKey just became available.
           currentLlmConfig = {
             endpoint: llmEndpoint.value.trim(),
             model: llmModel.value.trim(),
             apiKey: llmApiKey.value.trim(),
           };
           renderAiBlock();
+          refreshChatButton();
           return;
         }
         if (msg.type === "ai-descriptions") {
           applyStoredAiDescriptions(msg.data);
+          return;
+        }
+        if (msg.type === "chat-docs") {
+          chatDocs = Array.isArray(msg.data) ? msg.data.slice() : [];
+          renderDocsList();
+          refreshChatButton();
+          return;
+        }
+        if (msg.type === "chat-docs-saved") {
+          docsStatus.textContent = msg.ok ? "Enregistré" : "Échec";
+          setTimeout(() => { docsStatus.textContent = ""; }, 1500);
           return;
         }
         if (msg.type === "ai-descriptions-saved") {
@@ -4358,6 +4544,8 @@
           apiKey: (cfg && cfg.apiKey) || "",
         };
         renderAiBlock();
+        // Chat send button depends on apiKey too — keep it in sync.
+        if (typeof refreshChatButton === "function") refreshChatButton();
       }
 
       function resetAiState() {
@@ -4676,6 +4864,253 @@
       btnAnalyzeAi.addEventListener("click", () => {
         runAiAnalysis();
       });
+
+      // ── Chat tab (Phase E) ───────────────────────────────────────────────
+      const CHAT_SYSTEM_PROMPT = [
+        "Tu es un assistant design system. Tu réponds aux questions de l'utilisateur en te basant UNIQUEMENT sur les documents fournis ci-dessous.",
+        "",
+        "Règles :",
+        '- Si la réponse est dans les docs, réponds en citant le nom du fichier source entre parenthèses (ex: "(button.md)").',
+        '- Si l\'info n\'y est pas, dis-le explicitement ("Cette information n\'est pas dans la documentation fournie.") plutôt que d\'inventer.',
+        "- Réponds en Markdown, concis mais complet.",
+        "- Conserve la langue de la question (FR si question FR, EN si question EN).",
+      ].join("\n");
+
+      let chatDocs = []; // [{ name, content }]
+      let chatSendInFlight = false;
+
+      const chatDocsListEl = document.getElementById("chat-docs-list");
+      const docsImportBtn = document.getElementById("docs-import-btn");
+      const docsClearBtn = document.getElementById("docs-clear-btn");
+      const docsStatus = document.getElementById("docs-status");
+      const docsFileInput = document.getElementById("docs-file-input");
+      const chatMsgEl = document.getElementById("chat-msg");
+      const chatThreadEl = document.getElementById("chat-thread");
+      const chatInputEl = document.getElementById("chat-input");
+      const chatSendBtn = document.getElementById("chat-send");
+      const chatClearBtn = document.getElementById("chat-clear");
+
+      function chatEscapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+        );
+      }
+
+      function formatBytes(n) {
+        if (n < 1024) return n + " B";
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+        return (n / (1024 * 1024)).toFixed(2) + " MB";
+      }
+
+      function renderDocsList() {
+        if (chatDocs.length === 0) {
+          chatDocsListEl.innerHTML =
+            '<div class="docs-list-title">Aucun document importé</div>' +
+            '<div class="docs-list-empty">Clique sur « + Importer des .md » ou glisse-dépose tes fichiers ici. Les docs sont stockées localement dans le plugin (figma.clientStorage).</div>';
+          return;
+        }
+        const items = chatDocs
+          .map(
+            (d, i) =>
+              "<li>" +
+              '<span class="doc-name" title="' +
+              chatEscapeHtml(d.name) +
+              '">' +
+              chatEscapeHtml(d.name) +
+              "</span>" +
+              '<span class="doc-size">' +
+              formatBytes((d.content || "").length) +
+              "</span>" +
+              '<button data-idx="' +
+              i +
+              '" class="doc-del" title="Supprimer">Supprimer</button>' +
+              "</li>"
+          )
+          .join("");
+        chatDocsListEl.innerHTML =
+          '<div class="docs-list-title">Documents importés (' +
+          chatDocs.length +
+          ")</div><ul>" +
+          items +
+          "</ul>";
+        chatDocsListEl.querySelectorAll(".doc-del").forEach((btn) => {
+          btn.addEventListener("click", () =>
+            removeChatDoc(parseInt(btn.dataset.idx, 10))
+          );
+        });
+      }
+
+      function refreshChatButton() {
+        const hasKey = !!(currentLlmConfig && currentLlmConfig.apiKey);
+        const hasDocs = chatDocs.length > 0;
+        const hasText = chatInputEl.value.trim().length > 0;
+        chatSendBtn.disabled = chatSendInFlight || !hasKey || !hasDocs || !hasText;
+        if (chatSendInFlight) chatSendBtn.textContent = "Envoi…";
+        else if (!hasDocs) chatSendBtn.textContent = "Aucun .md importé";
+        else if (!hasKey) chatSendBtn.textContent = "Configure la clé API";
+        else chatSendBtn.textContent = "Envoyer";
+      }
+
+      function persistChatDocs() {
+        docsStatus.textContent = "Enregistrement…";
+        parent.postMessage(
+          { pluginMessage: { type: "save-chat-docs", data: chatDocs } },
+          "*"
+        );
+      }
+
+      function upsertChatDoc(name, content) {
+        const idx = chatDocs.findIndex((d) => d.name === name);
+        if (idx >= 0) chatDocs[idx] = { name, content };
+        else chatDocs.push({ name, content });
+      }
+
+      async function importChatFiles(fileList) {
+        const files = Array.from(fileList || []).filter(
+          (f) => /\.md$/i.test(f.name) || f.type === "text/markdown"
+        );
+        if (files.length === 0) return;
+        for (const file of files) {
+          try {
+            const content = await file.text();
+            upsertChatDoc(file.name, content);
+          } catch (e) {
+            // ignore single-file errors
+          }
+        }
+        renderDocsList();
+        refreshChatButton();
+        persistChatDocs();
+      }
+
+      function removeChatDoc(index) {
+        if (!Number.isInteger(index) || index < 0 || index >= chatDocs.length) return;
+        chatDocs.splice(index, 1);
+        renderDocsList();
+        refreshChatButton();
+        persistChatDocs();
+      }
+
+      function clearAllChatDocs() {
+        if (chatDocs.length === 0) return;
+        if (!confirm("Supprimer tous les documents importés ?")) return;
+        chatDocs = [];
+        renderDocsList();
+        refreshChatButton();
+        persistChatDocs();
+      }
+
+      function appendChatBubble(kind, text, pending) {
+        const div = document.createElement("div");
+        div.className = "chat-msg-bubble " + kind + (pending ? " pending" : "");
+        div.textContent = text;
+        chatThreadEl.appendChild(div);
+        chatThreadEl.scrollTop = chatThreadEl.scrollHeight;
+        return div;
+      }
+
+      function appendChatMeta(usage) {
+        if (!usage) return;
+        const total = usage.total_tokens != null ? usage.total_tokens : null;
+        if (total == null) return;
+        const meta = document.createElement("div");
+        meta.className = "chat-msg-meta";
+        const parts = [];
+        parts.push(total.toLocaleString("fr-FR") + " tokens");
+        if (usage.prompt_tokens != null && usage.completion_tokens != null) {
+          parts.push(
+            "(" + usage.prompt_tokens + " in · " + usage.completion_tokens + " out)"
+          );
+        }
+        if (currentLlmConfig && currentLlmConfig.model) {
+          parts.push("· " + currentLlmConfig.model);
+        }
+        meta.textContent = parts.join(" ");
+        chatThreadEl.appendChild(meta);
+        chatThreadEl.scrollTop = chatThreadEl.scrollHeight;
+      }
+
+      function buildChatUserText(question) {
+        let out = "=== DOCUMENTATION ===\n\n";
+        for (const d of chatDocs) {
+          out += "## " + d.name + "\n" + (d.content || "") + "\n\n";
+        }
+        out += "=== QUESTION ===\n" + question + "\n";
+        return out;
+      }
+
+      async function runChat() {
+        const question = chatInputEl.value.trim();
+        if (!question || chatSendInFlight) return;
+        if (!currentLlmConfig.apiKey) {
+          chatMsgEl.textContent = "Configure la clé API dans le footer.";
+          chatMsgEl.classList.remove("hidden");
+          document.getElementById("llm-config").open = true;
+          return;
+        }
+        chatMsgEl.classList.add("hidden");
+        chatSendInFlight = true;
+        refreshChatButton();
+        appendChatBubble("q", question);
+        chatInputEl.value = "";
+        const pending = appendChatBubble("a", "…", true);
+        try {
+          const { text, usage } = await callLlm({
+            systemPrompt: CHAT_SYSTEM_PROMPT,
+            userText: buildChatUserText(question),
+            images: null,
+          });
+          pending.classList.remove("pending");
+          pending.textContent = text || "(réponse vide)";
+          appendChatMeta(usage);
+        } catch (err) {
+          pending.classList.remove("pending");
+          pending.textContent =
+            "Erreur LLM : " + (err && err.message ? err.message : String(err));
+        } finally {
+          chatSendInFlight = false;
+          refreshChatButton();
+        }
+      }
+
+      docsImportBtn.addEventListener("click", () => docsFileInput.click());
+      docsFileInput.addEventListener("change", () => {
+        importChatFiles(docsFileInput.files);
+        docsFileInput.value = "";
+      });
+      docsClearBtn.addEventListener("click", clearAllChatDocs);
+      chatInputEl.addEventListener("input", refreshChatButton);
+      chatInputEl.addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+          e.preventDefault();
+          runChat();
+        }
+      });
+      chatSendBtn.addEventListener("click", runChat);
+      chatClearBtn.addEventListener("click", () => {
+        chatThreadEl.innerHTML = "";
+      });
+
+      // Drag & drop on the docs list
+      ["dragenter", "dragover"].forEach((evt) => {
+        chatDocsListEl.addEventListener(evt, (e) => {
+          e.preventDefault();
+          chatDocsListEl.classList.add("drag-over");
+        });
+      });
+      ["dragleave", "drop"].forEach((evt) => {
+        chatDocsListEl.addEventListener(evt, (e) => {
+          e.preventDefault();
+          chatDocsListEl.classList.remove("drag-over");
+        });
+      });
+      chatDocsListEl.addEventListener("drop", (e) => {
+        if (e.dataTransfer && e.dataTransfer.files) importChatFiles(e.dataTransfer.files);
+      });
+
+      renderDocsList();
+      refreshChatButton();
+      parent.postMessage({ pluginMessage: { type: "get-chat-docs" } }, "*");
 
       renderEmpty();
     </script>
