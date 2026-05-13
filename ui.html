@@ -1244,16 +1244,16 @@
       /* ── Top tabs (Docs / Chat) ─────────────────────────── */
       .top-tabs {
         display: flex;
-        border-bottom: 1px solid var(--figma-color-border, #e6e6e6);
         flex-shrink: 0;
         background: var(--figma-color-bg, #fff);
       }
       .tab-btn {
         flex: 1;
-        padding: 9px 12px;
+        padding: 10px 12px 8px;
         background: transparent;
         border: none;
-        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        border-bottom: 2px solid var(--figma-color-border, #e6e6e6);
         color: var(--figma-color-text-secondary, #757575);
         font: inherit;
         font-size: 12px;
@@ -1265,6 +1265,10 @@
       .tab-btn.tab-active {
         color: var(--figma-color-text, #1e1e1e);
         border-bottom-color: var(--figma-color-bg-brand, #0d99ff);
+      }
+      .tab-btn:focus-visible {
+        outline: 2px solid var(--figma-color-bg-brand, #0d99ff);
+        outline-offset: -2px;
       }
 
       /* ── Tab panes ──────────────────────────────────────── */
@@ -1528,6 +1532,11 @@
         border: 1px solid var(--figma-color-border, #e6e6e6);
         border-radius: 8px;
         background: var(--figma-color-bg, #fff);
+        transition: border-color 200ms ease, background-color 200ms ease;
+      }
+      .ai-block.is-analyzed {
+        border-color: var(--figma-color-icon-success, #14ae5c);
+        background: color-mix(in srgb, var(--figma-color-icon-success, #14ae5c) 5%, var(--figma-color-bg, #fff));
       }
       .ai-block-header {
         display: flex;
@@ -1535,10 +1544,25 @@
         justify-content: space-between;
         gap: 8px;
       }
+      .ai-block-title-wrap {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .ai-block-check {
+        display: inline-flex;
+        align-items: center;
+        line-height: 0;
+        color: var(--figma-color-icon-success, #14ae5c);
+      }
+      .ai-block-check[hidden] { display: none; }
       .ai-block-title {
         font-size: 12px;
         font-weight: 600;
         color: var(--figma-color-text, #1e1e1e);
+      }
+      .ai-block.is-analyzed .ai-block-title {
+        color: var(--figma-color-icon-success, #14ae5c);
       }
       .ai-block-status {
         font-size: 10px;
@@ -1551,6 +1575,9 @@
       }
       .ai-block-status.is-busy { color: var(--figma-color-bg-brand, #0d99ff); }
       .ai-block-status.is-error { color: var(--figma-color-text-danger, #d4351c); }
+      .ai-block.is-analyzed .ai-block-status:not(.is-busy):not(.is-error) {
+        color: var(--figma-color-icon-success, #14ae5c);
+      }
       .ai-linked {
         display: flex;
         flex-wrap: wrap;
@@ -1619,6 +1646,12 @@
         opacity: 0.45;
         cursor: not-allowed;
       }
+      .btn-primary-soft:focus-visible,
+      .ai-chip-remove:focus-visible,
+      .doc-del:focus-visible {
+        outline: 2px solid var(--figma-color-bg-brand, #0d99ff);
+        outline-offset: 2px;
+      }
 
       /* ── Listen banner (frame linking flow) ─────────────── */
       .listen-banner {
@@ -1683,7 +1716,7 @@
   <body>
 
     <div class="header">
-      <div class="logo">
+      <div class="logo" aria-hidden="true">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <rect x="1.5" y="1.5" width="3.8" height="3.8" rx="0.9" fill="white"/>
           <rect x="6.7" y="1.5" width="3.8" height="3.8" rx="0.9" fill="white" opacity="0.55"/>
@@ -1700,12 +1733,12 @@
       </button>
     </div>
 
-    <nav class="top-tabs">
-      <button class="tab-btn tab-active" data-tab="docs">Docs</button>
-      <button class="tab-btn" data-tab="chat">Chat</button>
+    <nav class="top-tabs" role="tablist" aria-label="Sections du plugin">
+      <button class="tab-btn tab-active" data-tab="docs" role="tab" aria-selected="true" aria-controls="tab-pane-docs" id="tab-btn-docs" type="button">Docs</button>
+      <button class="tab-btn" data-tab="chat" role="tab" aria-selected="false" aria-controls="tab-pane-chat" id="tab-btn-chat" type="button" tabindex="-1">Chat</button>
     </nav>
 
-    <div class="tab-pane tab-active" data-pane="docs">
+    <div class="tab-pane tab-active" data-pane="docs" id="tab-pane-docs" role="tabpanel" aria-labelledby="tab-btn-docs">
 
     <div id="view-main" class="view view-active">
       <div class="body">
@@ -1885,20 +1918,28 @@
 
         <div class="ai-block" id="ai-block" hidden>
           <div class="ai-block-header">
-            <span class="ai-block-title">Documentation technique</span>
-            <span class="ai-block-status" id="ai-status"></span>
+            <span class="ai-block-title-wrap">
+              <span class="ai-block-check" id="ai-block-check" aria-hidden="true" hidden>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <circle cx="7" cy="7" r="7" fill="currentColor"/>
+                  <path d="M4 7l2 2 4-4.5" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span class="ai-block-title">Documentation technique</span>
+            </span>
+            <span class="ai-block-status" id="ai-status" aria-live="polite"></span>
           </div>
           <div class="ai-linked" id="ai-linked"></div>
           <div class="ai-actions">
-            <button class="btn-ghost" id="btn-link-doc">+ Lier une frame de doc</button>
-            <button class="btn-primary-soft" id="btn-analyze-ai" disabled>Analyser avec l'IA</button>
+            <button class="btn-ghost" id="btn-link-doc" type="button">+ Lier une frame de doc</button>
+            <button class="btn-primary-soft" id="btn-analyze-ai" type="button" disabled>Analyser avec l'IA</button>
           </div>
         </div>
 
-        <div class="listen-banner" id="listen-banner" hidden>
+        <div class="listen-banner" id="listen-banner" role="region" aria-live="polite" aria-label="Sélection de frames de documentation" hidden>
           <div class="listen-banner-row">
             <span class="listen-banner-title">Sélectionne une frame dans Figma…</span>
-            <button class="btn-ghost" id="btn-listen-cancel">Terminer</button>
+            <button class="btn-ghost" id="btn-listen-cancel" type="button">Terminer</button>
           </div>
           <div class="listen-candidate" id="listen-candidate" hidden>
             <img class="listen-candidate-thumb" id="listen-candidate-thumb" alt="" />
@@ -1906,7 +1947,7 @@
               <div class="listen-candidate-name" id="listen-candidate-name"></div>
               <div class="listen-candidate-type" id="listen-candidate-type"></div>
             </div>
-            <button class="btn-primary-soft" id="btn-listen-validate">Lier</button>
+            <button class="btn-primary-soft" id="btn-listen-validate" type="button">Lier</button>
           </div>
         </div>
       </div>
@@ -2156,7 +2197,7 @@
 
     </div><!-- /tab-pane docs -->
 
-    <div class="tab-pane" data-pane="chat">
+    <div class="tab-pane" data-pane="chat" id="tab-pane-chat" role="tabpanel" aria-labelledby="tab-btn-chat" hidden>
       <div class="chat-body">
         <div class="chat-intro">
           <div class="chat-intro-title">Chat sur la documentation</div>
@@ -2165,18 +2206,18 @@
 
         <div class="docs-list" id="chat-docs-list"></div>
         <div class="chat-row">
-          <button class="btn-ghost" id="docs-import-btn">+ Importer des .md</button>
-          <button class="btn-ghost" id="docs-clear-btn">Tout supprimer</button>
-          <span class="chat-status" id="docs-status"></span>
+          <button class="btn-ghost" id="docs-import-btn" type="button">+ Importer des .md</button>
+          <button class="btn-ghost" id="docs-clear-btn" type="button">Tout supprimer</button>
+          <span class="chat-status" id="docs-status" aria-live="polite"></span>
           <input id="docs-file-input" type="file" accept=".md,text/markdown" multiple style="display: none;" />
         </div>
 
         <div class="chat-message hidden" id="chat-msg"></div>
         <div class="chat-thread" id="chat-thread"></div>
-        <textarea class="chat-input" id="chat-input" placeholder="Pose une question sur la doc importée…  (Cmd/Ctrl+Enter pour envoyer)"></textarea>
+        <textarea class="chat-input" id="chat-input" aria-label="Question pour le chat" placeholder="Pose une question sur la doc importée…  (Cmd/Ctrl+Enter pour envoyer)"></textarea>
         <div class="chat-row">
-          <button class="btn-primary-soft" id="chat-send" disabled>Envoyer</button>
-          <button class="btn-ghost" id="chat-clear">Effacer le thread</button>
+          <button class="btn-primary-soft" id="chat-send" type="button" disabled>Envoyer</button>
+          <button class="btn-ghost" id="chat-clear" type="button">Effacer le thread</button>
         </div>
       </div>
     </div>
@@ -2194,8 +2235,8 @@
           <input id="llm-apikey" type="password" placeholder="sk-..." />
         </label>
         <div class="llm-config-row">
-          <button id="llm-save">Enregistrer</button>
-          <span class="llm-config-status" id="llm-status"></span>
+          <button id="llm-save" type="button">Enregistrer</button>
+          <span class="llm-config-status" id="llm-status" aria-live="polite"></span>
         </div>
       </div>
     </details>
@@ -4456,15 +4497,34 @@
       }
 
       // ── Top tabs (Docs / Chat) ───────────────────────────────────────────
-      document.querySelectorAll(".tab-btn").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const target = btn.dataset.tab;
-          document.querySelectorAll(".tab-btn").forEach((b) =>
-            b.classList.toggle("tab-active", b === btn)
-          );
-          document.querySelectorAll(".tab-pane").forEach((p) =>
-            p.classList.toggle("tab-active", p.dataset.pane === target)
-          );
+      const tabButtons = Array.from(document.querySelectorAll(".tab-btn"));
+      function activateTab(target, focus) {
+        tabButtons.forEach((b) => {
+          const active = b.dataset.tab === target;
+          b.classList.toggle("tab-active", active);
+          b.setAttribute("aria-selected", active ? "true" : "false");
+          b.setAttribute("tabindex", active ? "0" : "-1");
+          if (active && focus) b.focus();
+        });
+        document.querySelectorAll(".tab-pane").forEach((p) => {
+          const active = p.dataset.pane === target;
+          p.classList.toggle("tab-active", active);
+          if (active) p.removeAttribute("hidden");
+          else p.setAttribute("hidden", "");
+        });
+      }
+      tabButtons.forEach((btn) => {
+        btn.addEventListener("click", () => activateTab(btn.dataset.tab, false));
+        btn.addEventListener("keydown", (e) => {
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "Home" && e.key !== "End") return;
+          e.preventDefault();
+          const idx = tabButtons.indexOf(btn);
+          let next = idx;
+          if (e.key === "ArrowLeft") next = (idx - 1 + tabButtons.length) % tabButtons.length;
+          else if (e.key === "ArrowRight") next = (idx + 1) % tabButtons.length;
+          else if (e.key === "Home") next = 0;
+          else if (e.key === "End") next = tabButtons.length - 1;
+          activateTab(tabButtons[next].dataset.tab, true);
         });
       });
 
@@ -4622,19 +4682,26 @@
           rm.className = "ai-chip-remove";
           rm.type = "button";
           rm.textContent = "×";
-          rm.title = "Retirer";
+          rm.title = "Retirer la frame liée";
+          rm.setAttribute(
+            "aria-label",
+            "Retirer la frame liée " + (info.name || info.id)
+          );
           rm.addEventListener("click", () => removeLinkedFrame(info.id));
           chip.appendChild(rm);
           aiLinked.appendChild(chip);
         }
         // Status text
         aiStatus.classList.remove("is-busy", "is-error");
+        const propDescCount = aiState.propDescriptions
+          ? Object.keys(aiState.propDescriptions).length
+          : 0;
+        const isAnalyzed = !aiAnalysisInFlight && propDescCount > 0;
         if (aiAnalysisInFlight) {
           aiStatus.classList.add("is-busy");
           // (status text set by the flow)
-        } else if (aiState.propDescriptions) {
-          const n = Object.keys(aiState.propDescriptions).length;
-          const parts = [n + " description" + (n > 1 ? "s" : "")];
+        } else if (isAnalyzed) {
+          const parts = [propDescCount + " description" + (propDescCount > 1 ? "s" : "")];
           if (aiState.model) parts.push(aiState.model);
           aiStatus.textContent = parts.join(" · ");
         } else if (!currentLlmConfig.apiKey) {
@@ -4642,6 +4709,10 @@
         } else {
           aiStatus.textContent = "";
         }
+        // Toggle the "analyzed" visual state (green border + tick icon).
+        aiBlock.classList.toggle("is-analyzed", isAnalyzed);
+        const aiCheckEl = document.getElementById("ai-block-check");
+        if (aiCheckEl) aiCheckEl.hidden = !isAnalyzed;
         // Analyze button enabled?
         btnAnalyzeAi.disabled = !currentLlmConfig.apiKey || aiAnalysisInFlight;
         btnLinkDoc.disabled = listenActive || aiAnalysisInFlight;
@@ -4661,8 +4732,10 @@
           if (listenCandidate.preview) {
             listenCandidateThumb.src =
               "data:image/png;base64," + listenCandidate.preview;
+            listenCandidateThumb.alt = "Aperçu de la frame " + listenCandidate.name;
           } else {
             listenCandidateThumb.removeAttribute("src");
+            listenCandidateThumb.alt = "";
           }
           btnListenValidate.disabled = aiState.linkedDocFrameIds.indexOf(listenCandidate.id) !== -1;
           btnListenValidate.textContent = btnListenValidate.disabled ? "Déjà lié" : "Lier";
