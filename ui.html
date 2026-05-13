@@ -2422,6 +2422,7 @@
       let currentLlmConfig = { endpoint: "", model: "", apiKey: "" };
       let generatedMarkdown = "";
       let generatedComponentName = "";
+      let generatedForTargetId = null;
       let currentAiTargetId = null;
       let aiState = {
         linkedDocFrameIds: [],
@@ -4069,11 +4070,13 @@
               resetAiState();
               clearAiError();
               renderAiBlock();
-              // Hide generated doc card when switching components.
-              const genCard = document.getElementById("generated-doc-card");
-              if (genCard) genCard.hidden = true;
-              generatedMarkdown = "";
-              generatedComponentName = "";
+              // Hide the generated doc card only when switching to a DIFFERENT
+              // component. When the selection goes to the newly created sheets
+              // (target: null) we keep the card visible so the user can still
+              // read and download the markdown.
+              if (newTargetId !== generatedForTargetId) {
+                clearGeneratedDoc();
+              }
               // Exit listen mode if user switches component.
               if (listenActive) {
                 listenActive = false;
@@ -4094,10 +4097,9 @@
               currentAiTargetId = null;
               resetAiState();
               renderAiBlock();
-              const genCard = document.getElementById("generated-doc-card");
-              if (genCard) genCard.hidden = true;
-              generatedMarkdown = "";
-              generatedComponentName = "";
+              // Do NOT clear the generated doc card when the selection becomes
+              // empty (e.g. generator selected the newly created sheets).
+              // The card will be cleared when a different component is selected.
             }
           }
         } else if (msg.type === "anatomy-layers") {
@@ -4597,6 +4599,7 @@
       function showGeneratedDoc(markdown, componentName) {
         generatedMarkdown = markdown || "";
         generatedComponentName = componentName || "composant";
+        generatedForTargetId = currentAiTargetId;
         const card = document.getElementById("generated-doc-card");
         const pre = document.getElementById("generated-doc-pre");
         if (card && pre) {
@@ -4607,6 +4610,14 @@
           const bodyDiv = card.closest(".body");
           if (bodyDiv) requestAnimationFrame(() => { bodyDiv.scrollTop = bodyDiv.scrollHeight; });
         }
+      }
+
+      function clearGeneratedDoc() {
+        generatedMarkdown = "";
+        generatedComponentName = "";
+        generatedForTargetId = null;
+        const card = document.getElementById("generated-doc-card");
+        if (card) card.hidden = true;
       }
 
       document.getElementById("btn-download-md").addEventListener("click", () => {
