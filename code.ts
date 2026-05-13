@@ -40,6 +40,13 @@ type DocOptions = {
   // it should inherit from the other.
   anatomyConfigured?: boolean;
   tokensConfigured?: boolean;
+  // AI-generated descriptions per prop name. Populated by the request handlers
+  // from clientStorage just before delegating to buildSheets / exportAsPdf /
+  // buildDocData. Missing or empty → fall back to PROP_DESCRIPTION_PLACEHOLDER.
+  propDescriptions?: Record<string, string>;
+  // General description of the component (1-3 sentences) produced alongside
+  // propDescriptions. Used by the Markdown export.
+  generalDescription?: string;
 };
 
 // Persisted per-component config — restored when the user reselects a component.
@@ -128,6 +135,23 @@ type VariantIndex = Map<string, ComponentNode>;
 const PROP_COL_WIDTHS = [142, 212, 141, 141];
 const PROP_COL_HEADERS = ["Propriété", "Description", "Type", "Valeurs"];
 const PROP_DESCRIPTION_PLACEHOLDER = "À compléter";
+
+// Read an AI-generated description for `propDisplayName` (the kebab-cased
+// display name produced by `displayPropName`) from the propDescriptions map.
+// Tries the display name first, then the raw prop key (without the "Has a "
+// boolean prefix added by `displayPropName`). Falls back to the placeholder.
+function pickPropDescription(
+  propRawName: string,
+  propDisplayName: string,
+  propDescriptions: Record<string, string> | undefined
+): string {
+  if (!propDescriptions) return PROP_DESCRIPTION_PLACEHOLDER;
+  const fromDisplay = propDescriptions[propDisplayName];
+  if (typeof fromDisplay === "string" && fromDisplay.trim().length > 0) return fromDisplay;
+  const fromRaw = propDescriptions[propRawName];
+  if (typeof fromRaw === "string" && fromRaw.trim().length > 0) return fromRaw;
+  return PROP_DESCRIPTION_PLACEHOLDER;
+}
 
 const ADMIN_SHEET_WIDTH_DEFAULT = 700;
 const ADMIN_SHEET_PADDING = 32;
@@ -388,6 +412,22 @@ async function saveAiDescriptions(
   await figma.clientStorage.setAsync(AI_DESCRIPTIONS_KEY_PREFIX + targetId, data);
 }
 
+// Global corpus of `.md` documents the user imported into the Chat tab — fed
+// to the LLM as the only source of truth for Q&A.
+const CHAT_DOCS_KEY = "docyourcomp:chat-docs";
+
+type ChatDoc = { name: string; content: string };
+
+async function loadChatDocs(): Promise<ChatDoc[]> {
+  try {
+    const raw = await figma.clientStorage.getAsync(CHAT_DOCS_KEY);
+    if (Array.isArray(raw)) return raw as ChatDoc[];
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
 // Listen-mode state: while true, selectionchange feeds the UI a doc-frame
 // candidate instead of triggering the normal sendSelection() pipeline.
 let aiListenForDocFrames = false;
@@ -562,6 +602,25 @@ figma.ui.onmessage = async (msg: {
     }
     return;
   }
+  if (msg.type === "get-chat-docs") {
+    const docs = await loadChatDocs();
+    figma.ui.postMessage({ type: "chat-docs", data: docs });
+    return;
+  }
+  if (msg.type === "save-chat-docs") {
+    try {
+      const data = Array.isArray(msg.data) ? (msg.data as ChatDoc[]) : [];
+      await figma.clientStorage.setAsync(CHAT_DOCS_KEY, data);
+      figma.ui.postMessage({ type: "chat-docs-saved", ok: true });
+    } catch (e) {
+      figma.ui.postMessage({
+        type: "chat-docs-saved",
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+    return;
+  }
   const defaultOptions: DocOptions = {
     props: true,
     tokens: true,
@@ -592,6 +651,11 @@ figma.ui.onmessage = async (msg: {
       return;
     }
     const opts = msg.options ?? defaultOptions;
+    const ai = await loadAiDescriptions(target.id);
+    if (ai) {
+      if (ai.propDescriptions) opts.propDescriptions = ai.propDescriptions;
+      if (ai.generalDescription) opts.generalDescription = ai.generalDescription;
+    }
     resetGenerationWarnings();
     try {
       await generateDoc(target, opts);
@@ -614,6 +678,11 @@ figma.ui.onmessage = async (msg: {
       return;
     }
     const opts = msg.options ?? defaultOptions;
+    const ai = await loadAiDescriptions(target.id);
+    if (ai) {
+      if (ai.propDescriptions) opts.propDescriptions = ai.propDescriptions;
+      if (ai.generalDescription) opts.generalDescription = ai.generalDescription;
+    }
     resetGenerationWarnings();
     try {
       await exportAsPdf(target, opts);
@@ -640,6 +709,11 @@ figma.ui.onmessage = async (msg: {
       return;
     }
     const opts = msg.options ?? defaultOptions;
+    const ai = await loadAiDescriptions(target.id);
+    if (ai) {
+      if (ai.propDescriptions) opts.propDescriptions = ai.propDescriptions;
+      if (ai.generalDescription) opts.generalDescription = ai.generalDescription;
+    }
     resetGenerationWarnings();
     try {
       const doc = await buildDocAsObject(target, opts);
@@ -966,7 +1040,8 @@ async function buildSheets(target: DocTarget, options: DocOptions): Promise<Fram
       options.propLocks ?? {},
       layout,
       visualBg,
-      instanceSwapNames
+      instanceSwapNames,
+      options.propDescriptions
     );
     sheets.push(makeAdminSheet(target, "Propriétés", content, layout.sheetW));
   } else if (options.props) {
@@ -974,7 +1049,12 @@ async function buildSheets(target: DocTarget, options: DocOptions): Promise<Fram
       makeAdminSheet(
         target,
         "Propriétés",
-        buildPropsSection(target, ADMIN_CONTENT_WIDTH_DEFAULT, instanceSwapNames)
+        buildPropsSection(
+          target,
+          ADMIN_CONTENT_WIDTH_DEFAULT,
+          instanceSwapNames,
+          options.propDescriptions
+        )
       )
     );
   }
@@ -1133,7 +1213,8 @@ async function exportAsPdf(target: DocTarget, options: DocOptions): Promise<void
   const instanceSwapNames = options.props
     ? await resolveInstanceSwapNames(target.componentPropertyDefinitions)
     : undefined;
-  if (options.props) pdfPages.push(buildPdfPropsPage(target, instanceSwapNames));
+  if (options.props)
+    pdfPages.push(buildPdfPropsPage(target, instanceSwapNames, options.propDescriptions));
   if (options.layout) pdfPages.push(buildPdfLayoutPage(target));
   if (options.anatomy)
     pdfPages.push(buildPdfAnatomyPage(target, options.anatomyVariant, options.anatomyIncludedLayers));
@@ -1259,7 +1340,8 @@ const PDF_BODY_GAP = 24;
 
 function buildPdfPropsPage(
   target: DocTarget,
-  instanceSwapNames?: Map<string, string[]>
+  instanceSwapNames?: Map<string, string[]>,
+  propDescriptions?: Record<string, string>
 ): FrameNode {
   const page = makePdfPage();
 
@@ -1274,15 +1356,15 @@ function buildPdfPropsPage(
     const table = makeAdminTable(
       PROP_COL_HEADERS,
       PDF_PROP_COL_WIDTHS_A4,
-      props.map(
-        (p) =>
-          [
-            displayPropName(p),
-            PROP_DESCRIPTION_PLACEHOLDER,
-            makeTypeChip(p.type),
-            makeBulletList(valuesAsItems(p, instanceSwapNames)),
-          ] as AdminCellContent[]
-      )
+      props.map((p) => {
+        const display = displayPropName(p);
+        return [
+          display,
+          pickPropDescription(p.name, display, propDescriptions),
+          makeTypeChip(p.type),
+          makeBulletList(valuesAsItems(p, instanceSwapNames)),
+        ] as AdminCellContent[];
+      })
     );
     page.appendChild(table);
     table.x = PDF_MARGIN;
@@ -1423,6 +1505,9 @@ type DocData = {
     propCount: number;
     combinationCount: number;
   };
+  // AI-generated 1-3 sentence summary of the component's role. Rendered as a
+  // blockquote right under the H1 of the Markdown export when present.
+  generalDescription?: string;
   props?: Array<{
     name: string;
     type: string;
@@ -1468,14 +1553,20 @@ async function buildDocAsObject(target: DocTarget, options: DocOptions): Promise
       combinationCount,
     },
   };
+  if (typeof options.generalDescription === "string" && options.generalDescription.trim().length > 0) {
+    doc.generalDescription = options.generalDescription.trim();
+  }
 
   if (options.props) {
-    doc.props = props.map((p) => ({
-      name: displayPropName(p),
-      type: p.type,
-      description: PROP_DESCRIPTION_PLACEHOLDER,
-      values: valuesAsItems(p, instanceSwapNames),
-    }));
+    doc.props = props.map((p) => {
+      const display = displayPropName(p);
+      return {
+        name: display,
+        type: p.type,
+        description: pickPropDescription(p.name, display, options.propDescriptions),
+        values: valuesAsItems(p, instanceSwapNames),
+      };
+    });
   }
 
   if (options.layout && base) {
@@ -1614,6 +1705,11 @@ function buildMarkdown(doc: DocData): string {
   }
   lines.push(`> ${meta.join(" · ")}`);
   lines.push("");
+
+  if (doc.generalDescription) {
+    lines.push(doc.generalDescription);
+    lines.push("");
+  }
 
   if (doc.props && doc.props.length > 0) {
     lines.push("## Propriétés");
@@ -1975,7 +2071,8 @@ function scaleWidths(widths: number[], targetTotal: number): number[] {
 function buildPropsSection(
   target: DocTarget,
   contentWidth: number = ADMIN_CONTENT_WIDTH_DEFAULT,
-  instanceSwapNames?: Map<string, string[]>
+  instanceSwapNames?: Map<string, string[]>,
+  propDescriptions?: Record<string, string>
 ): SceneNode {
   const props = extractProps(target);
   if (props.length === 0) return textFrame("Aucune propriété détectée.");
@@ -1983,15 +2080,15 @@ function buildPropsSection(
   return makeAdminTable(
     PROP_COL_HEADERS,
     widths,
-    props.map(
-      (p) =>
-        [
-          displayPropName(p),
-          PROP_DESCRIPTION_PLACEHOLDER,
-          makeTypeChip(p.type),
-          makeBulletList(valuesAsItems(p, instanceSwapNames)),
-        ] as AdminCellContent[]
-    )
+    props.map((p) => {
+      const display = displayPropName(p);
+      return [
+        display,
+        pickPropDescription(p.name, display, propDescriptions),
+        makeTypeChip(p.type),
+        makeBulletList(valuesAsItems(p, instanceSwapNames)),
+      ] as AdminCellContent[];
+    })
   );
 }
 
@@ -2002,7 +2099,8 @@ async function buildPropsAndMatrixContent(
   propLocks: PropLocks,
   layout: AdminCardLayout,
   visualBg: string,
-  instanceSwapNames?: Map<string, string[]>
+  instanceSwapNames?: Map<string, string[]>,
+  propDescriptions?: Record<string, string>
 ): Promise<SceneNode> {
   const wrapper = figma.createFrame();
   wrapper.name = "Body";
@@ -2030,7 +2128,10 @@ async function buildPropsAndMatrixContent(
   wrapper.appendChild(sectionTitle);
 
   wrapper.appendChild(
-    buildSubSection("Props list", buildPropsSection(target, layout.contentW, instanceSwapNames))
+    buildSubSection(
+      "Props list",
+      buildPropsSection(target, layout.contentW, instanceSwapNames, propDescriptions)
+    )
   );
   const variants = await buildVariantsSection(target, groupBy, excludeRules, propLocks, layout, visualBg);
   const visualTag =
