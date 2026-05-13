@@ -1362,6 +1362,166 @@
         font-size: 10px;
         color: var(--figma-color-text-tertiary, #999);
       }
+
+      /* ── AI block (Documentation technique) ─────────────── */
+      .ai-block {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 8px;
+        background: var(--figma-color-bg, #fff);
+      }
+      .ai-block-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .ai-block-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--figma-color-text, #1e1e1e);
+      }
+      .ai-block-status {
+        font-size: 10px;
+        color: var(--figma-color-text-tertiary, #999);
+        text-align: right;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .ai-block-status.is-busy { color: var(--figma-color-bg-brand, #0d99ff); }
+      .ai-block-status.is-error { color: var(--figma-color-text-danger, #d4351c); }
+      .ai-linked {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .ai-linked:empty { display: none; }
+      .ai-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 4px 3px 8px;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 6px;
+        font-size: 11px;
+        color: var(--figma-color-text, #1e1e1e);
+        max-width: 100%;
+      }
+      .ai-chip-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 180px;
+      }
+      .ai-chip-remove {
+        width: 16px;
+        height: 16px;
+        border: none;
+        background: transparent;
+        color: var(--figma-color-text-secondary, #757575);
+        font-size: 13px;
+        line-height: 1;
+        padding: 0;
+        cursor: pointer;
+        border-radius: 3px;
+      }
+      .ai-chip-remove:hover {
+        background: var(--figma-color-bg-hover, rgba(0,0,0,0.06));
+        color: var(--figma-color-text, #1e1e1e);
+      }
+      .ai-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .ai-actions .btn-ghost {
+        flex: 1;
+      }
+      .btn-primary-soft {
+        flex: 1;
+        padding: 7px 12px;
+        border: 1px solid var(--figma-color-bg-brand, #0d99ff);
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--figma-color-bg-brand, #0d99ff) 10%, transparent);
+        color: var(--figma-color-bg-brand, #0d99ff);
+        font: inherit;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 120ms ease;
+      }
+      .btn-primary-soft:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--figma-color-bg-brand, #0d99ff) 18%, transparent);
+      }
+      .btn-primary-soft:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      /* ── Listen banner (frame linking flow) ─────────────── */
+      .listen-banner {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--figma-color-bg-brand, #0d99ff);
+        background: color-mix(in srgb, var(--figma-color-bg-brand, #0d99ff) 6%, transparent);
+        border-radius: 8px;
+      }
+      .listen-banner[hidden] { display: none; }
+      .listen-banner-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .listen-banner-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--figma-color-bg-brand, #0d99ff);
+      }
+      .listen-candidate {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px;
+        background: var(--figma-color-bg, #fff);
+        border-radius: 6px;
+      }
+      .listen-candidate[hidden] { display: none; }
+      .listen-candidate-thumb {
+        width: 40px;
+        height: 40px;
+        object-fit: contain;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+        border-radius: 4px;
+        flex-shrink: 0;
+      }
+      .listen-candidate-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .listen-candidate-name {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--figma-color-text, #1e1e1e);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .listen-candidate-type {
+        font-size: 10px;
+        color: var(--figma-color-text-tertiary, #999);
+      }
     </style>
   </head>
   <body>
@@ -1565,6 +1725,33 @@
             </svg>
             <span>Réinitialiser les paramètres</span>
           </button>
+        </div>
+
+        <div class="ai-block" id="ai-block" hidden>
+          <div class="ai-block-header">
+            <span class="ai-block-title">Documentation technique</span>
+            <span class="ai-block-status" id="ai-status"></span>
+          </div>
+          <div class="ai-linked" id="ai-linked"></div>
+          <div class="ai-actions">
+            <button class="btn-ghost" id="btn-link-doc">+ Lier une frame de doc</button>
+            <button class="btn-primary-soft" id="btn-analyze-ai" disabled>Analyser avec l'IA</button>
+          </div>
+        </div>
+
+        <div class="listen-banner" id="listen-banner" hidden>
+          <div class="listen-banner-row">
+            <span class="listen-banner-title">Sélectionne une frame dans Figma…</span>
+            <button class="btn-ghost" id="btn-listen-cancel">Terminer</button>
+          </div>
+          <div class="listen-candidate" id="listen-candidate" hidden>
+            <img class="listen-candidate-thumb" id="listen-candidate-thumb" alt="" />
+            <div class="listen-candidate-info">
+              <div class="listen-candidate-name" id="listen-candidate-name"></div>
+              <div class="listen-candidate-type" id="listen-candidate-type"></div>
+            </div>
+            <button class="btn-primary-soft" id="btn-listen-validate">Lier</button>
+          </div>
         </div>
       </div>
 
@@ -1971,6 +2158,21 @@
       let tokensLayerFetchSeq = 0;
       let anatomyConfigured = false;
       let tokensConfigured = false;
+
+      // ── AI state (Phase C — Documentation technique) ──────────────────────
+      let currentLlmConfig = { endpoint: "", model: "", apiKey: "" };
+      let currentAiTargetId = null;
+      let aiState = {
+        linkedDocFrameIds: [],
+        linkedDocFrameInfo: [], // [{ id, name, type }]
+        generalDescription: null,
+        propDescriptions: null,
+        generatedAt: null,
+        model: null,
+      };
+      let listenActive = false;
+      let listenCandidate = null;
+      let aiAnalysisInFlight = false;
       let baseCombinationCount = 0; // Last reported total combinations (cartesian post-dedup)
 
       // Pending state — populated when entering settings, applied on Valider, dropped on Annuler.
@@ -3532,11 +3734,44 @@
         if (!msg) return;
         if (msg.type === "llm-config") {
           applyLlmConfig(msg.data);
+          applyLlmConfigForAi(msg.data);
           return;
         }
         if (msg.type === "llm-config-saved") {
           llmStatus.textContent = msg.ok ? "Enregistré" : "Échec : " + (msg.message || "");
           setTimeout(() => { llmStatus.textContent = ""; }, 2000);
+          // Refresh AI block in case the apiKey just became available.
+          currentLlmConfig = {
+            endpoint: llmEndpoint.value.trim(),
+            model: llmModel.value.trim(),
+            apiKey: llmApiKey.value.trim(),
+          };
+          renderAiBlock();
+          return;
+        }
+        if (msg.type === "ai-descriptions") {
+          applyStoredAiDescriptions(msg.data);
+          return;
+        }
+        if (msg.type === "ai-descriptions-saved") {
+          // Silent ack — UI already updated optimistically.
+          return;
+        }
+        if (msg.type === "ai-link-doc-candidate") {
+          listenCandidate = msg.data || null;
+          renderListenBanner();
+          return;
+        }
+        if (msg.type === "ai-extract-ready") {
+          continueAiAnalysisWithPayload(msg.data);
+          return;
+        }
+        if (msg.type === "ai-extract-error") {
+          aiAnalysisInFlight = false;
+          aiStatus.classList.remove("is-busy");
+          aiStatus.classList.add("is-error");
+          aiStatus.textContent = "Extraction : " + (msg.message || "erreur");
+          renderAiBlock();
           return;
         }
         if (msg.type === "init") {
@@ -3546,8 +3781,37 @@
             document.getElementById("onboarding-overlay").hidden = false;
           }
         } else if (msg.type === "selection") {
-          if (msg.target) renderTarget(msg.target);
-          else renderEmpty(msg.emptyReason);
+          if (msg.target) {
+            renderTarget(msg.target);
+            // Track the AI target separately — sandbox sends it via the same
+            // payload, scoped by component id.
+            const newTargetId = msg.target.id || null;
+            if (newTargetId !== currentAiTargetId) {
+              currentAiTargetId = newTargetId;
+              resetAiState();
+              renderAiBlock();
+              // Exit listen mode if user switches component.
+              if (listenActive) {
+                listenActive = false;
+                listenCandidate = null;
+                renderListenBanner();
+                parent.postMessage({ pluginMessage: { type: "ai-link-doc-end" } }, "*");
+              }
+              if (currentAiTargetId) {
+                parent.postMessage(
+                  { pluginMessage: { type: "get-ai-descriptions", targetId: currentAiTargetId } },
+                  "*"
+                );
+              }
+            }
+          } else {
+            renderEmpty(msg.emptyReason);
+            if (currentAiTargetId) {
+              currentAiTargetId = null;
+              resetAiState();
+              renderAiBlock();
+            }
+          }
         } else if (msg.type === "anatomy-layers") {
           // Stale response — newer fetch in flight, ignore.
           if (typeof msg.seq === "number" && msg.seq !== anatomyLayerFetchSeq) return;
@@ -4046,6 +4310,372 @@
       });
 
       parent.postMessage({ pluginMessage: { type: "get-llm-config" } }, "*");
+
+      // ── AI block: linked docs + LLM analysis ─────────────────────────────
+      const AI_EXTRACT_SYSTEM_PROMPT = [
+        "Tu es un expert design system qui rédige les descriptions des propriétés d'un composant Figma.",
+        "",
+        "Tu reçois un payload JSON :",
+        "- metadata : nom, description, variantProperties + properties par variant, anatomie 2 niveaux, boundVariables résolues vers leur valeur effective (hex, px, nom de token).",
+        "- css : CSS calculé par variante (radii, couleurs, ombres).",
+        "- documentation : arbre reading-order des frames de doc liées par l'utilisateur, et images PNG si fournies.",
+        "",
+        "Tu réponds UNIQUEMENT avec un objet JSON strict — pas de Markdown, pas de backticks, pas de préambule :",
+        "",
+        "{",
+        '  "generalDescription": "Une à trois phrases en français qui expliquent à quoi sert le composant.",',
+        '  "propDescriptions": {',
+        '    "<nomDeProp>": "Une phrase concise (15-25 mots) qui décrit le rôle fonctionnel de cette propriété."',
+        "  }",
+        "}",
+        "",
+        "Règles :",
+        "- Inclus une entrée pour CHAQUE propriété trouvée dans metadata.variantProperties ET dans metadata.variants[*].properties.",
+        "- Quand la documentation Figma traite explicitement d'une prop, priorité absolue à cette source.",
+        "- Sinon, infère depuis les valeurs des variantes, le CSS et les noms.",
+        "- Langage naturel français, sans jargon technique (« kebab-case », « layoutMode »…).",
+        "- Pas d'invention : si une info manque, description courte et générique.",
+        "- Si le composant n'a aucune propriété variante, propDescriptions = {}.",
+      ].join("\n");
+
+      const aiBlock = document.getElementById("ai-block");
+      const aiStatus = document.getElementById("ai-status");
+      const aiLinked = document.getElementById("ai-linked");
+      const btnLinkDoc = document.getElementById("btn-link-doc");
+      const btnAnalyzeAi = document.getElementById("btn-analyze-ai");
+      const listenBanner = document.getElementById("listen-banner");
+      const listenCandidateEl = document.getElementById("listen-candidate");
+      const listenCandidateThumb = document.getElementById("listen-candidate-thumb");
+      const listenCandidateName = document.getElementById("listen-candidate-name");
+      const listenCandidateType = document.getElementById("listen-candidate-type");
+      const btnListenCancel = document.getElementById("btn-listen-cancel");
+      const btnListenValidate = document.getElementById("btn-listen-validate");
+
+      function applyLlmConfigForAi(cfg) {
+        currentLlmConfig = {
+          endpoint: (cfg && cfg.endpoint) || "",
+          model: (cfg && cfg.model) || "",
+          apiKey: (cfg && cfg.apiKey) || "",
+        };
+        renderAiBlock();
+      }
+
+      function resetAiState() {
+        aiState = {
+          linkedDocFrameIds: [],
+          linkedDocFrameInfo: [],
+          generalDescription: null,
+          propDescriptions: null,
+          generatedAt: null,
+          model: null,
+        };
+      }
+
+      function applyStoredAiDescriptions(data) {
+        if (!data || typeof data !== "object") {
+          resetAiState();
+        } else {
+          aiState.linkedDocFrameIds = Array.isArray(data.linkedDocFrameIds)
+            ? data.linkedDocFrameIds.slice()
+            : [];
+          aiState.linkedDocFrameInfo = Array.isArray(data.linkedDocFrameInfo)
+            ? data.linkedDocFrameInfo.slice()
+            : aiState.linkedDocFrameIds.map((id) => ({ id, name: id, type: "FRAME" }));
+          aiState.generalDescription =
+            typeof data.generalDescription === "string" ? data.generalDescription : null;
+          aiState.propDescriptions =
+            data.propDescriptions && typeof data.propDescriptions === "object"
+              ? data.propDescriptions
+              : null;
+          aiState.generatedAt = typeof data.generatedAt === "string" ? data.generatedAt : null;
+          aiState.model = typeof data.model === "string" ? data.model : null;
+        }
+        renderAiBlock();
+      }
+
+      function persistAiState() {
+        if (!currentAiTargetId) return;
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "save-ai-descriptions",
+              targetId: currentAiTargetId,
+              data: {
+                linkedDocFrameIds: aiState.linkedDocFrameIds,
+                linkedDocFrameInfo: aiState.linkedDocFrameInfo,
+                generalDescription: aiState.generalDescription,
+                propDescriptions: aiState.propDescriptions,
+                generatedAt: aiState.generatedAt,
+                model: aiState.model,
+              },
+            },
+          },
+          "*"
+        );
+      }
+
+      function renderAiBlock() {
+        if (!currentAiTargetId) {
+          aiBlock.hidden = true;
+          return;
+        }
+        aiBlock.hidden = false;
+        // Chips
+        aiLinked.innerHTML = "";
+        for (const info of aiState.linkedDocFrameInfo) {
+          const chip = document.createElement("span");
+          chip.className = "ai-chip";
+          const name = document.createElement("span");
+          name.className = "ai-chip-name";
+          name.textContent = info.name || info.id;
+          name.title = info.name || info.id;
+          chip.appendChild(name);
+          const rm = document.createElement("button");
+          rm.className = "ai-chip-remove";
+          rm.type = "button";
+          rm.textContent = "×";
+          rm.title = "Retirer";
+          rm.addEventListener("click", () => removeLinkedFrame(info.id));
+          chip.appendChild(rm);
+          aiLinked.appendChild(chip);
+        }
+        // Status text
+        aiStatus.classList.remove("is-busy", "is-error");
+        if (aiAnalysisInFlight) {
+          aiStatus.classList.add("is-busy");
+          // (status text set by the flow)
+        } else if (aiState.propDescriptions) {
+          const n = Object.keys(aiState.propDescriptions).length;
+          const parts = [n + " description" + (n > 1 ? "s" : "")];
+          if (aiState.model) parts.push(aiState.model);
+          aiStatus.textContent = parts.join(" · ");
+        } else if (!currentLlmConfig.apiKey) {
+          aiStatus.textContent = "Configure la clé API ↓";
+        } else {
+          aiStatus.textContent = "";
+        }
+        // Analyze button enabled?
+        btnAnalyzeAi.disabled = !currentLlmConfig.apiKey || aiAnalysisInFlight;
+        btnLinkDoc.disabled = listenActive || aiAnalysisInFlight;
+      }
+
+      function renderListenBanner() {
+        listenBanner.hidden = !listenActive;
+        if (!listenActive) {
+          listenCandidate = null;
+          listenCandidateEl.hidden = true;
+          return;
+        }
+        if (listenCandidate) {
+          listenCandidateEl.hidden = false;
+          listenCandidateName.textContent = listenCandidate.name;
+          listenCandidateType.textContent = listenCandidate.type;
+          if (listenCandidate.preview) {
+            listenCandidateThumb.src =
+              "data:image/png;base64," + listenCandidate.preview;
+          } else {
+            listenCandidateThumb.removeAttribute("src");
+          }
+          btnListenValidate.disabled = aiState.linkedDocFrameIds.indexOf(listenCandidate.id) !== -1;
+          btnListenValidate.textContent = btnListenValidate.disabled ? "Déjà lié" : "Lier";
+        } else {
+          listenCandidateEl.hidden = true;
+        }
+      }
+
+      function addLinkedFrame(info) {
+        if (!info || !info.id) return;
+        if (aiState.linkedDocFrameIds.indexOf(info.id) !== -1) return;
+        aiState.linkedDocFrameIds.push(info.id);
+        aiState.linkedDocFrameInfo.push({ id: info.id, name: info.name, type: info.type });
+        renderAiBlock();
+        persistAiState();
+      }
+
+      function removeLinkedFrame(id) {
+        const idx = aiState.linkedDocFrameIds.indexOf(id);
+        if (idx === -1) return;
+        aiState.linkedDocFrameIds.splice(idx, 1);
+        aiState.linkedDocFrameInfo = aiState.linkedDocFrameInfo.filter((f) => f.id !== id);
+        renderAiBlock();
+        persistAiState();
+      }
+
+      btnLinkDoc.addEventListener("click", () => {
+        if (!currentAiTargetId || listenActive) return;
+        listenActive = true;
+        listenCandidate = null;
+        renderListenBanner();
+        renderAiBlock();
+        parent.postMessage({ pluginMessage: { type: "ai-link-doc-start" } }, "*");
+      });
+
+      btnListenCancel.addEventListener("click", () => {
+        listenActive = false;
+        listenCandidate = null;
+        renderListenBanner();
+        renderAiBlock();
+        parent.postMessage({ pluginMessage: { type: "ai-link-doc-end" } }, "*");
+      });
+
+      btnListenValidate.addEventListener("click", () => {
+        if (!listenCandidate) return;
+        addLinkedFrame(listenCandidate);
+        // Stay in listen mode so user can add more frames; reset candidate.
+        listenCandidate = null;
+        renderListenBanner();
+      });
+
+      async function callLlm({ systemPrompt, userText, images }) {
+        const cfg = currentLlmConfig;
+        if (!cfg.endpoint || !cfg.apiKey) {
+          throw new Error("Endpoint ou clé API manquants — configure le footer LLM.");
+        }
+        const userContent =
+          images && images.length > 0
+            ? [{ type: "text", text: userText }].concat(
+                images.map((img) => ({
+                  type: "image_url",
+                  image_url: {
+                    url: "data:" + img.mediaType + ";base64," + img.base64,
+                  },
+                }))
+              )
+            : userText;
+        const body = {
+          model: cfg.model,
+          max_tokens: 8000,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userContent },
+          ],
+        };
+        const r = await fetch(cfg.endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + cfg.apiKey,
+          },
+          body: JSON.stringify(body),
+        });
+        let data;
+        try {
+          data = await r.json();
+        } catch (e) {
+          throw new Error("Réponse non-JSON du LLM (HTTP " + r.status + ")");
+        }
+        if (!r.ok) {
+          const errMsg =
+            (data && data.error && (data.error.message || data.error)) ||
+            "HTTP " + r.status;
+          throw new Error(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
+        }
+        const text =
+          (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) ||
+          "";
+        return { text, usage: data.usage || null };
+      }
+
+      function stripPayloadImages(payload) {
+        // Deep-ish clone keeping arrays/objects, but blanks the inline image
+        // blobs so the JSON we send as text doesn't double the multimodal data.
+        const clone = JSON.parse(JSON.stringify(payload));
+        if (clone && clone.documentation && Array.isArray(clone.documentation.frames)) {
+          for (const f of clone.documentation.frames) {
+            if (f && f.image) delete f.image;
+          }
+        }
+        return clone;
+      }
+
+      function collectPayloadImages(payload) {
+        const out = [];
+        if (payload && payload.documentation && Array.isArray(payload.documentation.frames)) {
+          for (const f of payload.documentation.frames) {
+            if (f && f.image && f.image.base64) {
+              out.push(f.image);
+            }
+          }
+        }
+        return out;
+      }
+
+      function parseLlmJson(text) {
+        const trimmed = text
+          .replace(/^\s*```(?:json)?\s*/i, "")
+          .replace(/```\s*$/i, "")
+          .trim();
+        return JSON.parse(trimmed);
+      }
+
+      async function runAiAnalysis() {
+        if (aiAnalysisInFlight) return;
+        if (!currentAiTargetId) return;
+        if (!currentLlmConfig.apiKey) {
+          aiStatus.classList.add("is-error");
+          aiStatus.textContent = "Clé API manquante";
+          document.getElementById("llm-config").open = true;
+          return;
+        }
+        aiAnalysisInFlight = true;
+        aiStatus.classList.remove("is-error");
+        aiStatus.classList.add("is-busy");
+        aiStatus.textContent = "Extraction…";
+        renderAiBlock();
+
+        // Bounce to sandbox to assemble the AiPayload (metadata + CSS + docs).
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "ai-extract",
+              docFrameIds: aiState.linkedDocFrameIds.slice(),
+            },
+          },
+          "*"
+        );
+        // The rest of the flow continues in the "ai-extract-ready" handler.
+      }
+
+      async function continueAiAnalysisWithPayload(payload) {
+        try {
+          aiStatus.textContent = "Analyse IA…";
+          const images = collectPayloadImages(payload);
+          const trimmed = stripPayloadImages(payload);
+          const { text, usage } = await callLlm({
+            systemPrompt: AI_EXTRACT_SYSTEM_PROMPT,
+            userText: JSON.stringify(trimmed),
+            images,
+          });
+          const parsed = parseLlmJson(text);
+          aiState.generalDescription =
+            typeof parsed.generalDescription === "string" ? parsed.generalDescription : null;
+          aiState.propDescriptions =
+            parsed.propDescriptions && typeof parsed.propDescriptions === "object"
+              ? parsed.propDescriptions
+              : {};
+          aiState.generatedAt = new Date().toISOString();
+          aiState.model = currentLlmConfig.model || null;
+          persistAiState();
+          aiAnalysisInFlight = false;
+          aiStatus.classList.remove("is-busy");
+          const n = Object.keys(aiState.propDescriptions || {}).length;
+          const parts = [n + " description" + (n > 1 ? "s" : "")];
+          if (aiState.model) parts.push(aiState.model);
+          if (usage && usage.total_tokens) parts.push(usage.total_tokens + " tokens");
+          aiStatus.textContent = parts.join(" · ");
+          renderAiBlock();
+        } catch (e) {
+          aiAnalysisInFlight = false;
+          aiStatus.classList.remove("is-busy");
+          aiStatus.classList.add("is-error");
+          aiStatus.textContent = "Erreur : " + (e && e.message ? e.message : String(e));
+          renderAiBlock();
+        }
+      }
+
+      btnAnalyzeAi.addEventListener("click", () => {
+        runAiAnalysis();
+      });
 
       renderEmpty();
     </script>

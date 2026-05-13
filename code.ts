@@ -83,6 +83,7 @@ type EmptyReason =
 
 type SelectionPayload =
   | {
+      id: string;
       name: string;
       kind: "COMPONENT" | "COMPONENT_SET";
       props: { name: string; type: string; values: string }[];
@@ -358,6 +359,71 @@ async function loadLlmConfig(): Promise<LlmConfig | null> {
   return null;
 }
 
+// Per-component AI artifacts: linked doc frame IDs + LLM-generated descriptions.
+const AI_DESCRIPTIONS_KEY_PREFIX = "docyourcomp:ai-descriptions:";
+
+type AiDescriptionsStored = {
+  generalDescription?: string;
+  propDescriptions?: Record<string, string>;
+  linkedDocFrameIds?: string[];
+  linkedDocFrameInfo?: { id: string; name: string; type: string }[];
+  generatedAt?: string;
+  model?: string;
+};
+
+async function loadAiDescriptions(targetId: string): Promise<AiDescriptionsStored | null> {
+  try {
+    const raw = await figma.clientStorage.getAsync(AI_DESCRIPTIONS_KEY_PREFIX + targetId);
+    if (raw && typeof raw === "object") return raw as AiDescriptionsStored;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+async function saveAiDescriptions(
+  targetId: string,
+  data: AiDescriptionsStored
+): Promise<void> {
+  await figma.clientStorage.setAsync(AI_DESCRIPTIONS_KEY_PREFIX + targetId, data);
+}
+
+// Listen-mode state: while true, selectionchange feeds the UI a doc-frame
+// candidate instead of triggering the normal sendSelection() pipeline.
+let aiListenForDocFrames = false;
+let aiListenTargetId: string | null = null;
+
+async function sendDocFrameCandidate(): Promise<void> {
+  const sel = figma.currentPage.selection;
+  if (sel.length !== 1) {
+    figma.ui.postMessage({ type: "ai-link-doc-candidate", data: null });
+    return;
+  }
+  const node = sel[0];
+  if (node.id === aiListenTargetId) {
+    figma.ui.postMessage({ type: "ai-link-doc-candidate", data: null });
+    return;
+  }
+  if (node.type !== "FRAME" && node.type !== "SECTION" && node.type !== "GROUP") {
+    figma.ui.postMessage({ type: "ai-link-doc-candidate", data: null });
+    return;
+  }
+  let preview: string | null = null;
+  try {
+    const bytes = await (node as ExportMixin).exportAsync({
+      format: "PNG",
+      constraint: { type: "SCALE", value: 0.5 },
+    });
+    preview = figma.base64Encode(bytes);
+  } catch {
+    preview = null;
+  }
+  figma.ui.postMessage({
+    type: "ai-link-doc-candidate",
+    data: { id: node.id, name: node.name, type: node.type, preview },
+  });
+}
+
 async function sendInit(): Promise<void> {
   let onboarded = true;
   try {
@@ -371,6 +437,13 @@ async function sendInit(): Promise<void> {
 
 figma.on("selectionchange", () => {
   combosCache = null; // stale once the target changes
+  if (aiListenForDocFrames) {
+    // In listen mode we feed the UI a candidate frame instead of swapping
+    // the documented component. The locked target is kept until the user
+    // clicks "Terminer" (which posts ai-link-doc-end).
+    void sendDocFrameCandidate();
+    return;
+  }
   void sendSelection();
 });
 void sendInit();
@@ -431,6 +504,58 @@ figma.ui.onmessage = async (msg: {
     } catch (e) {
       figma.ui.postMessage({
         type: "llm-config-saved",
+        ok: false,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+    return;
+  }
+  if (msg.type === "ai-link-doc-start") {
+    aiListenForDocFrames = true;
+    const t = await resolveTarget();
+    aiListenTargetId = t ? t.id : null;
+    figma.notify("Sélectionne une frame de documentation dans Figma puis valide.");
+    void sendDocFrameCandidate();
+    return;
+  }
+  if (msg.type === "ai-link-doc-end") {
+    aiListenForDocFrames = false;
+    // Restore the documented component as the active Figma selection so the UI
+    // stays in context (the user may have clicked random frames while linking).
+    if (aiListenTargetId) {
+      try {
+        const locked = await figma.getNodeByIdAsync(aiListenTargetId);
+        if (locked && "type" in locked) {
+          figma.currentPage.selection = [locked as SceneNode];
+        }
+      } catch {
+        /* selection restore is best-effort */
+      }
+    }
+    aiListenTargetId = null;
+    void sendSelection();
+    return;
+  }
+  if (msg.type === "get-ai-descriptions") {
+    if (!msg.targetId) {
+      figma.ui.postMessage({ type: "ai-descriptions", data: null });
+      return;
+    }
+    const data = await loadAiDescriptions(msg.targetId);
+    figma.ui.postMessage({ type: "ai-descriptions", data });
+    return;
+  }
+  if (msg.type === "save-ai-descriptions") {
+    if (!msg.targetId) {
+      figma.ui.postMessage({ type: "ai-descriptions-saved", ok: false, message: "No targetId" });
+      return;
+    }
+    try {
+      await saveAiDescriptions(msg.targetId, (msg.data as AiDescriptionsStored) || {});
+      figma.ui.postMessage({ type: "ai-descriptions-saved", ok: true });
+    } catch (e) {
+      figma.ui.postMessage({
+        type: "ai-descriptions-saved",
         ok: false,
         message: e instanceof Error ? e.message : String(e),
       });
@@ -745,6 +870,7 @@ async function sendSelection(): Promise<void> {
       if (section && existingSections.indexOf(section) === -1) existingSections.push(section);
     }
     payload = {
+      id: target.id,
       name: target.name,
       kind: target.type,
       props,

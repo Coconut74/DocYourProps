@@ -23,11 +23,13 @@ Plugin Figma (Figma Design uniquement). TypeScript + UI HTML vanilla.
 >
 > **Phasing de la refonte** (cf. `/root/.claude/plans/serene-chasing-swan.md` pour le plan complet) :
 > - **A — Squelette** : renommage, top-bar, footer config, manifest réseau. ← *terminé*
-> - **B — Extraction sandbox** : port des 3 extracteurs (metadata + CSS + docs frames) dans `code.ts`.
-> - **C — Lier doc + appel LLM** : mode écoute pour lier des frames de doc, appel LLM côté UI.
+> - **B — Extraction sandbox** : port des 3 extracteurs (metadata + CSS + docs frames) dans `code.ts`. ← *terminé*
+> - **C — Lier doc + appel LLM** : mode écoute pour lier des frames de doc, appel LLM côté UI. ← *terminé*
 > - **D — Injection canvas + export MD** : `buildPropsSection` consomme `propDescriptions` IA, nouveau bouton « Exporter MD ».
 > - **E — Chat** : port de l'onglet Chat de DSExtract.
 > - **V2** (hors scope V1) : boucle de vérification visuelle IA (inspection des pins/badges).
+>
+> **Flux IA (Phases B + C)** : sélection d'un composant → bloc *Documentation technique* (en bas de l'onglet Docs) → bouton **« + Lier une frame de doc »** entre en mode écoute (`ai-link-doc-start` / `ai-link-doc-candidate` / `ai-link-doc-end`), le sandbox lock le target et émet la frame sélectionnée comme candidate avec preview PNG, l'UI valide et stocke → bouton **« Analyser avec l'IA »** déclenche `ai-extract` qui assemble `AiPayload` (metadata + CSS + docs walker + PNG vision), l'UI `fetch()` le proxy OpenAI-compatible, parse le JSON `{ generalDescription, propDescriptions }`, persiste dans `AI_DESCRIPTIONS_KEY_PREFIX + targetId`. Les descriptions seront consommées par `buildPropsSection` en Phase D.
 
 ## Fonctionnalité actuelle
 
