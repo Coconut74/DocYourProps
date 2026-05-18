@@ -1400,6 +1400,22 @@
         word-break: break-word;
         max-width: 92%;
       }
+      .chat-msg-bubble.a .chat-para {
+        margin: 0 0 8px;
+      }
+      .chat-msg-bubble.a .chat-para:last-child {
+        margin-bottom: 0;
+      }
+      .chat-msg-bubble.a .chat-sep {
+        border: 0;
+        border-top: 1px solid var(--figma-color-border, #e6e6e6);
+        margin: 10px -12px;
+      }
+      .chat-msg-bubble.a .chat-src {
+        margin: 8px 0 0;
+        font-size: 11px;
+        color: var(--figma-color-text-tertiary, #999);
+      }
       .chat-msg-bubble.q {
         background: color-mix(in srgb, var(--figma-color-bg-brand, #0d99ff) 12%, transparent);
         color: var(--figma-color-bg-brand, #0d99ff);
@@ -5146,9 +5162,11 @@
         "Tu es un assistant design system. Tu réponds aux questions de l'utilisateur en te basant UNIQUEMENT sur les documents fournis ci-dessous.",
         "",
         "Règles :",
-        '- Si la réponse est dans les docs, réponds en citant le nom du fichier source entre parenthèses (ex: "(button.md)").',
-        '- Si l\'info n\'y est pas, dis-le explicitement ("Cette information n\'est pas dans la documentation fournie.") plutôt que d\'inventer.',
-        "- Réponds en Markdown, concis mais complet.",
+        '- Si la réponse est dans les docs, cite le(s) nom(s) du/des fichier(s) source à la fin de ta réponse sous la forme : Source : [Nom_document.md]',
+        '- Si l\'info n\'y est pas, cherche des informations qui pourraient s\'en rapprocher ; si toujours rien, dis-le explicitement ("Cette information n\'est pas dans la documentation fournie.") plutôt que d\'inventer.',
+        "- Si une information manque dans la question ou qu'elle n'est pas claire, fais-le savoir et pose des questions à ton interlocuteur.",
+        "- Réponds en langage naturel (pas de markdown) sans jargon, concis mais complet.",
+        "- Structure ta réponse : sépare les idées par des paragraphes (une ligne vide entre eux). Quand c'est pertinent, insère une ligne contenant UNIQUEMENT --- pour séparer les grandes sections. N'utilise aucune autre syntaxe de mise en forme (pas de #, *, -, listes markdown).",
         "- Conserve la langue de la question (FR si question FR, EN si question EN).",
       ].join("\n");
 
@@ -5296,6 +5314,43 @@
         chatThreadEl.appendChild(div);
         chatThreadEl.scrollTop = chatThreadEl.scrollHeight;
         return div;
+      }
+
+      // Rendu sûr de la réponse : nœuds DOM + textContent uniquement
+      // (jamais innerHTML → pas de XSS, pas de markdown brut affiché).
+      function renderChatAnswer(el, text) {
+        el.textContent = "";
+        const SEP_RE = /^\s*(-{3,}|—{3,}|\*{3,})\s*$/;
+        const SRC_RE = /^\s*Source\s*:/i;
+        const lines = String(text == null ? "" : text)
+          .replace(/\r\n/g, "\n")
+          .split("\n");
+        let buf = [];
+        const flush = () => {
+          const block = buf.join("\n").trim();
+          buf = [];
+          if (!block) return;
+          const node = document.createElement("div");
+          node.className = SRC_RE.test(block) ? "chat-src" : "chat-para";
+          node.textContent = block;
+          el.appendChild(node);
+        };
+        for (const line of lines) {
+          if (SEP_RE.test(line)) {
+            flush();
+            el.appendChild(
+              Object.assign(document.createElement("div"), {
+                className: "chat-sep",
+              })
+            );
+          } else if (line.trim() === "") {
+            flush();
+          } else {
+            buf.push(line);
+          }
+        }
+        flush();
+        if (!el.childNodes.length) el.textContent = "(réponse vide)";
       }
 
       function appendChatMeta(usage, prefix) {
@@ -5532,7 +5587,7 @@
             images: null,
           });
           pending.classList.remove("pending");
-          pending.textContent = text || "(réponse vide)";
+          renderChatAnswer(pending, text);
           if (sel.routerUsage) {
             appendChatMeta(sel.routerUsage, "routeur :");
             appendChatMeta(usage, "réponse :");
