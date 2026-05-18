@@ -2448,6 +2448,10 @@
         analyzedDocFrameIds: [], // snapshot of linkedDocFrameIds at last successful AI run
         generatedAt: null,
         model: null,
+        // LLM-confirmed repeated sibling groups (or structural fallback).
+        // [{ parentKey, memberKeys[], repKey }] — threaded to the sandbox
+        // builders via clientStorage like propDescriptions.
+        repetitionGroups: null,
       };
       let listenActive = false;
       let listenCandidate = null;
@@ -2456,6 +2460,9 @@
       // failure settles this deferred — used by the Generate flow to await the
       // AI step before posting generate-doc.
       let aiAnalysisDeferred = null;
+      // Settled by repetition-detected / repetition-error (sandbox round-trip
+      // for the optional repeated-sibling verification step).
+      let repetitionDeferred = null;
       let baseCombinationCount = 0; // Last reported total combinations (cartesian post-dedup)
 
       // Pending state — populated when entering settings, applied on Valider, dropped on Annuler.
@@ -4051,6 +4058,22 @@
           renderListenBanner();
           return;
         }
+        if (msg.type === "repetition-detected") {
+          if (repetitionDeferred) {
+            repetitionDeferred.resolve(Array.isArray(msg.groups) ? msg.groups : []);
+            repetitionDeferred = null;
+          }
+          return;
+        }
+        if (msg.type === "repetition-error") {
+          console.error("repetition-error:", msg.message);
+          if (repetitionDeferred) {
+            // Non-blocking: structural inline dedup still applies in sandbox.
+            repetitionDeferred.resolve([]);
+            repetitionDeferred = null;
+          }
+          return;
+        }
         if (msg.type === "ai-extract-ready") {
           continueAiAnalysisWithPayload(msg.data);
           return;
@@ -4606,6 +4629,23 @@
         "- Si le composant n'a aucune propriété, propDescriptions = {}.",
       ].join("\n");
 
+      const REPETITION_VERIFY_SYSTEM_PROMPT = [
+        "Tu reçois une liste de groupes d'éléments frères potentiellement répétés dans un composant Figma (ex : items d'un fil d'Ariane, options d'un groupe radio).",
+        "Chaque groupe : { parentKey, parentName, childName, type, count, sampleSubtree, repKey, memberKeys }.",
+        "",
+        "Pour chaque groupe, décide s'il s'agit d'une VRAIE répétition à documenter une seule fois.",
+        "Tu peux : confirmer un groupe tel quel, le REJETER (l'omettre) si les éléments jouent des rôles différents malgré un nom identique, ou FUSIONNER des frères de noms légèrement différents mais de même rôle (en listant leurs memberKeys ensemble).",
+        "",
+        "Réponds STRICTEMENT en JSON, sans texte ni Markdown ni backticks, au format :",
+        '{ "groups": [ { "parentKey": string, "repKey": string, "memberKeys": string[] } ] }',
+        "",
+        "Règles :",
+        "- memberKeys = tous les frères à réduire à un seul ; repKey = celui conservé (doit être dans memberKeys).",
+        "- N'invente AUCUNE clé absente de l'entrée.",
+        "- Omets entièrement un groupe pour le rejeter (aucune fusion).",
+        "- Si tout est correct, renvoie les groupes inchangés.",
+      ].join("\n");
+
       const aiBlock = document.getElementById("ai-block");
       const aiStatus = document.getElementById("ai-status");
       const aiLinked = document.getElementById("ai-linked");
@@ -4718,6 +4758,7 @@
           analyzedDocFrameIds: [],
           generatedAt: null,
           model: null,
+          repetitionGroups: null,
         };
       }
 
@@ -4742,6 +4783,9 @@
             : [];
           aiState.generatedAt = typeof data.generatedAt === "string" ? data.generatedAt : null;
           aiState.model = typeof data.model === "string" ? data.model : null;
+          aiState.repetitionGroups = Array.isArray(data.repetitionGroups)
+            ? data.repetitionGroups.slice()
+            : null;
         }
         renderAiBlock();
       }
@@ -4772,6 +4816,7 @@
                 analyzedDocFrameIds: aiState.analyzedDocFrameIds,
                 generatedAt: aiState.generatedAt,
                 model: aiState.model,
+                repetitionGroups: aiState.repetitionGroups,
               },
             },
           },
@@ -5026,6 +5071,90 @@
         return JSON.parse(trimmed);
       }
 
+      // Optional repeated-sibling verification. Always resolves (never throws):
+      // structural dedup runs inline in the sandbox regardless, so any failure
+      // here just means "no LLM refinement this run". Stores the resolved
+      // groups into aiState.repetitionGroups (persisted with the rest).
+      async function verifyRepetitionGroups() {
+        const detected = await new Promise((resolve) => {
+          repetitionDeferred = { resolve };
+          parent.postMessage(
+            {
+              pluginMessage: {
+                type: "detect-repetition",
+                anatomyVariant: Object.assign({}, anatomyVariant),
+              },
+            },
+            "*"
+          );
+          // Safety: if the sandbox never answers, fall back after 8s.
+          setTimeout(() => {
+            if (repetitionDeferred && repetitionDeferred.resolve === resolve) {
+              repetitionDeferred = null;
+              resolve([]);
+            }
+          }, 8000);
+        });
+
+        const toStored = (g) => ({
+          parentKey: typeof g.parentKey === "string" ? g.parentKey : "",
+          memberKeys: Array.isArray(g.memberKeys) ? g.memberKeys.slice() : [],
+          repKey: g.repKey,
+        });
+
+        if (!Array.isArray(detected) || detected.length === 0) {
+          // No repetition at all → authoritative empty (collapse nothing).
+          aiState.repetitionGroups = [];
+          return;
+        }
+
+        const structural = detected
+          .map(toStored)
+          .filter((g) => g.memberKeys.length >= 2 && typeof g.repKey === "string");
+
+        if (!currentLlmConfig || !currentLlmConfig.apiKey) {
+          aiState.repetitionGroups = structural;
+          return;
+        }
+
+        try {
+          const { text } = await callLlm({
+            systemPrompt: REPETITION_VERIFY_SYSTEM_PROMPT,
+            userText: JSON.stringify(detected),
+            images: null,
+          });
+          const parsed = parseLlmJson(text);
+          const validKeys = new Set();
+          for (const g of detected)
+            for (const k of g.memberKeys || []) validKeys.add(k);
+          const out = [];
+          const rawGroups =
+            parsed && Array.isArray(parsed.groups) ? parsed.groups : [];
+          for (const g of rawGroups) {
+            if (!g || !Array.isArray(g.memberKeys)) continue;
+            const members = g.memberKeys.filter(
+              (k) => typeof k === "string" && validKeys.has(k)
+            );
+            const repKey =
+              typeof g.repKey === "string" && validKeys.has(g.repKey)
+                ? g.repKey
+                : members[0];
+            if (members.length >= 2 && repKey && members.indexOf(repKey) !== -1) {
+              out.push({
+                parentKey: typeof g.parentKey === "string" ? g.parentKey : "",
+                memberKeys: members,
+                repKey,
+              });
+            }
+          }
+          // Empty array is authoritative: the model vetoed every group.
+          aiState.repetitionGroups = out;
+        } catch (e) {
+          console.error("verifyRepetitionGroups: LLM step failed, structural fallback", e);
+          aiState.repetitionGroups = structural;
+        }
+      }
+
       async function runAiAnalysis() {
         if (aiAnalysisInFlight) return;
         if (!currentAiTargetId) return;
@@ -5093,6 +5222,9 @@
           // Snapshot the doc frames that were actually analyzed so the cache
           // invalidation logic (aiNeedsAnalysis) can detect future changes.
           aiState.analyzedDocFrameIds = aiState.linkedDocFrameIds.slice();
+          // Optional repeated-sibling verification (never blocks: resolves
+          // even on LLM/parse/network failure → structural fallback).
+          await verifyRepetitionGroups();
           persistAiState();
           aiAnalysisInFlight = false;
           aiStatus.classList.remove("is-busy");
