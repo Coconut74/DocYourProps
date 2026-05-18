@@ -360,6 +360,46 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         }
         return;
     }
+    if (msg.type === "detect-repetition") {
+        const target = yield resolveTarget();
+        if (!target) {
+            figma.ui.postMessage({
+                type: "repetition-error",
+                message: "Sélectionne un composant.",
+            });
+            return;
+        }
+        try {
+            const { base, booleanPayload } = getAnatomyBaseAndOverrides(target, msg.anatomyVariant);
+            if (!base) {
+                figma.ui.postMessage({
+                    type: "repetition-error",
+                    message: "Aucun composant à analyser.",
+                });
+                return;
+            }
+            const probe = base.createInstance();
+            if (Object.keys(booleanPayload).length > 0) {
+                try {
+                    probe.setProperties(booleanPayload);
+                }
+                catch (_h) {
+                    /* invalid combo — keep default state */
+                }
+            }
+            const result = detectRepeatedSiblingGroups(probe);
+            const groups = buildRepetitionPayload(probe, result.groups, target.name);
+            probe.remove();
+            figma.ui.postMessage({ type: "repetition-detected", groups });
+        }
+        catch (e) {
+            figma.ui.postMessage({
+                type: "repetition-error",
+                message: e instanceof Error ? e.message : String(e),
+            });
+        }
+        return;
+    }
     if (msg.type === "get-llm-config") {
         const cfg = yield loadLlmConfig();
         figma.ui.postMessage({ type: "llm-config", data: cfg });
@@ -398,7 +438,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     figma.currentPage.selection = [locked];
                 }
             }
-            catch (_h) {
+            catch (_j) {
                 /* selection restore is best-effort */
             }
         }
@@ -488,6 +528,8 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 opts.propDescriptions = ai.propDescriptions;
             if (ai.generalDescription)
                 opts.generalDescription = ai.generalDescription;
+            if (ai.repetitionGroups)
+                opts.repetitionGroups = ai.repetitionGroups;
         }
         resetGenerationWarnings();
         try {
@@ -522,6 +564,8 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 opts.propDescriptions = ai.propDescriptions;
             if (ai.generalDescription)
                 opts.generalDescription = ai.generalDescription;
+            if (ai.repetitionGroups)
+                opts.repetitionGroups = ai.repetitionGroups;
         }
         resetGenerationWarnings();
         try {
@@ -554,6 +598,8 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 opts.propDescriptions = ai.propDescriptions;
             if (ai.generalDescription)
                 opts.generalDescription = ai.generalDescription;
+            if (ai.repetitionGroups)
+                opts.repetitionGroups = ai.repetitionGroups;
         }
         resetGenerationWarnings();
         try {
@@ -591,7 +637,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.clientStorage.deleteAsync(CONFIG_KEY_PREFIX + target.id);
             }
-            catch (_j) {
+            catch (_k) {
                 /* best effort */
             }
         }
@@ -600,7 +646,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             yield figma.clientStorage.setAsync(ONBOARDED_KEY, true);
         }
-        catch (_k) {
+        catch (_l) {
             /* best effort */
         }
     }
@@ -649,7 +695,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     missing = false;
                 }
             }
-            catch (_l) {
+            catch (_m) {
                 /* node unavailable — keep missing flag */
             }
             items.push({
@@ -689,7 +735,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             node = yield figma.getNodeByIdAsync(msg.targetId);
         }
-        catch (_m) {
+        catch (_o) {
             node = null;
         }
         if (!node || node.removed) {
@@ -710,7 +756,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.setCurrentPageAsync(page);
             }
-            catch (_o) {
+            catch (_p) {
                 // ignore — fall back to current page scrollAndZoom
             }
         }
@@ -903,10 +949,10 @@ function buildSheets(target, options) {
             sheets.push(makeAdminSheet(target, "Layout", buildLayoutSection(target)));
         }
         if (options.anatomy) {
-            sheets.push(makeAdminSheet(target, "Anatomie", buildAnatomySection(target, options.anatomyVariant, options.anatomyIncludedLayers)));
+            sheets.push(makeAdminSheet(target, "Anatomie", buildAnatomySection(target, options.anatomyVariant, options.anatomyIncludedLayers, options)));
         }
         if (options.tokens) {
-            sheets.push(makeAdminSheet(target, "Design tokens", yield buildTokensSection(target, options.tokenVariant, options.tokenIncludedLayers)));
+            sheets.push(makeAdminSheet(target, "Design tokens", yield buildTokensSection(target, options.tokenVariant, options.tokenIncludedLayers, options)));
         }
         return sheets;
     });
@@ -1027,11 +1073,11 @@ function exportAsPdf(target, options) {
         if (options.layout)
             pdfPages.push(buildPdfLayoutPage(target));
         if (options.anatomy)
-            pdfPages.push(buildPdfAnatomyPage(target, options.anatomyVariant, options.anatomyIncludedLayers));
+            pdfPages.push(buildPdfAnatomyPage(target, options.anatomyVariant, options.anatomyIncludedLayers, options));
         if (options.variants)
             pdfPages.push(...(yield buildPdfCombinationsPages(target, (_a = options.excludeRules) !== null && _a !== void 0 ? _a : [], (_b = options.propLocks) !== null && _b !== void 0 ? _b : {}, normalizeHex(options.matrixVisualBg))));
         if (options.tokens)
-            pdfPages.push(...(yield buildPdfTokensPage(target, options.tokenVariant, options.tokenIncludedLayers)));
+            pdfPages.push(...(yield buildPdfTokensPage(target, options.tokenVariant, options.tokenIncludedLayers, options)));
         if (pdfPages.length === 0) {
             figma.notify("Aucune section sélectionnée.", { error: true });
             return;
@@ -1221,7 +1267,7 @@ function buildPdfCombinationsPages(target, excludeRules, propLocks, visualBg) {
         return pages;
     });
 }
-function buildPdfTokensPage(target, variantSel, includedLayers) {
+function buildPdfTokensPage(target, variantSel, includedLayers, opts) {
     return __awaiter(this, void 0, void 0, function* () {
         const page = makePdfPage();
         const header = makePdfHeader(target.name, "Design tokens");
@@ -1229,7 +1275,7 @@ function buildPdfTokensPage(target, variantSel, includedLayers) {
         header.x = PDF_MARGIN;
         header.y = PDF_MARGIN;
         const contentY = PDF_MARGIN + header.height + PDF_BODY_GAP;
-        const body = yield buildTokensSectionForWidth(target, PDF_CONTENT_W, variantSel, includedLayers);
+        const body = yield buildTokensSectionForWidth(target, PDF_CONTENT_W, variantSel, includedLayers, opts);
         page.appendChild(body);
         body.x = PDF_MARGIN;
         body.y = contentY;
@@ -1319,15 +1365,16 @@ function buildDocAsObject(target, options) {
                         /* keep default state */
                     }
                 }
+                const rep = resolveRepetition(probe, options);
                 let layers;
                 if (options.anatomyIncludedLayers !== undefined) {
                     const inc = new Set(options.anatomyIncludedLayers);
-                    layers = findAllVisibleLayersWithPositions(probe).filter((l) => inc.has(l.key));
+                    layers = findAllVisibleLayersWithPositions(probe).filter((l) => inc.has(l.key) && !rep.isRedundant(l.key));
                     if (layers.length > ANATOMY_MAX_LAYERS)
                         layers = layers.slice(0, ANATOMY_MAX_LAYERS);
                 }
                 else {
-                    layers = findNamedLayersOnInstance(probe);
+                    layers = findNamedLayersOnInstance(probe, rep);
                 }
                 doc.anatomy = layers.map((l) => l.node.name).filter((n) => n.length > 0);
                 probe.remove();
@@ -1345,9 +1392,12 @@ function buildDocAsObject(target, options) {
                         /* keep default state */
                     }
                 }
+                const rep = resolveRepetition(probe, options);
                 let varUsages = collectVariableUsagesOnInstance(probe);
                 let styleUsages = collectTextStyleUsagesOnInstance(probe);
                 probe.remove();
+                varUsages = varUsages.filter((u) => u.anchorKey === "root" || !rep.isRedundant(u.anchorKey));
+                styleUsages = styleUsages.filter((u) => u.anchorKey === "root" || !rep.isRedundant(u.anchorKey));
                 if (options.tokenIncludedLayers !== undefined) {
                     const inc = new Set(options.tokenIncludedLayers);
                     varUsages = varUsages.filter((u) => isAnchorInScope(u.anchorKey, inc));
@@ -1921,7 +1971,7 @@ function nearestPickerAncestor(anchorKey, treeKeys) {
         cur = cur.substring(0, slash);
     }
 }
-function buildTokensSectionForWidth(target, contentW, variantSel, includedLayers) {
+function buildTokensSectionForWidth(target, contentW, variantSel, includedLayers, opts) {
     return __awaiter(this, void 0, void 0, function* () {
         // Reuse the anatomy variant resolver — for COMPONENT_SET, picks the
         // matching child variant; applies BOOLEAN overrides on the probe.
@@ -1940,9 +1990,15 @@ function buildTokensSectionForWidth(target, contentW, variantSel, includedLayers
                 /* invalid combo — keep default state */
             }
         }
+        const rep = resolveRepetition(probe, opts);
         let varUsages = collectVariableUsagesOnInstance(probe);
         let styleUsages = collectTextStyleUsagesOnInstance(probe);
         probe.remove();
+        // Collapse repeated identical siblings: a token bound on N clones (e.g. each
+        // Breadcrumb item) is documented once via the representative. The instance
+        // root ("root") has no siblings and is always kept.
+        varUsages = varUsages.filter((u) => u.anchorKey === "root" || !rep.isRedundant(u.anchorKey));
+        styleUsages = styleUsages.filter((u) => u.anchorKey === "root" || !rep.isRedundant(u.anchorKey));
         // Layer filter: when the user has restricted the search scope, keep only
         // usages whose anchor IS or is a descendant of any included key. This
         // sub-tree semantic means checking a sub-component (e.g. an icon) also
@@ -2018,9 +2074,9 @@ function buildTokensSectionForWidth(target, contentW, variantSel, includedLayers
         return wrapper;
     });
 }
-function buildTokensSection(target, variantSel, includedLayers) {
+function buildTokensSection(target, variantSel, includedLayers, opts) {
     return __awaiter(this, void 0, void 0, function* () {
-        return buildTokensSectionForWidth(target, ADMIN_CONTENT_WIDTH_DEFAULT, variantSel, includedLayers);
+        return buildTokensSectionForWidth(target, ADMIN_CONTENT_WIDTH_DEFAULT, variantSel, includedLayers, opts);
     });
 }
 // ─── Layout section ──────────────────────────────────────────────────────────
@@ -2857,7 +2913,7 @@ function buildPinnedVisualBlock(base, booleanPayload, anchors, legendRows, conte
     }
     return body;
 }
-function buildAnatomySectionForWidth(target, contentW, variantSel, includedLayers) {
+function buildAnatomySectionForWidth(target, contentW, variantSel, includedLayers, opts) {
     const { base, booleanPayload } = getAnatomyBaseAndOverrides(target, variantSel);
     if (!base)
         return textFrame("Aucun composant à analyser.");
@@ -2873,6 +2929,7 @@ function buildAnatomySectionForWidth(target, contentW, variantSel, includedLayer
             /* invalid combo */
         }
     }
+    const rep = resolveRepetition(probe, opts);
     let layers;
     if (includedLayers !== undefined) {
         if (includedLayers.length === 0) {
@@ -2880,13 +2937,13 @@ function buildAnatomySectionForWidth(target, contentW, variantSel, includedLayer
             return textFrame("Aucun calque sélectionné pour l'anatomie.");
         }
         const inc = new Set(includedLayers);
-        layers = findAllVisibleLayersWithPositions(probe).filter((l) => inc.has(l.key));
+        layers = findAllVisibleLayersWithPositions(probe).filter((l) => inc.has(l.key) && !rep.isRedundant(l.key));
         layers.sort((a, b) => a.localY - b.localY || a.localX - b.localX);
         if (layers.length > ANATOMY_MAX_LAYERS)
             layers = layers.slice(0, ANATOMY_MAX_LAYERS);
     }
     else {
-        layers = findNamedLayersOnInstance(probe);
+        layers = findNamedLayersOnInstance(probe, rep);
     }
     if (layers.length === 0) {
         probe.remove();
@@ -2910,16 +2967,16 @@ function buildAnatomySectionForWidth(target, contentW, variantSel, includedLayer
     const visualW = Math.round(contentW * ANATOMY_VISUAL_RATIO);
     return buildPinnedVisualBlock(base, booleanPayload, anchors, legendRows, contentW, visualW, "AnatomyVisual");
 }
-function buildAnatomySection(target, variantSel, includedLayers) {
-    return buildAnatomySectionForWidth(target, ADMIN_CONTENT_WIDTH_DEFAULT, variantSel, includedLayers);
+function buildAnatomySection(target, variantSel, includedLayers, opts) {
+    return buildAnatomySectionForWidth(target, ADMIN_CONTENT_WIDTH_DEFAULT, variantSel, includedLayers, opts);
 }
-function buildPdfAnatomyPage(target, variantSel, includedLayers) {
+function buildPdfAnatomyPage(target, variantSel, includedLayers, opts) {
     const page = makePdfPage();
     const header = makePdfHeader(target.name, "Anatomie");
     page.appendChild(header);
     header.x = PDF_MARGIN;
     header.y = PDF_MARGIN;
-    const body = buildAnatomySectionForWidth(target, PDF_CONTENT_W, variantSel, includedLayers);
+    const body = buildAnatomySectionForWidth(target, PDF_CONTENT_W, variantSel, includedLayers, opts);
     page.appendChild(body);
     body.x = PDF_MARGIN;
     body.y = PDF_MARGIN + header.height + PDF_BODY_GAP;
@@ -2989,7 +3046,7 @@ function getAnatomyBaseAndOverrides(target, variantSel) {
 // honoring the same single-child-collapse rule as findNamedLayers. Coords
 // here are in the instance's local space — multiply by fitScale to convert
 // to the rendered scale, or walk after rescale to skip the multiplication.
-function findNamedLayersOnInstance(inst) {
+function findNamedLayersOnInstance(inst, rep) {
     const out = [];
     const recurse = (node, depth, dx, dy, parentKey) => {
         if (depth > ANATOMY_MAX_DEPTH)
@@ -3044,8 +3101,11 @@ function findNamedLayersOnInstance(inst) {
         }
     };
     recurse(inst, 0, 0, 0, "");
-    out.sort((a, b) => a.localY - b.localY || a.localX - b.localX);
-    return out.slice(0, ANATOMY_MAX_LAYERS);
+    // Drop redundant repeated siblings BEFORE the cap so it isn't wasted on
+    // clones (e.g. 12 Breadcrumb items would otherwise hide real layers).
+    const deduped = rep ? out.filter((l) => !rep.isRedundant(l.key)) : out;
+    deduped.sort((a, b) => a.localY - b.localY || a.localX - b.localX);
+    return deduped.slice(0, ANATOMY_MAX_LAYERS);
 }
 // Maximum tree size shown in the layer picker — generous enough for most
 // real components. Beyond this, the picker truncates (the rendered anatomy
@@ -3123,6 +3183,182 @@ function findAllVisibleLayersWithPositions(inst) {
     };
     recurse(inst, 0, 0, 0, "");
     return out;
+}
+const REPETITION_MIN_GROUP = 2;
+function makeRepetitionResult(groups) {
+    const redundantRoots = [];
+    for (const g of groups) {
+        for (const m of g.memberKeys) {
+            if (m === g.repKey)
+                continue;
+            redundantRoots.push({ root: m, repKey: g.repKey });
+        }
+    }
+    const coveredBy = (key) => {
+        if (key === "" || key === "root")
+            return null;
+        for (const r of redundantRoots) {
+            if (key === r.root || key.startsWith(r.root + "/"))
+                return r;
+        }
+        return null;
+    };
+    return {
+        groups,
+        isRedundant: (key) => coveredBy(key) !== null,
+        representativeOf: (key) => {
+            const c = coveredBy(key);
+            return c ? c.repKey + key.slice(c.root.length) : null;
+        },
+    };
+}
+// Structural pass: bucket visible siblings by a conservative signature
+// (name + type + visible child count + rounded size). Buckets of >= 2 are a
+// repetition group. Descends into representatives / non-grouped children only
+// (a redundant sibling's subtree is already covered by the representative).
+// Walks through component-like nodes and caps at ANATOMY_TREE_MAX_DEPTH so
+// keys stay aligned with BOTH consumers (anatomy auto-walker only queries a
+// prefix-subset of these keys, which is safe).
+function detectRepeatedSiblingGroups(inst) {
+    const groups = [];
+    const recurse = (node, depth, parentKey) => {
+        if (depth > ANATOMY_TREE_MAX_DEPTH)
+            return;
+        if (!("children" in node))
+            return;
+        const container = node;
+        const buckets = new Map();
+        const ordered = [];
+        for (let i = 0; i < container.children.length; i++) {
+            const child = container.children[i];
+            if (child.visible === false)
+                continue;
+            const lm = child;
+            const key = parentKey ? `${parentKey}/${i}` : String(i);
+            const sig = child.name +
+                "|" +
+                child.type +
+                "|" +
+                visibleChildCount(child) +
+                "|" +
+                Math.round(lm.width) +
+                "x" +
+                Math.round(lm.height);
+            let b = buckets.get(sig);
+            if (!b) {
+                b = [];
+                buckets.set(sig, b);
+                ordered.push(sig);
+            }
+            b.push({ key, node: child });
+        }
+        const redundantHere = new Set();
+        for (const sig of ordered) {
+            const members = buckets.get(sig);
+            if (members.length < REPETITION_MIN_GROUP)
+                continue;
+            const first = members[0];
+            groups.push({
+                parentKey,
+                name: first.node.name,
+                type: first.node.type,
+                count: members.length,
+                memberKeys: members.map((m) => m.key),
+                repKey: first.key,
+            });
+            for (let j = 1; j < members.length; j++)
+                redundantHere.add(members[j].key);
+        }
+        for (let i = 0; i < container.children.length; i++) {
+            const child = container.children[i];
+            if (child.visible === false)
+                continue;
+            const key = parentKey ? `${parentKey}/${i}` : String(i);
+            if (redundantHere.has(key))
+                continue;
+            recurse(child, depth + 1, key);
+        }
+    };
+    recurse(inst, 0, "");
+    return makeRepetitionResult(groups);
+}
+// Single predicate object for both sections: when the request carries an
+// LLM-confirmed override (even an empty array → "collapse nothing", i.e. a
+// full veto), trust it verbatim (supports merging differently-named siblings);
+// otherwise run the inline structural detection. `undefined` → structural.
+function resolveRepetition(inst, opts) {
+    const confirmed = opts ? opts.repetitionGroups : undefined;
+    if (confirmed !== undefined) {
+        const groups = confirmed
+            .filter((g) => g &&
+            Array.isArray(g.memberKeys) &&
+            g.memberKeys.length >= REPETITION_MIN_GROUP &&
+            typeof g.repKey === "string")
+            .map((g) => ({
+            parentKey: typeof g.parentKey === "string" ? g.parentKey : "",
+            name: "",
+            type: "",
+            count: g.memberKeys.length,
+            memberKeys: g.memberKeys.slice(),
+            repKey: g.repKey,
+        }));
+        return makeRepetitionResult(groups);
+    }
+    return detectRepeatedSiblingGroups(inst);
+}
+// key → node index using the SAME child-index path scheme as the detector,
+// so a group's parentKey / repKey can be resolved to live nodes.
+function buildKeyNodeIndex(inst) {
+    const map = new Map();
+    const recurse = (node, depth, parentKey) => {
+        if (depth > ANATOMY_TREE_MAX_DEPTH)
+            return;
+        if (!("children" in node))
+            return;
+        const c = node;
+        for (let i = 0; i < c.children.length; i++) {
+            const child = c.children[i];
+            if (child.visible === false)
+                continue;
+            const key = parentKey ? `${parentKey}/${i}` : String(i);
+            map.set(key, child);
+            recurse(child, depth + 1, key);
+        }
+    };
+    recurse(inst, 0, "");
+    return map;
+}
+// Compact, content-light payload for the optional LLM verification step.
+function buildRepetitionPayload(inst, groups, rootName) {
+    const idx = buildKeyNodeIndex(inst);
+    return groups.map((g) => {
+        const parentNode = g.parentKey === "" ? null : idx.get(g.parentKey) || null;
+        const repNode = idx.get(g.repKey) || null;
+        const sample = [];
+        if (repNode && "children" in repNode) {
+            const stack = [
+                ...repNode.children,
+            ];
+            while (stack.length > 0 && sample.length < 8) {
+                const n = stack.shift();
+                if (n.visible === false)
+                    continue;
+                sample.push(n.name);
+                if ("children" in n)
+                    stack.push(...n.children);
+            }
+        }
+        return {
+            parentKey: g.parentKey,
+            parentName: parentNode ? parentNode.name : rootName,
+            childName: g.name,
+            type: g.type,
+            count: g.count,
+            sampleSubtree: sample,
+            repKey: g.repKey,
+            memberKeys: g.memberKeys,
+        };
+    });
 }
 // ─── AI extractors (DSExtract port) ─────────────────────────────────────────
 //
@@ -3745,8 +3981,14 @@ function previewAnatomyLayers(target, variantSel) {
             // Ignore invalid combos.
         }
     }
-    const tree = walkAnatomyTree(inst);
-    const autoSelected = findNamedLayersOnInstance(inst).map((l) => l.key);
+    // Structural-only here (no LLM available in this fast sync sandbox call):
+    // hide redundant repeated siblings so the user can't make a dead selection
+    // that generation would silently drop. The LLM refinement only further-
+    // merges at generation time; a veto would just re-expose an item (extra
+    // row in output), never break a selection.
+    const rep = detectRepeatedSiblingGroups(inst);
+    const tree = walkAnatomyTree(inst).filter((t) => !rep.isRedundant(t.key));
+    const autoSelected = findNamedLayersOnInstance(inst, rep).map((l) => l.key);
     inst.remove();
     return { tree, autoSelected };
 }
@@ -3767,7 +4009,10 @@ function previewTokensLayers(target, variantSel) {
             /* ignore */
         }
     }
-    const tree = walkAnatomyTree(inst);
+    // Structural-only dedup (no LLM here): hide redundant repeated siblings so
+    // the picker matches the deduped output and selections stay live.
+    const rep = detectRepeatedSiblingGroups(inst);
+    const tree = walkAnatomyTree(inst).filter((t) => !rep.isRedundant(t.key));
     // The picker tree stops at INSTANCE / COMPONENT / COMPONENT_SET (clean UX),
     // but the token walkers descend through them. Map each deep usage to the
     // nearest ancestor that IS in the picker tree, so checking an icon's row
@@ -3775,11 +4020,15 @@ function previewTokensLayers(target, variantSel) {
     const treeKeys = new Set(tree.map((t) => t.key));
     const seen = new Set();
     for (const u of collectVariableUsagesOnInstance(inst)) {
+        if (u.anchorKey !== "root" && rep.isRedundant(u.anchorKey))
+            continue;
         const anc = nearestPickerAncestor(u.anchorKey, treeKeys);
         if (anc)
             seen.add(anc);
     }
     for (const u of collectTextStyleUsagesOnInstance(inst)) {
+        if (u.anchorKey !== "root" && rep.isRedundant(u.anchorKey))
+            continue;
         const anc = nearestPickerAncestor(u.anchorKey, treeKeys);
         if (anc)
             seen.add(anc);
