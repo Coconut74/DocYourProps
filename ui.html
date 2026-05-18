@@ -5152,6 +5152,19 @@
         "- Conserve la langue de la question (FR si question FR, EN si question EN).",
       ].join("\n");
 
+      const CHAT_ROUTER_SYSTEM_PROMPT = [
+        "Tu es un routeur de documentation. On te donne un INDEX de fichiers .md (nom + titres de sections) et une QUESTION.",
+        "Ta seule tâche : choisir les fichiers susceptibles de contenir la réponse.",
+        "",
+        "Règles STRICTES :",
+        '- Réponds UNIQUEMENT par un tableau JSON de noms de fichiers, ex : ["button.md","forms.md"].',
+        "- Aucun texte, aucune explication, aucun bloc de code, RIEN d'autre que le tableau JSON.",
+        "- N'utilise QUE des noms de fichiers présents dans l'index, à l'identique.",
+        "- L'information est souvent répartie sur plusieurs fichiers : sélectionne TOUS les fichiers pertinents (plusieurs si besoin).",
+        "- En cas de doute, ou si la question est large/transversale, renvoie BEAUCOUP de fichiers (voire tous).",
+        "- Ne renvoie jamais un tableau vide si au moins un fichier peut être lié ; en dernier recours renvoie tous les fichiers.",
+      ].join("\n");
+
       let chatDocs = []; // [{ name, content }]
       let chatSendInFlight = false;
 
@@ -5285,13 +5298,14 @@
         return div;
       }
 
-      function appendChatMeta(usage) {
+      function appendChatMeta(usage, prefix) {
         if (!usage) return;
         const total = usage.total_tokens != null ? usage.total_tokens : null;
         if (total == null) return;
         const meta = document.createElement("div");
         meta.className = "chat-msg-meta";
         const parts = [];
+        if (prefix) parts.push(prefix);
         parts.push(total.toLocaleString("fr-FR") + " tokens");
         if (usage.prompt_tokens != null && usage.completion_tokens != null) {
           parts.push(
@@ -5306,9 +5320,179 @@
         chatThreadEl.scrollTop = chatThreadEl.scrollHeight;
       }
 
-      function buildChatUserText(question) {
+      function extractDocHeadings(content) {
+        const out = [];
+        const lines = String(content || "").split("\n");
+        let inFence = false;
+        for (const raw of lines) {
+          const line = raw.trim();
+          if (/^(```|~~~)/.test(line)) { inFence = !inFence; continue; }
+          if (inFence) continue;
+          const m = /^(#{1,3})\s+(.+?)\s*#*\s*$/.exec(line);
+          if (!m) continue;
+          let h = m[2].trim();
+          if (h.length > 60) h = h.slice(0, 60) + "…";
+          out.push(h);
+          if (out.length >= 15) break;
+        }
+        return out;
+      }
+
+      function buildDocIndexText(docs) {
+        return docs
+          .map((d) => {
+            const hs = extractDocHeadings(d.content);
+            return "- " + d.name + (hs.length ? " :: " + hs.join(" | ") : "");
+          })
+          .join("\n");
+      }
+
+      function chatTokenize(s) {
+        return String(s || "")
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[̀-ͯ]/g, "")
+          .split(/[^a-z0-9]+/)
+          .filter((w) => w.length >= 4);
+      }
+
+      function localRouteDocs(question, docs) {
+        if (docs.length <= 1) return docs.slice();
+        const qTokens = chatTokenize(question);
+        if (qTokens.length === 0) return null;
+
+        const qLower = question.toLowerCase();
+        const multiTopic =
+          /\bet\b|\bvs\b|\bversus\b|\bainsi que\b|\bcomparer?\b|,/.test(qLower) ||
+          (question.match(/\?/g) || []).length > 1 ||
+          qTokens.length > 14;
+        if (multiTopic) return null;
+
+        const scores = docs.map((d) => {
+          const hay = chatTokenize(
+            d.name + " " + extractDocHeadings(d.content).join(" ")
+          );
+          const set = new Set(hay);
+          let score = 0;
+          for (const t of qTokens) {
+            if (set.has(t)) score += 2;
+            else if (hay.some((h) => h.includes(t) || t.includes(h))) score += 1;
+          }
+          const base = d.name.replace(/\.md$/i, "").toLowerCase();
+          if (base.length >= 3 && qLower.includes(base)) score += 4;
+          return { doc: d, score };
+        });
+
+        scores.sort((a, b) => b.score - a.score);
+        const top = scores[0];
+        const second = scores[1];
+        if (
+          top.score >= 4 &&
+          top.score >= (second ? second.score * 2 + 2 : 0)
+        ) {
+          return [top.doc];
+        }
+        return null;
+      }
+
+      function parseRouterSelection(text, docs) {
+        if (!text) return [];
+        let s = String(text).trim();
+        s = s.replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/i, "").trim();
+        const m = /\[[\s\S]*\]/.exec(s);
+        let arr = null;
+        if (m) {
+          try { arr = JSON.parse(m[0]); } catch (e) { arr = null; }
+        }
+        if (!Array.isArray(arr)) {
+          const names = s.match(/[\w./-]+\.md/gi);
+          arr = names || [];
+        }
+        const valid = new Set(docs.map((d) => d.name));
+        const seen = new Set();
+        const out = [];
+        for (const x of arr) {
+          const name = typeof x === "string" ? x.trim() : "";
+          if (valid.has(name) && !seen.has(name)) {
+            seen.add(name);
+            out.push(name);
+          }
+        }
+        return out;
+      }
+
+      function sumUsage(a, b) {
+        if (!a && !b) return null;
+        const g = (u, k) => (u && u[k] != null ? u[k] : 0);
+        return {
+          prompt_tokens: g(a, "prompt_tokens") + g(b, "prompt_tokens"),
+          completion_tokens:
+            g(a, "completion_tokens") + g(b, "completion_tokens"),
+          total_tokens: g(a, "total_tokens") + g(b, "total_tokens"),
+        };
+      }
+
+      async function selectChatDocs(question) {
+        if (chatDocs.length <= 1) {
+          return {
+            docs: chatDocs.slice(),
+            usedRouter: false,
+            routerUsage: null,
+            note: chatDocs.length === 1 ? "1 doc — routeur ignoré" : "",
+          };
+        }
+
+        const local = localRouteDocs(question, chatDocs);
+        if (local && local.length) {
+          return {
+            docs: local,
+            usedRouter: false,
+            routerUsage: null,
+            note: "local : " + local.map((d) => d.name).join(", "),
+          };
+        }
+
+        try {
+          const indexText = buildDocIndexText(chatDocs);
+          const routerUser =
+            "INDEX :\n" + indexText + "\n\n=== QUESTION ===\n" + question + "\n";
+          const { text, usage } = await callLlm({
+            systemPrompt: CHAT_ROUTER_SYSTEM_PROMPT,
+            userText: routerUser,
+            images: null,
+          });
+          const picked = parseRouterSelection(text, chatDocs);
+          if (picked.length) {
+            const sel = chatDocs.filter((d) => picked.includes(d.name));
+            return {
+              docs: sel,
+              usedRouter: true,
+              routerUsage: usage,
+              note: "routeur LLM : " + picked.join(", "),
+            };
+          }
+          return {
+            docs: chatDocs.slice(),
+            usedRouter: true,
+            routerUsage: usage,
+            note: "routeur LLM vide → tous les docs",
+          };
+        } catch (e) {
+          console.warn("router failed, fallback to all docs:", e);
+          return {
+            docs: chatDocs.slice(),
+            usedRouter: false,
+            routerUsage: null,
+            note: "routeur indisponible → tous les docs",
+          };
+        }
+      }
+
+      function buildChatUserText(question, docsSubset) {
+        const docs =
+          docsSubset && docsSubset.length ? docsSubset : chatDocs;
         let out = "=== DOCUMENTATION ===\n\n";
-        for (const d of chatDocs) {
+        for (const d of docs) {
           out += "## " + d.name + "\n" + (d.content || "") + "\n\n";
         }
         out += "=== QUESTION ===\n" + question + "\n";
@@ -5331,14 +5515,31 @@
         chatInputEl.value = "";
         const pending = appendChatBubble("a", "…", true);
         try {
+          const sel = await selectChatDocs(question);
+
+          const info = document.createElement("div");
+          info.className = "chat-msg-meta";
+          info.textContent =
+            (sel.usedRouter ? "Routeur LLM utilisé · " : "Sélection locale · ") +
+            sel.docs.length + "/" + chatDocs.length + " docs" +
+            (sel.note ? " · " + sel.note : "");
+          chatThreadEl.insertBefore(info, pending);
+          chatThreadEl.scrollTop = chatThreadEl.scrollHeight;
+
           const { text, usage } = await callLlm({
             systemPrompt: CHAT_SYSTEM_PROMPT,
-            userText: buildChatUserText(question),
+            userText: buildChatUserText(question, sel.docs),
             images: null,
           });
           pending.classList.remove("pending");
           pending.textContent = text || "(réponse vide)";
-          appendChatMeta(usage);
+          if (sel.routerUsage) {
+            appendChatMeta(sel.routerUsage, "routeur :");
+            appendChatMeta(usage, "réponse :");
+            appendChatMeta(sumUsage(sel.routerUsage, usage), "total :");
+          } else {
+            appendChatMeta(usage);
+          }
         } catch (err) {
           console.error("runChat error:", err);
           pending.classList.remove("pending");
