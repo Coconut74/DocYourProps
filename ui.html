@@ -5410,7 +5410,7 @@
         renderListenBanner();
       });
 
-      async function callLlm({ systemPrompt, userText, images }) {
+      async function callLlm({ systemPrompt, userText, images, maxTokens }) {
         const cfg = currentLlmConfig;
         if (!cfg.endpoint) {
           throw new Error("Endpoint LLM manquant — renseigne-le dans le footer Configuration LLM.");
@@ -5434,7 +5434,8 @@
             : userText;
         const body = {
           model: cfg.model,
-          max_tokens: 8000,
+          max_tokens:
+            typeof maxTokens === "number" && maxTokens > 0 ? maxTokens : 8000,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userContent },
@@ -5974,7 +5975,8 @@
         "  • \"Mineur\" : tout autre écart (variante, espacement, wording, cosmétique, recommandation non bloquante).",
         "- Chaque écart DOIT citer sa source : champ docSource = nom du fichier .md + section/titre concerné.",
         "- Chaque écart DOIT proposer une solution concrète et actionnable (champ solution) : quoi changer précisément pour devenir conforme.",
-        "- ATTENTION AU TEXTE : dès que l'écran contient des paragraphes ou phrases, si un document de langage / ton éditorial / wording / rédaction / copywriting / terminologie figure dans la doc fournie, évalue le contenu textuel vis-à-vis de ce document (orthographe, grammaire, terminologie imposée, ton, voix, casse, ponctuation) et signale chaque écart.",
+        "- ATTENTION AU TEXTE — PRIORITÉ ABSOLUE : passe en revue CHAQUE chaîne de texte de l'écran (libellés de boutons, titres, aides, placeholders, messages, paragraphes — voir « TEXTES ÉDITABLES ») et confronte-la SYSTÉMATIQUEMENT au document de langage / ton éditorial / wording / rédaction / copywriting / terminologie fourni : orthographe, grammaire, terminologie imposée, ton, voix, casse, ponctuation, formulation. N'en saute AUCUNE. Un écart de langage est au moins « Mineur » (ou « Critique » si la doc l'impose).",
+        "- EXHAUSTIVITÉ : signale TOUS les écarts détectés dès cette première analyse, sans exception et SANS LIMITE de nombre. Ne te restreins pas, ne regroupe pas plusieurs problèmes distincts en un seul, n'omets rien « pour faire court ». Une seule passe doit tout remonter.",
         "- Si l'écran est conforme : issues = [] et un summary qui le dit clairement.",
         "",
         "Correction automatique (champ \"fix\") — IMPORTANT :",
@@ -6485,6 +6487,40 @@
         return fp;
       }
 
+      // A "language" doc = rules about wording / tone / editorial / copy /
+      // terminology / grammar. These must ALWAYS be audited against the
+      // on-screen text, so we force-include them regardless of the router.
+      const LANG_DOC_RE =
+        /(langage|language|\bton\b|tone|voix|voice|wording|r[ée]daction|copywriting|\bcopy\b|[ée]ditorial|editorial|terminolog|grammaire|grammar|orthographe|spelling|libell[ée]|microcopy|ux[\s-]?writing)/i;
+      function isLanguageDoc(doc) {
+        if (!doc) return false;
+        if (LANG_DOC_RE.test(doc.name || "")) return true;
+        const head = String(doc.content || "").slice(0, 600);
+        return LANG_DOC_RE.test(head);
+      }
+
+      // Force language docs into a subset selection (router/local) — never
+      // let the router prune the wording rules out of a text-bearing screen.
+      function ensureLangDocs(sel) {
+        const langs = chatDocs.filter(isLanguageDoc);
+        if (langs.length === 0) return sel;
+        const have = new Set(sel.docs.map((d) => d.name));
+        const added = [];
+        for (const d of langs) {
+          if (!have.has(d.name)) {
+            sel.docs.push(d);
+            added.push(d.name);
+          }
+        }
+        if (added.length) {
+          sel.note =
+            (sel.note ? sel.note + " " : "") +
+            "+ langage forcé : " +
+            added.join(", ");
+        }
+        return sel;
+      }
+
       async function selectAnalyseDocs(fingerprint) {
         if (chatDocs.length <= 1) {
           return {
@@ -6496,12 +6532,12 @@
         }
         const local = localRouteDocs(fingerprint, chatDocs);
         if (local && local.length) {
-          return {
-            docs: local,
+          return ensureLangDocs({
+            docs: local.slice(),
             usedRouter: false,
             routerUsage: null,
             note: "local : " + local.map((d) => d.name).join(", "),
-          };
+          });
         }
         try {
           const indexText = buildDocIndexText(chatDocs);
@@ -6514,12 +6550,12 @@
           });
           const picked = parseRouterSelection(text, chatDocs);
           if (picked.length) {
-            return {
+            return ensureLangDocs({
               docs: chatDocs.filter((d) => picked.includes(d.name)),
               usedRouter: true,
               routerUsage: usage,
               note: "routeur LLM : " + picked.join(", "),
-            };
+            });
           }
           return {
             docs: chatDocs.slice(),
@@ -6870,6 +6906,7 @@
             systemPrompt: ANALYSE_SYSTEM_PROMPT,
             userText: buildAnalyseUserText(captured, sel.docs),
             images,
+            maxTokens: 16000,
           });
           if (sel.routerUsage) addAiGenUsage(sel.routerUsage);
           addAiGenUsage(usage);
@@ -6893,6 +6930,7 @@
                 userText:
                   "Sortie à corriger en JSON strict :\n\n" + String(text || ""),
                 images: null,
+                maxTokens: 16000,
               });
               addAiGenUsage(rep.usage);
               report = looseParseReport(rep.text);
