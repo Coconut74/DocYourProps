@@ -2452,6 +2452,8 @@
         // [{ parentKey, memberKeys[], repKey }] — threaded to the sandbox
         // builders via clientStorage like propDescriptions.
         repetitionGroups: null,
+        // { anchorKey: chosenAbsoluteKey } — LLM pin-target arbitration (B).
+        anchorTargets: null,
       };
       let listenActive = false;
       let listenCandidate = null;
@@ -2463,6 +2465,8 @@
       // Settled by repetition-detected / repetition-error (sandbox round-trip
       // for the optional repeated-sibling verification step).
       let repetitionDeferred = null;
+      // Settled by anchor-candidates / anchor-candidates-error (Fix B).
+      let anchorCandidatesDeferred = null;
       let baseCombinationCount = 0; // Last reported total combinations (cartesian post-dedup)
 
       // Cumulative LLM token usage for ONE generate run (click Générer →
@@ -4097,6 +4101,25 @@
           renderListenBanner();
           return;
         }
+        if (msg.type === "anchor-candidates") {
+          if (anchorCandidatesDeferred) {
+            anchorCandidatesDeferred.resolve(
+              msg.data && typeof msg.data === "object"
+                ? msg.data
+                : { anatomy: [], tokens: [] }
+            );
+            anchorCandidatesDeferred = null;
+          }
+          return;
+        }
+        if (msg.type === "anchor-candidates-error") {
+          console.error("anchor-candidates-error:", msg.message);
+          if (anchorCandidatesDeferred) {
+            anchorCandidatesDeferred.resolve({ anatomy: [], tokens: [] });
+            anchorCandidatesDeferred = null;
+          }
+          return;
+        }
         if (msg.type === "repetition-detected") {
           if (repetitionDeferred) {
             repetitionDeferred.resolve(Array.isArray(msg.groups) ? msg.groups : []);
@@ -4702,6 +4725,25 @@
         "- Si tout est correct, renvoie les groupes inchangés.",
       ].join("\n");
 
+      const ANCHOR_REVIEW_SYSTEM_PROMPT = [
+        "Tu places des annotations (badges + ligne de rappel) sur un composant Figma. Pour chaque ancre, la ligne doit pointer l'élément RÉELLEMENT VISIBLE que l'ancre désigne, pas un conteneur transparent.",
+        "",
+        "Tu reçois { anatomy:[...], tokens:[...] }. Chaque entrée : { anchorKey, candidates:[{ key, name, type, x, y, w, h, text?, paint, stroke }] }.",
+        "candidates[0] est le nœud documenté ; les suivants sont ses descendants. x/y/w/h sont en px (repère composant). paint/stroke = le nœud peint un fond/bordure visible ; text = contenu textuel.",
+        "",
+        "Pour chaque ancre, choisis la key du candidat dont la boîte représente le mieux l'élément visible :",
+        "- préfère un nœud qui peint vraiment (paint/stroke) ou du texte ;",
+        "- ÉVITE les conteneurs larges quasi vides (ex. ligne auto-layout pleine largeur transparente) dont le centre tombe dans le vide ;",
+        "- privilégie la boîte la plus serrée autour du contenu visible (icône/contrôle/texte).",
+        "",
+        "Réponds STRICTEMENT en JSON, sans texte ni Markdown ni backticks :",
+        '{ "anchors": [ { "anchorKey": string, "targetKey": string } ] }',
+        "",
+        "Règles :",
+        "- targetKey DOIT être l'une des candidates.key de cette ancre. N'invente aucune clé.",
+        "- Omets une ancre si candidates[0] est déjà le meilleur choix (pas de changement).",
+      ].join("\n");
+
       const aiBlock = document.getElementById("ai-block");
       const aiStatus = document.getElementById("ai-status");
       const aiLinked = document.getElementById("ai-linked");
@@ -4815,6 +4857,7 @@
           generatedAt: null,
           model: null,
           repetitionGroups: null,
+          anchorTargets: null,
         };
       }
 
@@ -4842,6 +4885,10 @@
           aiState.repetitionGroups = Array.isArray(data.repetitionGroups)
             ? data.repetitionGroups.slice()
             : null;
+          aiState.anchorTargets =
+            data.anchorTargets && typeof data.anchorTargets === "object"
+              ? data.anchorTargets
+              : null;
         }
         renderAiBlock();
       }
@@ -4873,6 +4920,7 @@
                 generatedAt: aiState.generatedAt,
                 model: aiState.model,
                 repetitionGroups: aiState.repetitionGroups,
+                anchorTargets: aiState.anchorTargets,
               },
             },
           },
@@ -5212,6 +5260,89 @@
         }
       }
 
+      // Fix B — optional LLM pin-target arbitration. Never blocks: any
+      // failure / no key leaves anchorTargets null → the paint-aware
+      // deterministic heuristic (Fix A) decides.
+      async function reviewAnchorTargets() {
+        if (!currentLlmConfig || !currentLlmConfig.apiKey) {
+          aiState.anchorTargets = null;
+          return;
+        }
+        const data = await new Promise((resolve) => {
+          anchorCandidatesDeferred = { resolve };
+          parent.postMessage(
+            {
+              pluginMessage: {
+                type: "detect-anchor-candidates",
+                anatomyVariant: Object.assign({}, anatomyVariant),
+                tokenVariant: Object.assign({}, tokenVariant),
+                anatomyIncludedLayers:
+                  anatomyIncludedLayers === null
+                    ? undefined
+                    : anatomyIncludedLayers.slice(),
+                tokenIncludedLayers:
+                  tokenIncludedLayers === null
+                    ? undefined
+                    : tokenIncludedLayers.slice(),
+              },
+            },
+            "*"
+          );
+          setTimeout(() => {
+            if (
+              anchorCandidatesDeferred &&
+              anchorCandidatesDeferred.resolve === resolve
+            ) {
+              anchorCandidatesDeferred = null;
+              resolve({ anatomy: [], tokens: [] });
+            }
+          }, 8000);
+        });
+
+        const entries = []
+          .concat(Array.isArray(data.anatomy) ? data.anatomy : [])
+          .concat(Array.isArray(data.tokens) ? data.tokens : []);
+        if (entries.length === 0) {
+          aiState.anchorTargets = null;
+          return;
+        }
+        try {
+          const { text, usage } = await callLlm({
+            systemPrompt: ANCHOR_REVIEW_SYSTEM_PROMPT,
+            userText: JSON.stringify(data),
+            images: null,
+          });
+          addAiGenUsage(usage);
+          const parsed = parseLlmJson(text);
+          // anchorKey → set of valid candidate keys, to reject hallucinations.
+          const valid = new Map();
+          for (const e of entries) {
+            const ks = new Set();
+            for (const c of e.candidates || []) ks.add(c.key);
+            valid.set(e.anchorKey, ks);
+          }
+          const out = {};
+          const raw =
+            parsed && Array.isArray(parsed.anchors) ? parsed.anchors : [];
+          for (const a of raw) {
+            if (!a || typeof a.anchorKey !== "string") continue;
+            const ks = valid.get(a.anchorKey);
+            if (
+              ks &&
+              typeof a.targetKey === "string" &&
+              ks.has(a.targetKey) &&
+              a.targetKey !== a.anchorKey
+            ) {
+              out[a.anchorKey] = a.targetKey;
+            }
+          }
+          aiState.anchorTargets = Object.keys(out).length > 0 ? out : null;
+        } catch (e) {
+          console.error("reviewAnchorTargets: LLM step failed, heuristic fallback", e);
+          aiState.anchorTargets = null;
+        }
+      }
+
       async function runAiAnalysis() {
         if (aiAnalysisInFlight) return;
         if (!currentAiTargetId) return;
@@ -5283,6 +5414,8 @@
           // Optional repeated-sibling verification (never blocks: resolves
           // even on LLM/parse/network failure → structural fallback).
           await verifyRepetitionGroups();
+          // Optional pin-target arbitration (Fix B) — never blocks.
+          await reviewAnchorTargets();
           persistAiState();
           aiAnalysisInFlight = false;
           aiStatus.classList.remove("is-busy");
