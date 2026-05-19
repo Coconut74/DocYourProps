@@ -2465,6 +2465,10 @@ async function buildTokensSectionForWidth(
       localY: u.anchorLocalY,
       w: u.anchorW,
       h: u.anchorH,
+      targetX: u.anchorTargetX,
+      targetY: u.anchorTargetY,
+      targetW: u.anchorTargetW,
+      targetH: u.anchorTargetH,
     }));
     const legendRows: PinLegendRow[] = colorUsages.map((u) => {
       const info = varInfo.get(u.variableId)!;
@@ -2880,11 +2884,13 @@ function findNamedLayers(root: ComponentNode): SceneNode[] {
   return out.slice(0, ANATOMY_MAX_LAYERS);
 }
 
-// Drill into single-child wrappers to find the visually "representative" leaf
-// of a layer. Used so the leader-line tip aims at e.g. the "Label" text inside
-// a wrapper frame rather than the centre of the wrapper itself. Returns coords
-// in the SAME local space as the input (i.e. relative to the instance root —
-// caller is expected to pass `wrapperLocalX/Y` in instance-local coords).
+// Drill toward the visually "representative" leaf of a layer so the leader
+// tip aims at the real content (e.g. the radio glyph inside a "Radio"
+// instance, or one option row inside a "RadioSet") rather than the centre of
+// a wrapper / empty space. At each level we descend into the LARGEST visible
+// child (this also handles multi-child containers and wrappers around a
+// single instance — previously these stopped early and pointed at whitespace).
+// Returns coords in the SAME local space as the input.
 function resolveLeafTarget(
   wrapper: SceneNode,
   wrapperLocalX: number,
@@ -2897,28 +2903,83 @@ function resolveLeafTarget(
   let curY = wrapperLocalY;
   let curW = wrapperW;
   let curH = wrapperH;
-  for (let depth = 0; depth < 3; depth++) {
+  for (let depth = 0; depth < 6; depth++) {
     if (!("children" in cur)) break;
     const cs = (cur as ChildrenMixin & SceneNode).children;
-    let only: SceneNode | null = null;
+    let chosen: SceneNode | null = null;
+    let bestArea = -1;
     let visibles = 0;
     for (const c of cs) {
       if (c.visible === false) continue;
       visibles++;
-      if (visibles > 1) break;
-      only = c;
+      const clm = c as unknown as LayoutMixin;
+      const area = Math.max(0, clm.width) * Math.max(0, clm.height);
+      if (area > bestArea) {
+        bestArea = area;
+        chosen = c;
+      }
     }
-    if (visibles !== 1 || !only) break;
-    if (only.type === "INSTANCE" || only.type === "COMPONENT" || only.type === "COMPONENT_SET")
-      break;
-    const lm = only as unknown as LayoutMixin;
+    if (visibles === 0 || !chosen || chosen === cur) break;
+    const lm = chosen as unknown as LayoutMixin;
     curX += lm.x;
     curY += lm.y;
     curW = lm.width;
     curH = lm.height;
-    cur = only;
+    cur = chosen;
   }
   return { x: curX, y: curY, w: curW, h: curH };
+}
+
+// Post-rescale leader retargeting (Fix: scale/auto-layout drift). Given the
+// LIVE rescaled instance and an anchor key (same child-index path scheme as
+// AnatomyLayer.key / VarUsage.anchorKey), re-derive the representative leaf's
+// box in instance-local coords by reading the actual rescaled child positions,
+// then drilling with the same largest-visible-child heuristic. Returns null
+// for the instance root ("root"/"") or an unresolvable path.
+function liveTargetRect(
+  inst: InstanceNode,
+  key: string
+): { x: number; y: number; w: number; h: number } | null {
+  if (!key || key === "root") return null;
+  let cur: SceneNode = inst;
+  let x = 0;
+  let y = 0;
+  for (const seg of key.split("/")) {
+    if (!("children" in cur)) return null;
+    const idx = parseInt(seg, 10);
+    if (!Number.isFinite(idx)) return null;
+    const ch: SceneNode | undefined = (cur as ChildrenMixin & SceneNode)
+      .children[idx];
+    if (!ch) return null;
+    const lm = ch as unknown as LayoutMixin;
+    x += lm.x;
+    y += lm.y;
+    cur = ch;
+  }
+  for (let depth = 0; depth < 6; depth++) {
+    if (!("children" in cur)) break;
+    const cs = (cur as ChildrenMixin & SceneNode).children;
+    let chosen: SceneNode | null = null;
+    let bestArea = -1;
+    let visibles = 0;
+    for (const c of cs) {
+      if (c.visible === false) continue;
+      visibles++;
+      const clm = c as unknown as LayoutMixin;
+      const area = Math.max(0, clm.width) * Math.max(0, clm.height);
+      if (area > bestArea) {
+        bestArea = area;
+        chosen = c;
+      }
+    }
+    if (visibles === 0 || !chosen || chosen === cur) break;
+    const lm = chosen as unknown as LayoutMixin;
+    x += lm.x;
+    y += lm.y;
+    cur = chosen;
+  }
+  const clm = cur as unknown as LayoutMixin;
+  return { x, y, w: clm.width, h: clm.height };
 }
 
 // AABB intersection with an outer padding (rects considered overlapping if
@@ -3401,16 +3462,21 @@ function buildPinnedVisualBlock(
     const p = placements[i];
     const badgeCX = p.cx;
     const badgeCY = p.cy + visualOffsetY;
-    const targetCX = p.tx;
-    const targetCY = p.ty + visualOffsetY;
 
-    const tRect = targetRects[i];
-    const targetRectFinal = {
-      x: tRect.x,
-      y: tRect.y + visualOffsetY,
-      w: tRect.w,
-      h: tRect.h,
-    };
+    // Re-derive the target from the LIVE rescaled instance so the leader hits
+    // the real element exactly (eliminates fitScale/rounding/auto-layout
+    // rescale drift). Falls back to the pre-rescale projected rect.
+    const live = liveTargetRect(inst, anchors[i].key);
+    const targetRectFinal = live
+      ? { x: inst.x + live.x, y: inst.y + live.y, w: live.w, h: live.h }
+      : {
+          x: targetRects[i].x,
+          y: targetRects[i].y + visualOffsetY,
+          w: targetRects[i].w,
+          h: targetRects[i].h,
+        };
+    const targetCX = targetRectFinal.x + targetRectFinal.w / 2;
+    const targetCY = targetRectFinal.y + targetRectFinal.h / 2;
     // Stop the leader at the target rect's border rather than its center.
     const tipPt = rayToRectEdge(
       { x: badgeCX, y: badgeCY },
@@ -4669,6 +4735,12 @@ type VarUsage = {
   anchorLocalY: number;
   anchorW: number;
   anchorH: number;
+  // Representative leaf box (resolveLeafTarget on the bound node) so the pin
+  // aims at the real glyph/shape, not a wrapper. Falls back to the anchor box.
+  anchorTargetX: number;
+  anchorTargetY: number;
+  anchorTargetW: number;
+  anchorTargetH: number;
 };
 
 // Recursively collect all variable IDs referenced in a polymorphic
@@ -4720,6 +4792,12 @@ function collectVariableUsagesOnInstance(inst: InstanceNode): VarUsage[] {
         const sig = `${id}|${key}`;
         if (seen.has(sig)) continue;
         seen.add(sig);
+        // Root background bindings refer to the whole component → keep own
+        // box; otherwise drill to the representative leaf of the bound node.
+        const t =
+          key === "root"
+            ? { x: localX, y: localY, w, h }
+            : resolveLeafTarget(node, localX, localY, w, h);
         out.push({
           variableId: id,
           anchorKey: key,
@@ -4727,6 +4805,10 @@ function collectVariableUsagesOnInstance(inst: InstanceNode): VarUsage[] {
           anchorLocalY: localY,
           anchorW: w,
           anchorH: h,
+          anchorTargetX: t.x,
+          anchorTargetY: t.y,
+          anchorTargetW: t.w,
+          anchorTargetH: t.h,
         });
       }
     }
