@@ -1451,6 +1451,78 @@
         color: var(--figma-color-text-danger, #d4351c);
       }
       .chat-message.hidden { display: none; }
+      .analyse-selinfo {
+        font-size: 11px;
+        color: var(--figma-color-text-secondary, #666);
+        padding: 6px 8px;
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 4px;
+        background: var(--figma-color-bg-secondary, #f5f5f5);
+      }
+      .analyse-block {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 10px 12px;
+        border: 1px solid var(--figma-color-border, #e6e6e6);
+        border-radius: 6px;
+        background: var(--figma-color-bg, #fff);
+        font-size: 12px;
+      }
+      .analyse-block-head {
+        font-weight: 600;
+        font-size: 12px;
+      }
+      .analyse-block-time {
+        font-size: 10px;
+        color: var(--figma-color-text-tertiary, #999);
+        font-weight: 400;
+      }
+      .analyse-summary {
+        font-size: 11px;
+        color: var(--figma-color-text-secondary, #666);
+        white-space: pre-wrap;
+      }
+      .analyse-issue {
+        border-left: 3px solid var(--figma-color-border, #ccc);
+        padding: 4px 0 4px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .analyse-issue.sev-critique { border-left-color: var(--figma-color-text-danger, #d4351c); }
+      .analyse-issue.sev-mineur { border-left-color: #e6a700; }
+      .analyse-issue h4 {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .analyse-issue .sev-tag {
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 700;
+      }
+      .analyse-issue.sev-critique .sev-tag { color: var(--figma-color-text-danger, #d4351c); }
+      .analyse-issue.sev-mineur .sev-tag { color: #b07b00; }
+      .analyse-issue .detail {
+        font-size: 11px;
+        color: var(--figma-color-text, #333);
+        white-space: pre-wrap;
+      }
+      .analyse-issue .src {
+        font-size: 10px;
+        color: var(--figma-color-text-tertiary, #999);
+      }
+      .analyse-block.is-error {
+        background: color-mix(in srgb, var(--figma-color-text-danger, #d4351c) 8%, transparent);
+        border-color: color-mix(in srgb, var(--figma-color-text-danger, #d4351c) 30%, transparent);
+      }
+      .analyse-ok {
+        font-size: 11px;
+        color: var(--figma-color-text-success, #1a7f37);
+        font-weight: 600;
+      }
       .chat-input {
         width: 100%;
         font: inherit;
@@ -1814,6 +1886,7 @@
     <nav class="top-tabs" role="tablist" aria-label="Sections du plugin">
       <button class="tab-btn tab-active" data-tab="docs" role="tab" aria-selected="true" aria-controls="tab-pane-docs" id="tab-btn-docs" type="button">Docs</button>
       <button class="tab-btn" data-tab="chat" role="tab" aria-selected="false" aria-controls="tab-pane-chat" id="tab-btn-chat" type="button" tabindex="-1">Chat</button>
+      <button class="tab-btn" data-tab="analyse" role="tab" aria-selected="false" aria-controls="tab-pane-analyse" id="tab-btn-analyse" type="button" tabindex="-1">Analyse</button>
     </nav>
 
     <div class="tab-pane tab-active" data-pane="docs" id="tab-pane-docs" role="tabpanel" aria-labelledby="tab-btn-docs">
@@ -2319,6 +2392,25 @@
           <button class="btn-primary-soft" id="chat-send" type="button" disabled>Envoyer</button>
           <button class="btn-ghost" id="chat-clear" type="button">Effacer le thread</button>
         </div>
+      </div>
+    </div>
+
+    <div class="tab-pane" data-pane="analyse" id="tab-pane-analyse" role="tabpanel" aria-labelledby="tab-btn-analyse" hidden>
+      <div class="chat-body">
+        <div class="chat-intro">
+          <div class="chat-intro-title">Analyse de conformité</div>
+          <div class="chat-intro-desc">Sélectionne un écran (frame/section de haut niveau) dans Figma. L'analyse le compare à tes <code>.md</code> importés (onglet Chat) et liste les écarts par gravité.</div>
+        </div>
+
+        <div class="analyse-selinfo" id="analyse-selinfo">Aucune sélection</div>
+        <div class="chat-row">
+          <button class="btn-primary-soft" id="analyse-run" type="button" disabled>Analyser la sélection</button>
+          <button class="btn-ghost" id="analyse-clear" type="button">Effacer</button>
+          <span class="chat-status" id="analyse-status" aria-live="polite"></span>
+        </div>
+
+        <div class="chat-message hidden" id="analyse-msg"></div>
+        <div class="chat-thread" id="analyse-results"></div>
       </div>
     </div>
 
@@ -4136,6 +4228,28 @@
           chatDocs = Array.isArray(msg.data) ? msg.data.slice() : [];
           renderDocsList();
           refreshChatButton();
+          refreshAnalyseButton();
+          return;
+        }
+        if (msg.type === "analyse-selection") {
+          analyseSelection = msg.node || null;
+          refreshAnalyseButton();
+          return;
+        }
+        if (msg.type === "screen-captured") {
+          if (analyseCaptureDeferred) {
+            analyseCaptureDeferred.resolve(msg.data);
+            analyseCaptureDeferred = null;
+          }
+          return;
+        }
+        if (msg.type === "screen-capture-error") {
+          if (analyseCaptureDeferred) {
+            analyseCaptureDeferred.reject(
+              new Error(msg.message || "Capture échouée.")
+            );
+            analyseCaptureDeferred = null;
+          }
           return;
         }
         if (msg.type === "chat-docs-saved") {
@@ -5712,6 +5826,39 @@
         "- Ne renvoie jamais un tableau vide si au moins un fichier peut être lié ; en dernier recours renvoie tous les fichiers.",
       ].join("\n");
 
+      const ANALYSE_ROUTER_SYSTEM_PROMPT = [
+        "Tu es un routeur de documentation. On te donne un INDEX de fichiers .md (nom + titres de sections) et une DESCRIPTION DE L'ÉCRAN (éléments, composants et textes présents).",
+        "Ta seule tâche : choisir les fichiers de doc susceptibles de concerner ce qui est RÉELLEMENT présent à l'écran.",
+        "",
+        "Règles STRICTES :",
+        '- Réponds UNIQUEMENT par un tableau JSON de noms de fichiers, ex : ["button.md","forms.md"].',
+        "- Aucun texte, aucune explication, aucun bloc de code, RIEN d'autre que le tableau JSON.",
+        "- N'utilise QUE des noms de fichiers présents dans l'index, à l'identique.",
+        "- Ne sélectionne PAS la doc d'un élément absent de l'écran (ex. pas la doc des modales s'il n'y a pas de modale).",
+        "- Sélectionne TOUS les fichiers correspondant aux éléments présents (plusieurs si besoin).",
+        "- En cas de doute réel sur un élément présent, inclus le fichier ; ne renvoie jamais un tableau vide si au moins un fichier peut être lié.",
+      ].join("\n");
+
+      const ANALYSE_SYSTEM_PROMPT = [
+        "Tu es un auditeur de conformité documentaire pour un design system.",
+        "On te fournit : une capture d'écran (image), une STRUCTURE texte de l'écran, et UNIQUEMENT les sections de documentation pertinentes.",
+        "",
+        "Mission : comparer l'écran à la documentation fournie et lister les écarts de conformité.",
+        "",
+        "Règles STRICTES :",
+        "- Utilise EXCLUSIVEMENT la documentation fournie comme source de vérité. N'invente aucune règle.",
+        "- Ne signale RIEN qui ne soit pas couvert par la doc fournie (si une règle n'est pas dans la doc, ignore-la).",
+        "- Gravités autorisées, exactement deux :",
+        "  • \"Critique\" : violation bloquante ou contradiction directe avec une règle explicite de la doc (composant/état interdit, contenu obligatoire manquant, comportement non conforme).",
+        "  • \"Mineur\" : tout autre écart (variante, espacement, wording, cosmétique, recommandation non bloquante).",
+        "- Chaque écart DOIT citer sa source : champ docSource = nom du fichier .md + section/titre concerné.",
+        "- Si l'écran est conforme : issues = [] et un summary qui le dit clairement.",
+        "",
+        "Sortie : STRICTEMENT un objet JSON, RIEN d'autre (pas de texte, pas de backticks, pas de markdown).",
+        'Schéma exact : { "summary": string, "issues": [ { "severity": "Critique"|"Mineur", "title": string, "detail": string, "docSource": string } ] }',
+        "Rédige summary, title, detail et docSource en français.",
+      ].join("\n");
+
       let chatDocs = []; // [{ name, content }]
       let chatSendInFlight = false;
 
@@ -5725,6 +5872,17 @@
       const chatInputEl = document.getElementById("chat-input");
       const chatSendBtn = document.getElementById("chat-send");
       const chatClearBtn = document.getElementById("chat-clear");
+
+      // ── Analyse tab state + refs ──────────────────────────────────────────
+      let analyseSelection = null; // { id, name, type, width, height } | null
+      let analyseInFlight = false;
+      let analyseCaptureDeferred = null; // { resolve, reject } for capture-screen
+      const analyseRunBtn = document.getElementById("analyse-run");
+      const analyseClearBtn = document.getElementById("analyse-clear");
+      const analyseSelInfoEl = document.getElementById("analyse-selinfo");
+      const analyseStatusEl = document.getElementById("analyse-status");
+      const analyseMsgEl = document.getElementById("analyse-msg");
+      const analyseResultsEl = document.getElementById("analyse-results");
 
       function chatEscapeHtml(s) {
         return String(s).replace(/[&<>"']/g, (c) =>
@@ -6136,6 +6294,306 @@
         }
       }
 
+      // ── Analyse tab logic ────────────────────────────────────────────────
+
+      // Flatten the captured structure tree + text fallback into a compact
+      // text blob (node/component names + visible text) so the doc router can
+      // decide which .md are relevant — without spending image tokens.
+      function buildScreenFingerprint(captured) {
+        const parts = [];
+        const walk = (n) => {
+          if (!n || typeof n !== "object") return;
+          if (n.kind === "text" && n.text) parts.push(n.text);
+          else if (n.kind === "instance" && n.componentName)
+            parts.push("[" + n.componentName + "]");
+          else if (n.kind === "schema" && n.name) parts.push(n.name);
+          else if (n.kind === "container") {
+            if (n.name) parts.push(n.name);
+            (n.children || []).forEach(walk);
+          }
+        };
+        const struct = captured && captured.structure;
+        if (struct && Array.isArray(struct.frames)) {
+          for (const f of struct.frames) {
+            if (f.name) parts.push(f.name);
+            walk(f.tree);
+          }
+        }
+        if (captured && Array.isArray(captured.textFallback)) {
+          for (const t of captured.textFallback) if (t) parts.push(t);
+        }
+        let fp = parts.join(" · ").replace(/\s+/g, " ").trim();
+        if (fp.length > 4000) fp = fp.slice(0, 4000) + "…";
+        return fp;
+      }
+
+      async function selectAnalyseDocs(fingerprint) {
+        if (chatDocs.length <= 1) {
+          return {
+            docs: chatDocs.slice(),
+            usedRouter: false,
+            routerUsage: null,
+            note: chatDocs.length === 1 ? "1 doc — routeur ignoré" : "aucun doc",
+          };
+        }
+        const local = localRouteDocs(fingerprint, chatDocs);
+        if (local && local.length) {
+          return {
+            docs: local,
+            usedRouter: false,
+            routerUsage: null,
+            note: "local : " + local.map((d) => d.name).join(", "),
+          };
+        }
+        try {
+          const indexText = buildDocIndexText(chatDocs);
+          const routerUser =
+            "INDEX :\n" + indexText + "\n\n=== ÉCRAN ===\n" + fingerprint + "\n";
+          const { text, usage } = await callLlm({
+            systemPrompt: ANALYSE_ROUTER_SYSTEM_PROMPT,
+            userText: routerUser,
+            images: null,
+          });
+          const picked = parseRouterSelection(text, chatDocs);
+          if (picked.length) {
+            return {
+              docs: chatDocs.filter((d) => picked.includes(d.name)),
+              usedRouter: true,
+              routerUsage: usage,
+              note: "routeur LLM : " + picked.join(", "),
+            };
+          }
+          return {
+            docs: chatDocs.slice(),
+            usedRouter: true,
+            routerUsage: usage,
+            note: "routeur LLM vide → tous les docs",
+          };
+        } catch (e) {
+          console.warn("analyse router failed, fallback to all docs:", e);
+          return {
+            docs: chatDocs.slice(),
+            usedRouter: false,
+            routerUsage: null,
+            note: "routeur indisponible → tous les docs",
+          };
+        }
+      }
+
+      function buildAnalyseUserText(captured, docsSubset) {
+        const docs = docsSubset && docsSubset.length ? docsSubset : chatDocs;
+        let out = "=== DOCUMENTATION ===\n\n";
+        for (const d of docs) {
+          out += "## " + d.name + "\n" + (d.content || "") + "\n\n";
+        }
+        out += "=== STRUCTURE DE L'ÉCRAN ===\n";
+        out += JSON.stringify(captured.structure) + "\n\n";
+        out +=
+          "=== CONSIGNE ===\nAudite l'écran (capture + structure) vis-à-vis de la documentation ci-dessus. Réponds STRICTEMENT par l'objet JSON demandé.\n";
+        return out;
+      }
+
+      function requestScreenCapture() {
+        return new Promise((resolve, reject) => {
+          analyseCaptureDeferred = { resolve, reject };
+          parent.postMessage({ pluginMessage: { type: "capture-screen" } }, "*");
+          setTimeout(() => {
+            if (analyseCaptureDeferred) {
+              analyseCaptureDeferred = null;
+              reject(new Error("Capture de l'écran expirée."));
+            }
+          }, 30000);
+        });
+      }
+
+      function refreshAnalyseButton() {
+        const noDocs = chatDocs.length === 0;
+        analyseRunBtn.disabled =
+          analyseInFlight || !analyseSelection || noDocs;
+        if (analyseSelection) {
+          analyseSelInfoEl.textContent =
+            analyseSelection.name + " · " + analyseSelection.type;
+        } else {
+          analyseSelInfoEl.textContent =
+            "Aucune sélection — sélectionne une frame/section de haut niveau";
+        }
+        if (noDocs) {
+          analyseStatusEl.textContent = "Aucun .md importé (onglet Chat)";
+        } else if (!analyseInFlight) {
+          analyseStatusEl.textContent = "";
+        }
+      }
+
+      function renderAnalyseReport(screenName, report) {
+        analyseResultsEl.innerHTML = "";
+        const block = document.createElement("div");
+        block.className = "analyse-block";
+        const head = document.createElement("div");
+        head.className = "analyse-block-head";
+        head.innerHTML =
+          chatEscapeHtml(screenName) +
+          ' <span class="analyse-block-time">' +
+          chatEscapeHtml(new Date().toLocaleTimeString("fr-FR")) +
+          "</span>";
+        block.appendChild(head);
+
+        const issues = Array.isArray(report && report.issues)
+          ? report.issues
+          : [];
+        const summary = document.createElement("div");
+        summary.className = "analyse-summary";
+        summary.textContent =
+          (report && typeof report.summary === "string" && report.summary) ||
+          (issues.length === 0
+            ? "Aucun écart détecté."
+            : issues.length + " écart(s) détecté(s).");
+        block.appendChild(summary);
+
+        if (issues.length === 0) {
+          const ok = document.createElement("div");
+          ok.className = "analyse-ok";
+          ok.textContent = "✓ Conforme à la documentation fournie";
+          block.appendChild(ok);
+        } else {
+          const order = { Critique: 0, Mineur: 1 };
+          const norm = (s) =>
+            s === "Critique" || s === "Mineur" ? s : "Mineur";
+          issues
+            .slice()
+            .sort(
+              (a, b) =>
+                (order[norm(a && a.severity)] ?? 1) -
+                (order[norm(b && b.severity)] ?? 1)
+            )
+            .forEach((iss) => {
+              const sev = norm(iss && iss.severity);
+              const el = document.createElement("div");
+              el.className =
+                "analyse-issue sev-" +
+                (sev === "Critique" ? "critique" : "mineur");
+              el.innerHTML =
+                '<h4><span class="sev-tag">' +
+                chatEscapeHtml(sev) +
+                "</span> — " +
+                chatEscapeHtml((iss && iss.title) || "Écart") +
+                "</h4>" +
+                '<div class="detail">' +
+                chatEscapeHtml((iss && iss.detail) || "") +
+                "</div>" +
+                ((iss && iss.docSource)
+                  ? '<div class="src">Source : ' +
+                    chatEscapeHtml(iss.docSource) +
+                    "</div>"
+                  : "");
+              block.appendChild(el);
+            });
+        }
+        analyseResultsEl.appendChild(block);
+        analyseResultsEl.scrollTop = 0;
+      }
+
+      function renderAnalyseDegraded(screenName, rawText) {
+        analyseResultsEl.innerHTML = "";
+        const block = document.createElement("div");
+        block.className = "analyse-block is-error";
+        let raw = String(rawText || "");
+        if (raw.length > 1200) raw = raw.slice(0, 1200) + "…";
+        block.innerHTML =
+          '<div class="analyse-block-head">' +
+          chatEscapeHtml(screenName) +
+          "</div><div class=\"analyse-summary\">Le LLM n'a pas renvoyé un rapport JSON exploitable. Réponse brute :</div><div class=\"detail\">" +
+          chatEscapeHtml(raw) +
+          "</div>";
+        analyseResultsEl.appendChild(block);
+      }
+
+      async function runAnalyse() {
+        if (analyseInFlight) return;
+        if (!analyseSelection) {
+          analyseMsgEl.textContent =
+            "Sélectionne un écran (frame/section de haut niveau) dans Figma.";
+          analyseMsgEl.classList.remove("hidden");
+          return;
+        }
+        if (chatDocs.length === 0) {
+          analyseMsgEl.textContent =
+            "Importe d'abord des .md dans l'onglet Chat.";
+          analyseMsgEl.classList.remove("hidden");
+          return;
+        }
+        if (!currentLlmConfig.apiKey) {
+          analyseMsgEl.textContent =
+            "Clé API manquante — configure-la dans le footer Configuration LLM.";
+          analyseMsgEl.classList.remove("hidden");
+          document.getElementById("llm-config").open = true;
+          return;
+        }
+        analyseMsgEl.classList.add("hidden");
+        analyseInFlight = true;
+        refreshAnalyseButton();
+        const screenName = analyseSelection.name;
+        analyseStatusEl.textContent = "Capture de l'écran…";
+        analyseStatusEl.classList.add("is-busy");
+        analyseStatusEl.classList.remove("is-error");
+        try {
+          const captured = await requestScreenCapture();
+          analyseStatusEl.textContent = "Sélection des docs…";
+          const fp = buildScreenFingerprint(captured);
+          const sel = await selectAnalyseDocs(fp);
+          analyseStatusEl.textContent = "Analyse IA…";
+          const images = captured.image ? [captured.image] : [];
+          const { text, usage } = await callLlm({
+            systemPrompt: ANALYSE_SYSTEM_PROMPT,
+            userText: buildAnalyseUserText(captured, sel.docs),
+            images,
+          });
+          if (sel.routerUsage) addAiGenUsage(sel.routerUsage);
+          addAiGenUsage(usage);
+          let report = null;
+          try {
+            report = parseLlmJson(text);
+          } catch (parseErr) {
+            console.error("analyse JSON parse failed", { text, parseErr });
+          }
+          if (report && typeof report === "object" && !Array.isArray(report)) {
+            renderAnalyseReport(screenName, report);
+          } else {
+            renderAnalyseDegraded(screenName, text);
+          }
+          analyseStatusEl.classList.remove("is-busy");
+          analyseStatusEl.textContent =
+            sel.docs.length +
+            "/" +
+            chatDocs.length +
+            " docs" +
+            (sel.note ? " · " + sel.note : "") +
+            (captured.image ? "" : " · capture image indisponible") +
+            " · " +
+            formatAiGenUsage();
+        } catch (err) {
+          console.error("runAnalyse error:", err);
+          analyseStatusEl.classList.remove("is-busy");
+          analyseStatusEl.classList.add("is-error");
+          analyseStatusEl.textContent =
+            "Échec : " + (err && err.message ? err.message : String(err));
+          analyseMsgEl.textContent =
+            "Échec de l'analyse : " +
+            (err && err.message ? err.message : String(err));
+          analyseMsgEl.classList.remove("hidden");
+        } finally {
+          analyseInFlight = false;
+          refreshAnalyseButton();
+        }
+      }
+
+      analyseRunBtn.addEventListener("click", runAnalyse);
+      analyseClearBtn.addEventListener("click", () => {
+        analyseResultsEl.innerHTML = "";
+        analyseMsgEl.classList.add("hidden");
+        analyseStatusEl.classList.remove("is-error", "is-busy");
+        analyseStatusEl.textContent = "";
+      });
+
       docsImportBtn.addEventListener("click", () => docsFileInput.click());
       docsFileInput.addEventListener("change", () => {
         importChatFiles(docsFileInput.files);
@@ -6173,6 +6631,7 @@
 
       renderDocsList();
       refreshChatButton();
+      refreshAnalyseButton();
       parent.postMessage({ pluginMessage: { type: "get-chat-docs" } }, "*");
 
       renderEmpty();

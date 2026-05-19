@@ -550,6 +550,9 @@ async function sendInit(): Promise<void> {
 
 figma.on("selectionchange", () => {
   combosCache = null; // stale once the target changes
+  // The Analyse tab tracks the raw selection independently of the
+  // component-scoped `selection` broadcast — keep it live even in listen mode.
+  void sendAnalyseSelection();
   if (aiListenForDocFrames) {
     // In listen mode we feed the UI a candidate frame instead of swapping
     // the documented component. The locked target is kept until the user
@@ -561,6 +564,7 @@ figma.on("selectionchange", () => {
 });
 void sendInit();
 void sendSelection();
+void sendAnalyseSelection();
 
 figma.ui.onmessage = async (msg: {
   type: string;
@@ -577,6 +581,60 @@ figma.ui.onmessage = async (msg: {
   tokenIncludedLayers?: string[];
   includeSlots?: boolean;
 }) => {
+  if (msg.type === "capture-screen") {
+    const sel = figma.currentPage.selection;
+    if (sel.length !== 1) {
+      figma.ui.postMessage({
+        type: "screen-capture-error",
+        message:
+          sel.length === 0
+            ? "Sélectionne un écran (frame ou section de haut niveau)."
+            : "Sélectionne un seul écran à la fois.",
+      });
+      return;
+    }
+    const node = sel[0];
+    if (!isAnalysableScreen(node)) {
+      figma.ui.postMessage({
+        type: "screen-capture-error",
+        message:
+          "L'élément sélectionné n'est pas un écran : choisis une frame ou une section de haut niveau.",
+      });
+      return;
+    }
+    try {
+      const res = await extractAiDocs([node as SceneNode]);
+      const image =
+        res.frames.length > 0 ? res.frames[0].image ?? null : null;
+      // The screenshot is sent separately; strip the per-frame images so the
+      // structure half stays a lean text payload.
+      for (const f of res.frames) {
+        delete f.image;
+        delete f.imageError;
+      }
+      figma.ui.postMessage({
+        type: "screen-captured",
+        data: {
+          node: {
+            id: node.id,
+            name: node.name,
+            type: node.type,
+            width: "width" in node ? (node as FrameNode).width : 0,
+            height: "height" in node ? (node as FrameNode).height : 0,
+          },
+          structure: res,
+          image,
+          textFallback: res.textFallback,
+        },
+      });
+    } catch (e) {
+      figma.ui.postMessage({
+        type: "screen-capture-error",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+    return;
+  }
   if (msg.type === "ai-extract") {
     const target = await resolveTarget();
     if (!target) {
@@ -1227,6 +1285,41 @@ async function sendSelection(): Promise<void> {
   }
 
   figma.ui.postMessage({ type: "selection", target: payload, emptyReason });
+}
+
+// True when `node` is a top-level screen the Analyse tab accepts: a FRAME or
+// SECTION sitting directly on a PAGE (rejects nested layers / small groups).
+function isAnalysableScreen(node: SceneNode): boolean {
+  return (
+    (node.type === "FRAME" || node.type === "SECTION") &&
+    node.parent != null &&
+    node.parent.type === "PAGE"
+  );
+}
+
+// Lightweight broadcast so the Analyse tab can enable/disable its run button
+// and show the selected screen, independently of the component-scoped
+// `selection` message.
+async function sendAnalyseSelection(): Promise<void> {
+  const sel = figma.currentPage.selection;
+  let node: {
+    id: string;
+    name: string;
+    type: string;
+    width: number;
+    height: number;
+  } | null = null;
+  if (sel.length === 1 && isAnalysableScreen(sel[0])) {
+    const n = sel[0] as FrameNode | SectionNode;
+    node = {
+      id: n.id,
+      name: n.name,
+      type: n.type,
+      width: "width" in n ? n.width : 0,
+      height: "height" in n ? n.height : 0,
+    };
+  }
+  figma.ui.postMessage({ type: "analyse-selection", node });
 }
 
 // Returns prop display-names in the order Figma shows them in the component panel.

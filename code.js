@@ -319,6 +319,9 @@ function sendInit() {
 }
 figma.on("selectionchange", () => {
     combosCache = null; // stale once the target changes
+    // The Analyse tab tracks the raw selection independently of the
+    // component-scoped `selection` broadcast — keep it live even in listen mode.
+    void sendAnalyseSelection();
     if (aiListenForDocFrames) {
         // In listen mode we feed the UI a candidate frame instead of swapping
         // the documented component. The locked target is kept until the user
@@ -330,8 +333,61 @@ figma.on("selectionchange", () => {
 });
 void sendInit();
 void sendSelection();
+void sendAnalyseSelection();
 figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    if (msg.type === "capture-screen") {
+        const sel = figma.currentPage.selection;
+        if (sel.length !== 1) {
+            figma.ui.postMessage({
+                type: "screen-capture-error",
+                message: sel.length === 0
+                    ? "Sélectionne un écran (frame ou section de haut niveau)."
+                    : "Sélectionne un seul écran à la fois.",
+            });
+            return;
+        }
+        const node = sel[0];
+        if (!isAnalysableScreen(node)) {
+            figma.ui.postMessage({
+                type: "screen-capture-error",
+                message: "L'élément sélectionné n'est pas un écran : choisis une frame ou une section de haut niveau.",
+            });
+            return;
+        }
+        try {
+            const res = yield extractAiDocs([node]);
+            const image = res.frames.length > 0 ? (_a = res.frames[0].image) !== null && _a !== void 0 ? _a : null : null;
+            // The screenshot is sent separately; strip the per-frame images so the
+            // structure half stays a lean text payload.
+            for (const f of res.frames) {
+                delete f.image;
+                delete f.imageError;
+            }
+            figma.ui.postMessage({
+                type: "screen-captured",
+                data: {
+                    node: {
+                        id: node.id,
+                        name: node.name,
+                        type: node.type,
+                        width: "width" in node ? node.width : 0,
+                        height: "height" in node ? node.height : 0,
+                    },
+                    structure: res,
+                    image,
+                    textFallback: res.textFallback,
+                },
+            });
+        }
+        catch (e) {
+            figma.ui.postMessage({
+                type: "screen-capture-error",
+                message: e instanceof Error ? e.message : String(e),
+            });
+        }
+        return;
+    }
     if (msg.type === "ai-extract") {
         const target = yield resolveTarget();
         if (!target) {
@@ -385,7 +441,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 try {
                     probe.setProperties(booleanPayload);
                 }
-                catch (_h) {
+                catch (_j) {
                     /* invalid combo — keep default state */
                 }
             }
@@ -445,7 +501,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     try {
                         probe.setProperties(an.booleanPayload);
                     }
-                    catch (_j) {
+                    catch (_k) {
                         /* keep default */
                     }
                 }
@@ -481,7 +537,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     try {
                         probe.setProperties(tk.booleanPayload);
                     }
-                    catch (_k) {
+                    catch (_l) {
                         /* keep default */
                     }
                 }
@@ -562,7 +618,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     figma.currentPage.selection = [locked];
                 }
             }
-            catch (_l) {
+            catch (_m) {
                 /* selection restore is best-effort */
             }
         }
@@ -630,13 +686,13 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
     if (msg.type === "fetch-anatomy-layers") {
         const target = yield resolveTarget();
         const layers = target ? previewAnatomyLayers(target, msg.anatomyVariant) : [];
-        figma.ui.postMessage({ type: "anatomy-layers", layers, seq: (_a = msg.seq) !== null && _a !== void 0 ? _a : 0 });
+        figma.ui.postMessage({ type: "anatomy-layers", layers, seq: (_b = msg.seq) !== null && _b !== void 0 ? _b : 0 });
         return;
     }
     if (msg.type === "fetch-tokens-layers") {
         const target = yield resolveTarget();
         const layers = target ? previewTokensLayers(target, msg.tokenVariant) : { tree: [], autoSelected: [] };
-        figma.ui.postMessage({ type: "tokens-layers", layers, seq: (_b = msg.seq) !== null && _b !== void 0 ? _b : 0 });
+        figma.ui.postMessage({ type: "tokens-layers", layers, seq: (_c = msg.seq) !== null && _c !== void 0 ? _c : 0 });
         return;
     }
     if (msg.type === "generate-doc") {
@@ -646,7 +702,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             figma.ui.postMessage({ type: "generation-error" });
             return;
         }
-        const opts = (_c = msg.options) !== null && _c !== void 0 ? _c : defaultOptions;
+        const opts = (_d = msg.options) !== null && _d !== void 0 ? _d : defaultOptions;
         const ai = yield loadAiDescriptions(target.id);
         if (ai) {
             if (ai.propDescriptions)
@@ -686,7 +742,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             figma.ui.postMessage({ type: "pdf-error" });
             return;
         }
-        const opts = (_d = msg.options) !== null && _d !== void 0 ? _d : defaultOptions;
+        const opts = (_e = msg.options) !== null && _e !== void 0 ? _e : defaultOptions;
         const ai = yield loadAiDescriptions(target.id);
         if (ai) {
             if (ai.propDescriptions)
@@ -724,7 +780,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             figma.ui.postMessage({ type: "export-error" });
             return;
         }
-        const opts = (_e = msg.options) !== null && _e !== void 0 ? _e : defaultOptions;
+        const opts = (_f = msg.options) !== null && _f !== void 0 ? _f : defaultOptions;
         const ai = yield loadAiDescriptions(target.id);
         if (ai) {
             if (ai.propDescriptions)
@@ -774,7 +830,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.clientStorage.deleteAsync(CONFIG_KEY_PREFIX + target.id);
             }
-            catch (_m) {
+            catch (_o) {
                 /* best effort */
             }
         }
@@ -783,7 +839,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             yield figma.clientStorage.setAsync(ONBOARDED_KEY, true);
         }
-        catch (_o) {
+        catch (_p) {
             /* best effort */
         }
     }
@@ -791,7 +847,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         const target = yield resolveTarget();
         if (!target || typeof msg.section !== "string")
             return;
-        const opts = (_f = msg.options) !== null && _f !== void 0 ? _f : defaultOptions;
+        const opts = (_g = msg.options) !== null && _g !== void 0 ? _g : defaultOptions;
         resetGenerationWarnings();
         try {
             yield regenSection(target, msg.section, opts);
@@ -815,7 +871,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         for (const s of sheets) {
             const tid = s.getPluginData("docyourprops:component");
             const section = s.getPluginData("docyourprops:section");
-            const entry = (_g = byTarget.get(tid)) !== null && _g !== void 0 ? _g : { sections: new Set(), sheets: [] };
+            const entry = (_h = byTarget.get(tid)) !== null && _h !== void 0 ? _h : { sections: new Set(), sheets: [] };
             if (section)
                 entry.sections.add(section);
             entry.sheets.push(s);
@@ -832,7 +888,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     missing = false;
                 }
             }
-            catch (_p) {
+            catch (_q) {
                 /* node unavailable — keep missing flag */
             }
             items.push({
@@ -872,7 +928,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             node = yield figma.getNodeByIdAsync(msg.targetId);
         }
-        catch (_q) {
+        catch (_r) {
             node = null;
         }
         if (!node || node.removed) {
@@ -893,7 +949,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.setCurrentPageAsync(page);
             }
-            catch (_r) {
+            catch (_s) {
                 // ignore — fall back to current page scrollAndZoom
             }
         }
@@ -1009,6 +1065,33 @@ function sendSelection() {
             emptyReason = diagnoseEmptySelection();
         }
         figma.ui.postMessage({ type: "selection", target: payload, emptyReason });
+    });
+}
+// True when `node` is a top-level screen the Analyse tab accepts: a FRAME or
+// SECTION sitting directly on a PAGE (rejects nested layers / small groups).
+function isAnalysableScreen(node) {
+    return ((node.type === "FRAME" || node.type === "SECTION") &&
+        node.parent != null &&
+        node.parent.type === "PAGE");
+}
+// Lightweight broadcast so the Analyse tab can enable/disable its run button
+// and show the selected screen, independently of the component-scoped
+// `selection` message.
+function sendAnalyseSelection() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const sel = figma.currentPage.selection;
+        let node = null;
+        if (sel.length === 1 && isAnalysableScreen(sel[0])) {
+            const n = sel[0];
+            node = {
+                id: n.id,
+                name: n.name,
+                type: n.type,
+                width: "width" in n ? n.width : 0,
+                height: "height" in n ? n.height : 0,
+            };
+        }
+        figma.ui.postMessage({ type: "analyse-selection", node });
     });
 }
 // Returns prop display-names in the order Figma shows them in the component panel.
