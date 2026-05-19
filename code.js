@@ -2598,63 +2598,98 @@ function hasVisibleContent(n, budget) {
     }
     return false;
 }
-// Pick the visible child to drill into: prefer the largest child that
-// carries real content (skips transparent full-width spacers); fall back to
-// the largest visible child so we never regress to "no leaf".
-function chooseLeafChild(node) {
-    if (!("children" in node))
-        return null;
-    const cs = node.children;
-    let contentPick = null;
-    let contentArea = -1;
-    let anyPick = null;
-    let anyArea = -1;
-    for (const c of cs) {
-        if (c.visible === false)
-            continue;
-        const clm = c;
-        const area = Math.max(0, clm.width) * Math.max(0, clm.height);
-        if (area > anyArea) {
-            anyArea = area;
-            anyPick = c;
-        }
-        if (area > contentArea &&
-            hasVisibleContent(c, CONTENT_PROBE_BUDGET)) {
-            contentArea = area;
-            contentPick = c;
+// A node that *itself* paints visible content and is not just a container
+// wrapping other content (a painted frame holding the real icon/label is a
+// container, not a leaf — we recurse into it instead).
+function isLeafContentNode(n) {
+    if (n.visible === false)
+        return false;
+    if (n.type === "TEXT")
+        return (n.characters || "").trim().length > 0;
+    if (n.type === "INSTANCE" ||
+        n.type === "COMPONENT" ||
+        n.type === "COMPONENT_SET")
+        return true;
+    const g = n;
+    const painted = isVisiblePaintList(g.fills) || isVisiblePaintList(g.strokes);
+    if (!painted)
+        return false;
+    if ("children" in n) {
+        for (const c of n.children) {
+            if (hasVisibleContent(c, 2))
+                return false;
         }
     }
-    return contentPick || anyPick;
+    return true;
 }
-// Drill toward the visually "representative" leaf of a layer so the leader
-// tip aims at the real content (e.g. the radio glyph / label inside a row)
-// rather than the centre of a wrapper or an empty transparent region.
-// Returns coords in the SAME local space as the input.
-function resolveLeafTarget(wrapper, wrapperLocalX, wrapperLocalY, wrapperW, wrapperH) {
-    let cur = wrapper;
-    let curX = wrapperLocalX;
-    let curY = wrapperLocalY;
-    let curW = wrapperW;
-    let curH = wrapperH;
-    for (let depth = 0; depth < 6; depth++) {
-        const chosen = chooseLeafChild(cur);
-        if (!chosen || chosen === cur)
-            break;
-        const lm = chosen;
-        curX += lm.x;
-        curY += lm.y;
-        curW = lm.width;
-        curH = lm.height;
-        cur = chosen;
+// Tight union box of the descendant leaves that actually paint something
+// (icon + label cluster), in the given origin space. Background-like leaves
+// (≥ 80% of the node's area — full-bleed rects / stretch wrappers) are
+// dropped so the leader aims at the real content, not the geometric centre
+// of a transparent full-width row. Falls back to the node box when nothing
+// qualifies.
+function contentBoundsOf(node, ox, oy, nw, nh) {
+    const nodeArea = Math.max(1, nw * nh);
+    const boxes = [];
+    const visit = (n, x, y, depth) => {
+        if (n.visible === false)
+            return;
+        const lm = n;
+        if (isLeafContentNode(n)) {
+            boxes.push({ x, y, w: lm.width, h: lm.height });
+            return;
+        }
+        if (depth > 0 && "children" in n) {
+            for (const c of n.children) {
+                const clm = c;
+                visit(c, x + clm.x, y + clm.y, depth - 1);
+            }
+        }
+    };
+    if ("children" in node) {
+        for (const c of node.children) {
+            const clm = c;
+            visit(c, ox + clm.x, oy + clm.y, CONTENT_PROBE_BUDGET);
+        }
     }
-    return { x: curX, y: curY, w: curW, h: curH };
+    else if (isLeafContentNode(node)) {
+        boxes.push({ x: ox, y: oy, w: nw, h: nh });
+    }
+    if (boxes.length === 0)
+        return { x: ox, y: oy, w: nw, h: nh };
+    const nonBg = boxes.filter((b) => b.w * b.h < 0.8 * nodeArea);
+    const use = nonBg.length > 0 ? nonBg : boxes;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const b of use) {
+        if (b.x < minX)
+            minX = b.x;
+        if (b.y < minY)
+            minY = b.y;
+        if (b.x + b.w > maxX)
+            maxX = b.x + b.w;
+        if (b.y + b.h > maxY)
+            maxY = b.y + b.h;
+    }
+    return {
+        x: minX,
+        y: minY,
+        w: Math.max(1, maxX - minX),
+        h: Math.max(1, maxY - minY),
+    };
+}
+// Leader target for a documented layer: the tight content cluster inside it
+// (icon + label), not a wrapper's geometric centre. Returns coords in the
+// SAME local space as the input.
+function resolveLeafTarget(wrapper, wrapperLocalX, wrapperLocalY, wrapperW, wrapperH) {
+    return contentBoundsOf(wrapper, wrapperLocalX, wrapperLocalY, wrapperW, wrapperH);
 }
 // Post-rescale leader retargeting (Fix: scale/auto-layout drift). Given the
-// LIVE rescaled instance and an anchor key (same child-index path scheme as
-// AnatomyLayer.key / VarUsage.anchorKey), re-derive the representative leaf's
-// box in instance-local coords by reading the actual rescaled child positions,
-// then drilling with the same largest-visible-child heuristic. Returns null
-// for the instance root ("root"/"") or an unresolvable path.
+// LIVE rescaled instance and an anchor key, walk to the documented node by
+// its child-index path (reading actual rescaled positions), then return its
+// tight content bounds. Returns null for the instance root / bad path.
 function liveTargetRect(inst, key) {
     if (!key || key === "root")
         return null;
@@ -2676,17 +2711,8 @@ function liveTargetRect(inst, key) {
         y += lm.y;
         cur = ch;
     }
-    for (let depth = 0; depth < 6; depth++) {
-        const chosen = chooseLeafChild(cur);
-        if (!chosen || chosen === cur)
-            break;
-        const lm = chosen;
-        x += lm.x;
-        y += lm.y;
-        cur = chosen;
-    }
-    const clm = cur;
-    return { x, y, w: clm.width, h: clm.height };
+    const clm0 = cur;
+    return contentBoundsOf(cur, x, y, clm0.width, clm0.height);
 }
 // ─── Fix B: LLM-chosen anchor target ────────────────────────────────────────
 // Resolve an absolute child-index key (instance-local) to its box on a live
