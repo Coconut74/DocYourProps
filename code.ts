@@ -620,6 +620,17 @@ figma.ui.onmessage = async (msg: {
         delete f.image;
         delete f.imageError;
       }
+      const components = await collectScreenComponents(node as SceneNode);
+      let screenCss: Record<string, string> | null = null;
+      try {
+        if ("getCSSAsync" in node) {
+          screenCss = await (
+            node as unknown as { getCSSAsync: () => Promise<Record<string, string>> }
+          ).getCSSAsync();
+        }
+      } catch {
+        screenCss = null;
+      }
       figma.ui.postMessage({
         type: "screen-captured",
         data: {
@@ -634,6 +645,8 @@ figma.ui.onmessage = async (msg: {
           image,
           textFallback: res.textFallback,
           editableTexts: collectScreenTextLayers(node as SceneNode),
+          components,
+          screenCss,
         },
       });
     } catch (e) {
@@ -711,9 +724,25 @@ figma.ui.onmessage = async (msg: {
           fail("failed", "Aucune propriété à appliquer.");
           return;
         }
-        await applyNestedInstanceProps(target as InstanceNode, props);
+        const res = await applyNestedInstanceProps(
+          target as InstanceNode,
+          props
+        );
+        if (res.applied === 0) {
+          fail(
+            "failed",
+            "La propriété n'a pas pu être modifiée (nom ou valeur non reconnu sur ce composant)" +
+              (res.details ? " — " + res.details : "") +
+              ". Vérifie le variant/propriété attendu."
+          );
+          return;
+        }
         summary =
-          "Propriétés mises à jour : " +
+          "Propriétés mises à jour (" +
+          res.applied +
+          "/" +
+          res.requested +
+          ") : " +
           Object.keys(props)
             .map((k) => k + " = " + String(props[k]))
             .join(", ");
@@ -5836,6 +5865,75 @@ function collectScreenTextLayers(root: SceneNode): ScreenTextLayer[] {
   return out;
 }
 
+const SCREEN_COMPONENTS_MAX = 80;
+
+type ScreenComponent = {
+  key: string;
+  name: string;
+  component: string;
+  props: { name: string; type: string; value: string; options?: string[] }[];
+};
+
+// Full inventory of every component INSTANCE on the analyzed screen (descends
+// into nested instances), with a resolvable key + its current properties and
+// VARIANT options. Gives the LLM a complete component list independent of the
+// structure-walk budget/truncation, and exact nodeKey/prop names for setProps.
+async function collectScreenComponents(
+  root: SceneNode
+): Promise<ScreenComponent[]> {
+  const out: ScreenComponent[] = [];
+  const recurse = async (
+    node: SceneNode,
+    depth: number,
+    parentKey: string
+  ): Promise<void> => {
+    if (depth > SCREEN_TEXT_DEPTH_MAX) return;
+    if (!("children" in node)) return;
+    const cont = node as ChildrenMixin & SceneNode;
+    for (let i = 0; i < cont.children.length; i++) {
+      if (out.length >= SCREEN_COMPONENTS_MAX) return;
+      const c = cont.children[i];
+      if (c.visible === false) continue;
+      const key = parentKey ? `${parentKey}/${i}` : String(i);
+      if (c.type === "INSTANCE") {
+        const inst = c as InstanceNode;
+        let component = inst.name;
+        let defs: ComponentPropertyDefinitions | null = null;
+        try {
+          const mc = await inst.getMainComponentAsync();
+          if (mc) {
+            const inSet = mc.parent && mc.parent.type === "COMPONENT_SET";
+            component = inSet ? (mc.parent as ComponentSetNode).name : mc.name;
+            defs = inSet
+              ? (mc.parent as ComponentSetNode).componentPropertyDefinitions
+              : mc.componentPropertyDefinitions;
+          }
+        } catch {
+          /* keep layer name as fallback */
+        }
+        const cp = inst.componentProperties || {};
+        const props = Object.keys(cp).map((rk) => {
+          const entry = (cp as Record<string, { type: string; value: unknown }>)[rk];
+          const opts =
+            defs && defs[rk] && defs[rk].variantOptions
+              ? defs[rk].variantOptions
+              : undefined;
+          return {
+            name: stripPropKey(rk),
+            type: entry.type,
+            value: String(entry.value),
+            options: opts,
+          };
+        });
+        out.push({ key, name: inst.name, component, props });
+      }
+      if ("children" in c) await recurse(c, depth + 1, key);
+    }
+  };
+  await recurse(root, 0, "");
+  return out;
+}
+
 const EXEMPLE_NESTED_MAX = 16;
 
 type NestedSnapshot = {
@@ -5924,12 +6022,14 @@ async function buildNestedInstanceInfos(
 }
 
 // Apply LLM-chosen overrides on a nested component instance. Maps the
-// sub-component's stripped prop names to its raw keys, coerces per type, and
-// resolves INSTANCE_SWAP candidate names to component ids.
+// sub-component's stripped prop names to its raw keys, coerces per type,
+// normalizes VARIANT values to an exact option, resolves INSTANCE_SWAP
+// candidate names to component ids, and reports how many props really changed
+// (so callers can surface an honest success/failure).
 async function applyNestedInstanceProps(
   node: InstanceNode,
   scenario: Record<string, string | boolean>
-): Promise<void> {
+): Promise<{ requested: number; applied: number; details: string }> {
   const cp = node.componentProperties || {};
   const byName = new Map<string, { rawKey: string; type: string }>();
   for (const rk of Object.keys(cp)) {
@@ -5943,11 +6043,15 @@ async function applyNestedInstanceProps(
     mc && mc.parent && mc.parent.type === "COMPONENT_SET"
       ? (mc.parent as ComponentSetNode)
       : mc;
+  const defs = defsHost ? defsHost.componentPropertyDefinitions : null;
   let swapResolver: Map<
     string,
     { rawKey: string; byName: Map<string, string> }
   > | null = null;
   const payload: { [rawKey: string]: string | boolean } = {};
+  const requestedKeys = Object.keys(scenario).filter((propName) =>
+    Boolean(byName.get(propName) ?? byName.get(stripPropKey(propName)))
+  );
   for (const propName of Object.keys(scenario)) {
     const info = byName.get(propName) ?? byName.get(stripPropKey(propName));
     if (!info) continue;
@@ -5969,13 +6073,22 @@ async function applyNestedInstanceProps(
         const id = r.byName.get(String(v));
         if (id) payload[info.rawKey] = id;
       }
+    } else if (info.type === "VARIANT") {
+      // Normalize to an exact variant option (case/space-insensitive) so a
+      // near-miss value from the LLM still flips the variant.
+      const want = String(v).trim().toLowerCase();
+      const opts =
+        (defs && defs[info.rawKey] && defs[info.rawKey].variantOptions) || [];
+      const exact = opts.find((o) => o.trim().toLowerCase() === want);
+      payload[info.rawKey] = exact ?? String(v);
     } else {
-      // VARIANT or TEXT
-      payload[info.rawKey] = String(v);
+      payload[info.rawKey] = String(v); // TEXT
     }
   }
   const keys = Object.keys(payload);
-  if (keys.length === 0) return;
+  if (keys.length === 0) {
+    return { requested: requestedKeys.length, applied: 0, details: "" };
+  }
   try {
     node.setProperties(payload);
   } catch {
@@ -5987,6 +6100,23 @@ async function applyNestedInstanceProps(
       }
     }
   }
+  // Honest verification: re-read and count props that now equal the request.
+  const after = node.componentProperties || {};
+  let applied = 0;
+  const miss: string[] = [];
+  for (const rk of keys) {
+    const got =
+      after[rk] && "value" in (after[rk] as { value?: unknown })
+        ? (after[rk] as { value: unknown }).value
+        : undefined;
+    if (String(got) === String(payload[rk])) applied++;
+    else miss.push(stripPropKey(rk) + "→" + String(payload[rk]));
+  }
+  return {
+    requested: keys.length,
+    applied,
+    details: miss.length ? "non appliqué : " + miss.join(", ") : "",
+  };
 }
 
 async function buildExempleContext(
