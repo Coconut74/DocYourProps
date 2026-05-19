@@ -2465,6 +2465,45 @@
       let repetitionDeferred = null;
       let baseCombinationCount = 0; // Last reported total combinations (cartesian post-dedup)
 
+      // Cumulative LLM token usage for ONE generate run (click Générer →
+      // rendu) : descriptions call + repetition-verify call. Reset on each
+      // generate click, reported on generation-done.
+      let aiGenUsage = { calls: 0, prompt: 0, completion: 0, total: 0 };
+      let pendingGenTokenReport = false;
+      function resetAiGenUsage() {
+        aiGenUsage = { calls: 0, prompt: 0, completion: 0, total: 0 };
+      }
+      function addAiGenUsage(usage) {
+        if (!usage) return;
+        const p = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0;
+        const c = typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0;
+        const t =
+          typeof usage.total_tokens === "number" ? usage.total_tokens : p + c;
+        aiGenUsage.calls += 1;
+        aiGenUsage.prompt += p;
+        aiGenUsage.completion += c;
+        aiGenUsage.total += t;
+      }
+      function formatAiGenUsage() {
+        if (aiGenUsage.calls === 0) return "IA : aucun appel (placeholders)";
+        let s =
+          "IA génération : " +
+          aiGenUsage.total.toLocaleString("fr-FR") +
+          " tokens";
+        if (aiGenUsage.prompt || aiGenUsage.completion) {
+          s += " (" + aiGenUsage.prompt + " in · " + aiGenUsage.completion + " out)";
+        }
+        s +=
+          " · " +
+          aiGenUsage.calls +
+          " appel" +
+          (aiGenUsage.calls > 1 ? "s" : "");
+        if (currentLlmConfig && currentLlmConfig.model) {
+          s += " · " + currentLlmConfig.model;
+        }
+        return s;
+      }
+
       // Pending state — populated when entering settings, applied on Valider, dropped on Annuler.
       let pendingGroupByOrder = null;
       let pendingExclusionRules = null;
@@ -4213,6 +4252,11 @@
             btn.classList.remove("is-busy");
             btn.disabled = false;
           }
+          if (pendingGenTokenReport) {
+            pendingGenTokenReport = false;
+            aiStatus.classList.remove("is-busy", "is-error");
+            aiStatus.textContent = formatAiGenUsage();
+          }
           if (msg.markdown) {
             showGeneratedDoc(msg.markdown, msg.componentName);
           }
@@ -4223,6 +4267,15 @@
             if (!btn) continue;
             btn.classList.remove("is-busy");
             btn.disabled = false;
+          }
+          if (pendingGenTokenReport) {
+            pendingGenTokenReport = false;
+            // Tokens were still consumed by the AI pre-step before the
+            // render failed — surface them so the cost is visible.
+            if (aiGenUsage.calls > 0) {
+              aiStatus.classList.remove("is-busy");
+              aiStatus.textContent = formatAiGenUsage();
+            }
           }
         }
       };
@@ -4262,6 +4315,9 @@
       let generateTimeoutId = null;
       document.getElementById("generate").addEventListener("click", async () => {
         if (generateTimeoutId) clearTimeout(generateTimeoutId);
+        // Start a fresh token tally for this generate → render run.
+        resetAiGenUsage();
+        pendingGenTokenReport = true;
 
         // Optional AI pre-step: when an LLM key is configured and the cached
         // analysis is stale (or absent), re-run the LLM so the canvas sheets
@@ -5118,11 +5174,12 @@
         }
 
         try {
-          const { text } = await callLlm({
+          const { text, usage } = await callLlm({
             systemPrompt: REPETITION_VERIFY_SYSTEM_PROMPT,
             userText: JSON.stringify(detected),
             images: null,
           });
+          addAiGenUsage(usage);
           const parsed = parseLlmJson(text);
           const validKeys = new Set();
           for (const g of detected)
@@ -5200,6 +5257,7 @@
             userText: JSON.stringify(trimmed),
             images,
           });
+          addAiGenUsage(usage);
           stage = "parsing JSON";
           let parsed;
           try {
