@@ -5534,6 +5534,60 @@
         return JSON.parse(trimmed);
       }
 
+      // Extract the first brace-balanced {...} block (ignoring braces inside
+      // strings) so a JSON object wrapped in prose can still be salvaged.
+      function extractJsonObject(text) {
+        const s = String(text || "");
+        const start = s.indexOf("{");
+        if (start < 0) return null;
+        let depth = 0;
+        let inStr = false;
+        let esc = false;
+        for (let i = start; i < s.length; i++) {
+          const ch = s[i];
+          if (inStr) {
+            if (esc) esc = false;
+            else if (ch === "\\") esc = true;
+            else if (ch === '"') inStr = false;
+          } else if (ch === '"') inStr = true;
+          else if (ch === "{") depth++;
+          else if (ch === "}") {
+            depth--;
+            if (depth === 0) return s.slice(start, i + 1);
+          }
+        }
+        return null;
+      }
+
+      // Never throws: returns the parsed object or null. Tries strict parse,
+      // then a brace-balanced salvage.
+      function looseParseReport(text) {
+        try {
+          const r = parseLlmJson(text);
+          if (r && typeof r === "object" && !Array.isArray(r)) return r;
+        } catch (e) {
+          /* fall through to salvage */
+        }
+        const block = extractJsonObject(text);
+        if (block) {
+          try {
+            const r = JSON.parse(block);
+            if (r && typeof r === "object" && !Array.isArray(r)) return r;
+          } catch (e) {
+            /* unrecoverable */
+          }
+        }
+        return null;
+      }
+
+      const ANALYSE_REPAIR_SYSTEM_PROMPT = [
+        "Tu reçois une sortie censée être un rapport JSON mais qui n'est PAS du JSON valide (texte parasite, backticks, virgule finale, guillemets, JSON tronqué…).",
+        "Ta seule tâche : renvoyer EXACTEMENT le même contenu sous forme de JSON STRICT valide, sans RIEN d'autre (pas de texte, pas de backticks, pas de markdown).",
+        "Ne modifie pas le fond : conserve summary, issues, severity, title, detail, solution, docSource et les éventuels fix tels quels ; corrige uniquement la syntaxe et supprime tout ce qui n'est pas du JSON.",
+        'Schéma attendu : { "summary": string, "issues": [ { "severity": "Critique"|"Mineur", "title": string, "detail": string, "solution": string, "docSource": string, "fix"?: { "type": "setText", "nodeKey": string, "value": string } | { "type": "setProps", "nodeKey": string, "props": object } | { "type": "none" } } ] }',
+        "Si le JSON est tronqué, complète-le de façon minimale et cohérente pour qu'il soit valide.",
+      ].join("\n");
+
       // Optional repeated-sibling verification. Always resolves (never throws):
       // structural dedup runs inline in the sandbox regardless, so any failure
       // here just means "no LLM refinement this run". Stores the resolved
@@ -6819,7 +6873,7 @@
           });
           if (sel.routerUsage) addAiGenUsage(sel.routerUsage);
           addAiGenUsage(usage);
-          const footerText =
+          let footerText =
             sel.docs.length +
             "/" +
             chatDocs.length +
@@ -6828,11 +6882,33 @@
             (captured.image ? "" : " · capture image indisponible") +
             " · " +
             formatAiGenUsage();
-          let report = null;
-          try {
-            report = parseLlmJson(text);
-          } catch (parseErr) {
-            console.error("analyse JSON parse failed", { text, parseErr });
+          let report = looseParseReport(text);
+          if (!report) {
+            // Don't give up: ask the LLM to repair its own output into strict
+            // JSON (one extra call), then salvage again.
+            analyseStatusEl.textContent = "Réparation du rapport…";
+            try {
+              const rep = await callLlm({
+                systemPrompt: ANALYSE_REPAIR_SYSTEM_PROMPT,
+                userText:
+                  "Sortie à corriger en JSON strict :\n\n" + String(text || ""),
+                images: null,
+              });
+              addAiGenUsage(rep.usage);
+              report = looseParseReport(rep.text);
+            } catch (repErr) {
+              console.error("analyse JSON repair failed", repErr);
+            }
+            // Footer reflects the (possibly increased) token cost.
+            footerText =
+              sel.docs.length +
+              "/" +
+              chatDocs.length +
+              " docs" +
+              (sel.note ? " · " + sel.note : "") +
+              (captured.image ? "" : " · capture image indisponible") +
+              " · réparé · " +
+              formatAiGenUsage();
           }
           if (report && typeof report === "object" && !Array.isArray(report)) {
             renderAnalyseReport(screenName, report, footerText);
