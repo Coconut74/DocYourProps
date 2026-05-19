@@ -335,7 +335,7 @@ void sendInit();
 void sendSelection();
 void sendAnalyseSelection();
 figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
     if (msg.type === "capture-screen") {
         const sel = figma.currentPage.selection;
         if (sel.length !== 1) {
@@ -385,6 +385,83 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 type: "screen-capture-error",
                 message: e instanceof Error ? e.message : String(e),
             });
+        }
+        return;
+    }
+    if (msg.type === "apply-fix") {
+        const seq = (_b = msg.seq) !== null && _b !== void 0 ? _b : 0;
+        const fail = (code, message) => figma.ui.postMessage({ type: "fix-error", seq, ok: false, code, message });
+        const fix = msg.fix;
+        if (!msg.screenId || !msg.nodeKey || !fix || typeof fix.type !== "string") {
+            fail("failed", "Requête de correction invalide.");
+            return;
+        }
+        const root = yield figma.getNodeByIdAsync(msg.screenId);
+        if (!root || !("type" in root)) {
+            fail("screen-not-found", "L'écran analysé est introuvable. Relance l'analyse.");
+            return;
+        }
+        const target = resolveLayerByKey(root, msg.nodeKey);
+        if (!target) {
+            fail("node-not-found", "Le calque ciblé est introuvable — l'écran a été modifié depuis l'analyse. Relance l'analyse.");
+            return;
+        }
+        // Locked guard: target or any ancestor up to the analyzed root.
+        let cur = target;
+        while (cur) {
+            if ("locked" in cur && cur.locked) {
+                fail("locked", "Le calque (ou un parent) est verrouillé.");
+                return;
+            }
+            if (cur.id === root.id)
+                break;
+            cur = cur.parent;
+        }
+        const trunc = (s) => s.length > 60 ? s.slice(0, 60) + "…" : s;
+        try {
+            let summary = "";
+            if (fix.type === "setText") {
+                if (target.type !== "TEXT") {
+                    fail("type-mismatch", "Le calque ciblé n'est pas un texte.");
+                    return;
+                }
+                const before = target.characters || "";
+                const value = String((_c = fix.value) !== null && _c !== void 0 ? _c : "");
+                yield applyTextLayerOverride(target, value);
+                summary =
+                    'Texte mis à jour : « ' +
+                        trunc(before) +
+                        ' » → « ' +
+                        trunc(value) +
+                        ' »';
+            }
+            else if (fix.type === "setProps") {
+                if (target.type !== "INSTANCE") {
+                    fail("type-mismatch", "Le calque ciblé n'est pas une instance de composant.");
+                    return;
+                }
+                const props = fix.props && typeof fix.props === "object" ? fix.props : {};
+                if (Object.keys(props).length === 0) {
+                    fail("failed", "Aucune propriété à appliquer.");
+                    return;
+                }
+                yield applyNestedInstanceProps(target, props);
+                summary =
+                    "Propriétés mises à jour : " +
+                        Object.keys(props)
+                            .map((k) => k + " = " + String(props[k]))
+                            .join(", ");
+            }
+            else {
+                fail("unsupported", "Type de correction non pris en charge.");
+                return;
+            }
+            figma.currentPage.selection = [target];
+            figma.viewport.scrollAndZoomIntoView([target]);
+            figma.ui.postMessage({ type: "fix-applied", seq, ok: true, summary });
+        }
+        catch (e) {
+            fail("failed", e instanceof Error ? e.message : String(e));
         }
         return;
     }
@@ -441,7 +518,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 try {
                     probe.setProperties(booleanPayload);
                 }
-                catch (_j) {
+                catch (_l) {
                     /* invalid combo — keep default state */
                 }
             }
@@ -501,7 +578,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     try {
                         probe.setProperties(an.booleanPayload);
                     }
-                    catch (_k) {
+                    catch (_m) {
                         /* keep default */
                     }
                 }
@@ -537,7 +614,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     try {
                         probe.setProperties(tk.booleanPayload);
                     }
-                    catch (_l) {
+                    catch (_o) {
                         /* keep default */
                     }
                 }
@@ -618,7 +695,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     figma.currentPage.selection = [locked];
                 }
             }
-            catch (_m) {
+            catch (_p) {
                 /* selection restore is best-effort */
             }
         }
@@ -686,13 +763,13 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
     if (msg.type === "fetch-anatomy-layers") {
         const target = yield resolveTarget();
         const layers = target ? previewAnatomyLayers(target, msg.anatomyVariant) : [];
-        figma.ui.postMessage({ type: "anatomy-layers", layers, seq: (_b = msg.seq) !== null && _b !== void 0 ? _b : 0 });
+        figma.ui.postMessage({ type: "anatomy-layers", layers, seq: (_d = msg.seq) !== null && _d !== void 0 ? _d : 0 });
         return;
     }
     if (msg.type === "fetch-tokens-layers") {
         const target = yield resolveTarget();
         const layers = target ? previewTokensLayers(target, msg.tokenVariant) : { tree: [], autoSelected: [] };
-        figma.ui.postMessage({ type: "tokens-layers", layers, seq: (_c = msg.seq) !== null && _c !== void 0 ? _c : 0 });
+        figma.ui.postMessage({ type: "tokens-layers", layers, seq: (_e = msg.seq) !== null && _e !== void 0 ? _e : 0 });
         return;
     }
     if (msg.type === "generate-doc") {
@@ -702,7 +779,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             figma.ui.postMessage({ type: "generation-error" });
             return;
         }
-        const opts = (_d = msg.options) !== null && _d !== void 0 ? _d : defaultOptions;
+        const opts = (_f = msg.options) !== null && _f !== void 0 ? _f : defaultOptions;
         const ai = yield loadAiDescriptions(target.id);
         if (ai) {
             if (ai.propDescriptions)
@@ -742,7 +819,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             figma.ui.postMessage({ type: "pdf-error" });
             return;
         }
-        const opts = (_e = msg.options) !== null && _e !== void 0 ? _e : defaultOptions;
+        const opts = (_g = msg.options) !== null && _g !== void 0 ? _g : defaultOptions;
         const ai = yield loadAiDescriptions(target.id);
         if (ai) {
             if (ai.propDescriptions)
@@ -780,7 +857,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             figma.ui.postMessage({ type: "export-error" });
             return;
         }
-        const opts = (_f = msg.options) !== null && _f !== void 0 ? _f : defaultOptions;
+        const opts = (_h = msg.options) !== null && _h !== void 0 ? _h : defaultOptions;
         const ai = yield loadAiDescriptions(target.id);
         if (ai) {
             if (ai.propDescriptions)
@@ -830,7 +907,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.clientStorage.deleteAsync(CONFIG_KEY_PREFIX + target.id);
             }
-            catch (_o) {
+            catch (_q) {
                 /* best effort */
             }
         }
@@ -839,7 +916,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             yield figma.clientStorage.setAsync(ONBOARDED_KEY, true);
         }
-        catch (_p) {
+        catch (_r) {
             /* best effort */
         }
     }
@@ -847,7 +924,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         const target = yield resolveTarget();
         if (!target || typeof msg.section !== "string")
             return;
-        const opts = (_g = msg.options) !== null && _g !== void 0 ? _g : defaultOptions;
+        const opts = (_j = msg.options) !== null && _j !== void 0 ? _j : defaultOptions;
         resetGenerationWarnings();
         try {
             yield regenSection(target, msg.section, opts);
@@ -871,7 +948,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         for (const s of sheets) {
             const tid = s.getPluginData("docyourprops:component");
             const section = s.getPluginData("docyourprops:section");
-            const entry = (_h = byTarget.get(tid)) !== null && _h !== void 0 ? _h : { sections: new Set(), sheets: [] };
+            const entry = (_k = byTarget.get(tid)) !== null && _k !== void 0 ? _k : { sections: new Set(), sheets: [] };
             if (section)
                 entry.sections.add(section);
             entry.sheets.push(s);
@@ -888,7 +965,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     missing = false;
                 }
             }
-            catch (_q) {
+            catch (_s) {
                 /* node unavailable — keep missing flag */
             }
             items.push({
@@ -928,7 +1005,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             node = yield figma.getNodeByIdAsync(msg.targetId);
         }
-        catch (_r) {
+        catch (_t) {
             node = null;
         }
         if (!node || node.removed) {
@@ -949,7 +1026,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.setCurrentPageAsync(page);
             }
-            catch (_s) {
+            catch (_u) {
                 // ignore — fall back to current page scrollAndZoom
             }
         }
@@ -4441,7 +4518,7 @@ function aiSummarizeInstanceProperties(instanceNode) {
     }
     return out;
 }
-function walkAiDocNode(node, depth, budget, schemaPlaceholders, instancePlaceholders, textFallback, visited) {
+function walkAiDocNode(node, depth, budget, schemaPlaceholders, instancePlaceholders, textFallback, visited, nodeKey = "") {
     if (budget.remaining <= 0)
         return { kind: "truncated", reason: "budget" };
     if (visited.has(node))
@@ -4455,6 +4532,7 @@ function walkAiDocNode(node, depth, budget, schemaPlaceholders, instancePlacehol
             textFallback.push(text);
         return {
             kind: "text",
+            nodeKey,
             text,
             fontSize: typeof t.fontSize === "number" ? t.fontSize : null,
             level: aiTextLevel(t.fontSize),
@@ -4463,6 +4541,7 @@ function walkAiDocNode(node, depth, budget, schemaPlaceholders, instancePlacehol
     if (node.type === "INSTANCE") {
         const inst = {
             kind: "instance",
+            nodeKey,
             componentName: null,
             properties: aiSummarizeInstanceProperties(node),
             _node: node,
@@ -4506,11 +4585,16 @@ function walkAiDocNode(node, depth, budget, schemaPlaceholders, instancePlacehol
         const ordered = isAutoLayout
             ? children
             : aiSortByReadingOrder(children);
+        const rawChildren = children;
         for (let i = 0; i < ordered.length; i++) {
             const child = ordered[i];
             if (child.visible === false)
                 continue;
-            container.children.push(walkAiDocNode(child, depth + 1, budget, schemaPlaceholders, instancePlaceholders, textFallback, visited));
+            // Key from the RAW child index (not the reading-order/loop index) so it
+            // resolves through resolveLayerByKey, which walks raw children[idx].
+            const rawIdx = rawChildren.indexOf(child);
+            const childKey = rawIdx < 0 ? "" : nodeKey ? nodeKey + "/" + rawIdx : String(rawIdx);
+            container.children.push(walkAiDocNode(child, depth + 1, budget, schemaPlaceholders, instancePlaceholders, textFallback, visited, childKey));
             if (budget.remaining <= 0) {
                 const remaining = ordered.length - (i + 1);
                 if (remaining > 0)

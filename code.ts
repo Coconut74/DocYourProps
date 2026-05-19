@@ -580,6 +580,14 @@ figma.ui.onmessage = async (msg: {
   anatomyIncludedLayers?: string[];
   tokenIncludedLayers?: string[];
   includeSlots?: boolean;
+  screenId?: string;
+  nodeKey?: string;
+  fix?: {
+    type: string;
+    nodeKey?: string;
+    value?: string;
+    props?: Record<string, string | boolean>;
+  };
 }) => {
   if (msg.type === "capture-screen") {
     const sel = figma.currentPage.selection;
@@ -632,6 +640,91 @@ figma.ui.onmessage = async (msg: {
         type: "screen-capture-error",
         message: e instanceof Error ? e.message : String(e),
       });
+    }
+    return;
+  }
+  if (msg.type === "apply-fix") {
+    const seq = msg.seq ?? 0;
+    const fail = (code: string, message: string) =>
+      figma.ui.postMessage({ type: "fix-error", seq, ok: false, code, message });
+    const fix = msg.fix;
+    if (!msg.screenId || !msg.nodeKey || !fix || typeof fix.type !== "string") {
+      fail("failed", "Requête de correction invalide.");
+      return;
+    }
+    const root = await figma.getNodeByIdAsync(msg.screenId);
+    if (!root || !("type" in root)) {
+      fail(
+        "screen-not-found",
+        "L'écran analysé est introuvable. Relance l'analyse."
+      );
+      return;
+    }
+    const target = resolveLayerByKey(root as SceneNode, msg.nodeKey);
+    if (!target) {
+      fail(
+        "node-not-found",
+        "Le calque ciblé est introuvable — l'écran a été modifié depuis l'analyse. Relance l'analyse."
+      );
+      return;
+    }
+    // Locked guard: target or any ancestor up to the analyzed root.
+    let cur: BaseNode | null = target;
+    while (cur) {
+      if ("locked" in cur && (cur as SceneNode).locked) {
+        fail("locked", "Le calque (ou un parent) est verrouillé.");
+        return;
+      }
+      if (cur.id === root.id) break;
+      cur = cur.parent;
+    }
+    const trunc = (s: string) =>
+      s.length > 60 ? s.slice(0, 60) + "…" : s;
+    try {
+      let summary = "";
+      if (fix.type === "setText") {
+        if (target.type !== "TEXT") {
+          fail("type-mismatch", "Le calque ciblé n'est pas un texte.");
+          return;
+        }
+        const before = (target as TextNode).characters || "";
+        const value = String(fix.value ?? "");
+        await applyTextLayerOverride(target as TextNode, value);
+        summary =
+          'Texte mis à jour : « ' +
+          trunc(before) +
+          ' » → « ' +
+          trunc(value) +
+          ' »';
+      } else if (fix.type === "setProps") {
+        if (target.type !== "INSTANCE") {
+          fail(
+            "type-mismatch",
+            "Le calque ciblé n'est pas une instance de composant."
+          );
+          return;
+        }
+        const props =
+          fix.props && typeof fix.props === "object" ? fix.props : {};
+        if (Object.keys(props).length === 0) {
+          fail("failed", "Aucune propriété à appliquer.");
+          return;
+        }
+        await applyNestedInstanceProps(target as InstanceNode, props);
+        summary =
+          "Propriétés mises à jour : " +
+          Object.keys(props)
+            .map((k) => k + " = " + String(props[k]))
+            .join(", ");
+      } else {
+        fail("unsupported", "Type de correction non pris en charge.");
+        return;
+      }
+      figma.currentPage.selection = [target as SceneNode];
+      figma.viewport.scrollAndZoomIntoView([target as SceneNode]);
+      figma.ui.postMessage({ type: "fix-applied", seq, ok: true, summary });
+    } catch (e) {
+      fail("failed", e instanceof Error ? e.message : String(e));
     }
     return;
   }
@@ -5095,8 +5188,8 @@ type AiDocImage = {
 };
 
 type AiDocNode =
-  | { kind: "text"; text: string; fontSize: number | null; level: "h1" | "h2" | "h3" | "body" }
-  | { kind: "instance"; componentName: string | null; properties: Record<string, unknown> }
+  | { kind: "text"; nodeKey?: string; text: string; fontSize: number | null; level: "h1" | "h2" | "h3" | "body" }
+  | { kind: "instance"; nodeKey?: string; componentName: string | null; properties: Record<string, unknown> }
   | {
       kind: "schema";
       name: string;
@@ -5155,6 +5248,7 @@ type AiSchemaPlaceholder = {
 };
 type AiInstancePlaceholder = {
   kind: "instance";
+  nodeKey?: string;
   componentName: string | null;
   properties: Record<string, unknown>;
   _node?: InstanceNode;
@@ -5406,7 +5500,8 @@ function walkAiDocNode(
   schemaPlaceholders: AiSchemaPlaceholder[],
   instancePlaceholders: AiInstancePlaceholder[],
   textFallback: string[],
-  visited: WeakSet<SceneNode>
+  visited: WeakSet<SceneNode>,
+  nodeKey: string = ""
 ): AiDocNode {
   if (budget.remaining <= 0) return { kind: "truncated", reason: "budget" };
   if (visited.has(node)) return { kind: "truncated", reason: "cycle" };
@@ -5419,6 +5514,7 @@ function walkAiDocNode(
     if (text) textFallback.push(text);
     return {
       kind: "text",
+      nodeKey,
       text,
       fontSize: typeof t.fontSize === "number" ? t.fontSize : null,
       level: aiTextLevel(t.fontSize),
@@ -5428,6 +5524,7 @@ function walkAiDocNode(
   if (node.type === "INSTANCE") {
     const inst: AiInstancePlaceholder = {
       kind: "instance",
+      nodeKey,
       componentName: null,
       properties: aiSummarizeInstanceProperties(node as InstanceNode),
       _node: node as InstanceNode,
@@ -5480,9 +5577,15 @@ function walkAiDocNode(
       : aiSortByReadingOrder(
           children as readonly (SceneNode & { x?: number; y?: number })[]
         );
+    const rawChildren = children as readonly SceneNode[];
     for (let i = 0; i < ordered.length; i++) {
       const child = ordered[i] as SceneNode;
       if (child.visible === false) continue;
+      // Key from the RAW child index (not the reading-order/loop index) so it
+      // resolves through resolveLayerByKey, which walks raw children[idx].
+      const rawIdx = rawChildren.indexOf(child);
+      const childKey =
+        rawIdx < 0 ? "" : nodeKey ? nodeKey + "/" + rawIdx : String(rawIdx);
       container.children.push(
         walkAiDocNode(
           child,
@@ -5491,7 +5594,8 @@ function walkAiDocNode(
           schemaPlaceholders,
           instancePlaceholders,
           textFallback,
-          visited
+          visited,
+          childKey
         )
       );
       if (budget.remaining <= 0) {

@@ -1538,6 +1538,48 @@
         color: var(--figma-color-text-success, #1a7f37);
         font-weight: 600;
       }
+      .analyse-apply-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 2px;
+      }
+      .analyse-apply {
+        font: inherit;
+        font-size: 11px;
+        padding: 3px 10px;
+        border-radius: 4px;
+        border: 1px solid var(--figma-color-border-brand, #0d99ff);
+        background: var(--figma-color-bg, #fff);
+        color: var(--figma-color-text-brand, #0d6efd);
+        cursor: pointer;
+      }
+      .analyse-apply:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--figma-color-border-brand, #0d99ff) 10%, transparent);
+      }
+      .analyse-apply:disabled { cursor: default; }
+      .analyse-apply.is-na {
+        border-color: var(--figma-color-border, #e6e6e6);
+        color: var(--figma-color-text-tertiary, #999);
+        background: transparent;
+      }
+      .analyse-apply.is-done {
+        border-color: var(--figma-color-text-success, #1a7f37);
+        color: var(--figma-color-text-success, #1a7f37);
+        background: color-mix(in srgb, var(--figma-color-text-success, #1a7f37) 8%, transparent);
+      }
+      .analyse-apply.is-failed {
+        border-color: var(--figma-color-text-danger, #d4351c);
+        color: var(--figma-color-text-danger, #d4351c);
+      }
+      .analyse-apply-status {
+        font-size: 10px;
+        color: var(--figma-color-text-tertiary, #999);
+        white-space: pre-wrap;
+        flex: 1;
+        min-width: 0;
+      }
       .chat-input {
         width: 100%;
         font: inherit;
@@ -4267,6 +4309,15 @@
           }
           return;
         }
+        if (msg.type === "fix-applied" || msg.type === "fix-error") {
+          const d = applyFixDeferreds.get(msg.seq);
+          if (d) {
+            applyFixDeferreds.delete(msg.seq);
+            if (msg.ok) d.resolve(msg);
+            else d.reject(msg);
+          }
+          return;
+        }
         if (msg.type === "chat-docs-saved") {
           docsStatus.textContent = msg.ok ? "Enregistré" : "Échec";
           setTimeout(() => { docsStatus.textContent = ""; }, 1500);
@@ -5872,8 +5923,16 @@
         "- ATTENTION AU TEXTE : dès que l'écran contient des paragraphes ou phrases, si un document de langage / ton éditorial / wording / rédaction / copywriting / terminologie figure dans la doc fournie, évalue le contenu textuel vis-à-vis de ce document (orthographe, grammaire, terminologie imposée, ton, voix, casse, ponctuation) et signale chaque écart.",
         "- Si l'écran est conforme : issues = [] et un summary qui le dit clairement.",
         "",
+        "Correction automatique (champ \"fix\", FACULTATIF) :",
+        "- Ajoute \"fix\" UNIQUEMENT si la correction est automatisable SANS AMBIGUÏTÉ sur un calque précis.",
+        "- \"fix\" DOIT référencer un \"nodeKey\" qui existe EXACTEMENT dans la STRUCTURE fournie (champ nodeKey des éléments de type \"text\" ou \"instance\"). N'invente JAMAIS de nodeKey.",
+        "- type \"setText\" : corriger le CONTENU d'un calque texte (wording, orthographe, terminologie). \"value\" = le texte corrigé COMPLET.",
+        "- type \"setProps\" : changer une ou plusieurs propriétés d'une instance de composant. \"props\" = { nom de propriété : valeur } (noms tels que documentés).",
+        "- Si la correction est visuelle, structurelle, ambiguë ou ne cible pas un seul calque identifiable : \"fix\": { \"type\": \"none\" } ou omets \"fix\".",
+        "- \"solution\" reste TOUJOURS obligatoire et lisible, même quand un \"fix\" est fourni.",
+        "",
         "Sortie : STRICTEMENT un objet JSON, RIEN d'autre (pas de texte, pas de backticks, pas de markdown).",
-        'Schéma exact : { "summary": string, "issues": [ { "severity": "Critique"|"Mineur", "title": string, "detail": string, "solution": string, "docSource": string } ] }',
+        'Schéma exact : { "summary": string, "issues": [ { "severity": "Critique"|"Mineur", "title": string, "detail": string, "solution": string, "docSource": string, "fix"?: { "type": "setText", "nodeKey": string, "value": string } | { "type": "setProps", "nodeKey": string, "props": { <nom>: string|boolean } } | { "type": "none" } } ] }',
         "Rédige summary, title, detail, solution et docSource en français.",
       ].join("\n");
 
@@ -5895,6 +5954,9 @@
       let analyseSelection = null; // { id, name, type, width, height } | null
       let analyseInFlight = false;
       let analyseCaptureDeferred = null; // { resolve, reject } for capture-screen
+      let analyseScreenId = null; // id of the last successfully captured screen
+      let applyFixSeq = 0;
+      const applyFixDeferreds = new Map(); // seq → { resolve, reject }
       const analyseRunBtn = document.getElementById("analyse-run");
       const analyseClearBtn = document.getElementById("analyse-clear");
       const analyseSelInfoEl = document.getElementById("analyse-selinfo");
@@ -6448,6 +6510,31 @@
         });
       }
 
+      function requestApplyFix(nodeKey, fix) {
+        return new Promise((resolve, reject) => {
+          const seq = ++applyFixSeq;
+          applyFixDeferreds.set(seq, { resolve, reject });
+          parent.postMessage(
+            {
+              pluginMessage: {
+                type: "apply-fix",
+                seq,
+                screenId: analyseScreenId,
+                nodeKey,
+                fix,
+              },
+            },
+            "*"
+          );
+          setTimeout(() => {
+            if (applyFixDeferreds.has(seq)) {
+              applyFixDeferreds.delete(seq);
+              reject(new Error("Application de la correction expirée."));
+            }
+          }, 30000);
+        });
+      }
+
       function refreshAnalyseButton() {
         const noDocs = chatDocs.length === 0;
         analyseRunBtn.disabled =
@@ -6464,6 +6551,74 @@
         } else if (!analyseInFlight) {
           analyseStatusEl.textContent = "";
         }
+      }
+
+      // Per-issue "Appliquer" control: builds the button + status span, wires
+      // the apply-fix round-trip and its idle/applying/done/failed states.
+      function attachApplyControl(el, iss) {
+        const fix = iss && iss.fix;
+        const actionable =
+          fix &&
+          (fix.type === "setText" || fix.type === "setProps") &&
+          typeof fix.nodeKey === "string" &&
+          fix.nodeKey.length > 0 &&
+          (fix.type !== "setText" || typeof fix.value === "string") &&
+          (fix.type !== "setProps" ||
+            (fix.props && typeof fix.props === "object")) &&
+          !!analyseScreenId;
+
+        const row = document.createElement("div");
+        row.className = "analyse-apply-row";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "analyse-apply";
+        const status = document.createElement("span");
+        status.className = "analyse-apply-status";
+
+        if (!actionable) {
+          btn.textContent = "Non applicable automatiquement";
+          btn.disabled = true;
+          btn.classList.add("is-na");
+          btn.title = "Correction manuelle — voir « Solution ».";
+          row.appendChild(btn);
+          el.appendChild(row);
+          return;
+        }
+
+        btn.textContent = "Appliquer";
+        btn.addEventListener("click", async () => {
+          btn.disabled = true;
+          btn.textContent = "Application…";
+          btn.classList.remove("is-failed");
+          status.textContent = "";
+          try {
+            const res = await requestApplyFix(fix.nodeKey, fix);
+            btn.textContent = "✓ Appliqué";
+            btn.classList.add("is-done");
+            btn.disabled = true;
+            status.textContent = res && res.summary ? res.summary : "";
+          } catch (errMsg) {
+            const code = errMsg && errMsg.code;
+            const message =
+              (errMsg && (errMsg.message || errMsg.toString())) ||
+              "Échec de l'application.";
+            const unrecoverable =
+              code === "node-not-found" || code === "screen-not-found";
+            btn.classList.add("is-failed");
+            if (unrecoverable) {
+              btn.textContent = "Échec";
+              btn.disabled = true;
+              status.textContent = message + " — relance l'analyse.";
+            } else {
+              btn.textContent = "Réessayer";
+              btn.disabled = false;
+              status.textContent = message;
+            }
+          }
+        });
+        row.appendChild(btn);
+        row.appendChild(status);
+        el.appendChild(row);
       }
 
       function appendAnalyseCost(block, footerText) {
@@ -6540,6 +6695,7 @@
                     chatEscapeHtml(iss.docSource) +
                     "</div>"
                   : "");
+              attachApplyControl(el, iss);
               block.appendChild(el);
             });
         }
@@ -6595,6 +6751,8 @@
         analyseStatusEl.classList.remove("is-error");
         try {
           const captured = await requestScreenCapture();
+          analyseScreenId =
+            captured && captured.node ? captured.node.id : null;
           analyseStatusEl.textContent = "Sélection des docs…";
           const fp = buildScreenFingerprint(captured);
           const sel = await selectAnalyseDocs(fp);
@@ -6651,6 +6809,7 @@
         analyseMsgEl.classList.add("hidden");
         analyseStatusEl.classList.remove("is-error", "is-busy");
         analyseStatusEl.textContent = "";
+        analyseScreenId = null;
       });
 
       docsImportBtn.addEventListener("click", () => docsFileInput.click());
