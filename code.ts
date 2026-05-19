@@ -60,6 +60,21 @@ type DocOptions = {
   // child-index key whose box best represents the visible element. Absent →
   // the paint-aware resolveLeafTarget heuristic decides.
   anchorTargets?: Record<string, string>;
+  // Whether the "Exemple" sheet is requested.
+  exemple: boolean;
+  // LLM-generated usage scenarios for the "Exemple" sheet. Each entry is a set
+  // of prop values (keyed by stripped prop name) applied to a fresh instance.
+  // Absent / empty → buildExemplesSection falls back to mechanical examples.
+  exemples?: AiExemple[];
+};
+
+// One usage scenario: prop name → value to apply on a fresh instance. VARIANT
+// values are exact option strings, BOOLEAN are booleans (or "true"/"false"
+// strings, coerced), TEXT are the literal text content. INSTANCE_SWAP is
+// ignored (left at the component default).
+type AiExemple = {
+  title?: string;
+  props: Record<string, string | boolean>;
 };
 
 // Persisted per-component config — restored when the user reselects a component.
@@ -70,6 +85,7 @@ type SavedConfig = {
     variants: boolean;
     layout: boolean;
     anatomy: boolean;
+    exemple?: boolean;
   };
   groupBy: string[];
   excludeRules: ExclusionRule[];
@@ -354,6 +370,7 @@ async function saveConfig(targetId: string, options: DocOptions): Promise<void> 
       variants: options.variants,
       layout: options.layout,
       anatomy: options.anatomy,
+      exemple: options.exemple,
     },
     groupBy: options.groupBy ?? [],
     excludeRules: options.excludeRules ?? [],
@@ -412,6 +429,8 @@ type AiDescriptionsStored = {
   repetitionGroups?: { parentKey: string; memberKeys: string[]; repKey: string }[];
   // LLM-chosen pin target per anchor key (Fix B).
   anchorTargets?: Record<string, string>;
+  // LLM-generated usage scenarios for the "Exemple" sheet.
+  exemples?: AiExemple[];
 };
 
 async function loadAiDescriptions(targetId: string): Promise<AiDescriptionsStored | null> {
@@ -824,6 +843,7 @@ figma.ui.onmessage = async (msg: {
     variants: true,
     layout: false,
     anatomy: false,
+    exemple: false,
     anatomyVariant: {},
     tokenVariant: {},
   };
@@ -854,6 +874,7 @@ figma.ui.onmessage = async (msg: {
       if (ai.generalDescription) opts.generalDescription = ai.generalDescription;
       if (ai.repetitionGroups) opts.repetitionGroups = ai.repetitionGroups;
       if (ai.anchorTargets) opts.anchorTargets = ai.anchorTargets;
+      if (ai.exemples) opts.exemples = ai.exemples;
     }
     resetGenerationWarnings();
     try {
@@ -886,6 +907,7 @@ figma.ui.onmessage = async (msg: {
       if (ai.generalDescription) opts.generalDescription = ai.generalDescription;
       if (ai.repetitionGroups) opts.repetitionGroups = ai.repetitionGroups;
       if (ai.anchorTargets) opts.anchorTargets = ai.anchorTargets;
+      if (ai.exemples) opts.exemples = ai.exemples;
     }
     resetGenerationWarnings();
     try {
@@ -919,6 +941,7 @@ figma.ui.onmessage = async (msg: {
       if (ai.generalDescription) opts.generalDescription = ai.generalDescription;
       if (ai.repetitionGroups) opts.repetitionGroups = ai.repetitionGroups;
       if (ai.anchorTargets) opts.anchorTargets = ai.anchorTargets;
+      if (ai.exemples) opts.exemples = ai.exemples;
     }
     resetGenerationWarnings();
     try {
@@ -1289,6 +1312,16 @@ async function buildSheets(target: DocTarget, options: DocOptions): Promise<Fram
     );
   }
 
+  if (options.exemple) {
+    sheets.push(
+      makeAdminSheet(
+        target,
+        "Exemple",
+        buildExemplesSection(target, ADMIN_CONTENT_WIDTH_DEFAULT, options.exemples)
+      )
+    );
+  }
+
   return sheets;
 }
 
@@ -1344,6 +1377,7 @@ function singleSectionOptions(section: string, options: DocOptions): DocOptions 
     layout: section === "Layout",
     anatomy: section === "Anatomie",
     tokens: section === "Design tokens",
+    exemple: section === "Exemple",
   };
   // For "Propriétés", keep variants in sync with the user's intent — the
   // matrix lives inside the props sheet and the original options.variants
@@ -4143,6 +4177,165 @@ function buildAnatomySection(
     includedLayers,
     opts
   );
+}
+
+// ─── Exemple : instances configurées dans un canvas ─────────────────────────
+
+const EXEMPLE_VISUAL_PADDING = 32;
+const EXEMPLE_GAP = 40;
+const EXEMPLE_MAX = 6;
+
+// French sample strings of increasing length — used by the mechanical fallback
+// to exercise short labels through to multi-line dense content.
+const EXEMPLE_SAMPLE_TEXTS = [
+  "Texte court",
+  "Un libellé de longueur moyenne pour cet exemple",
+  "Une phrase plus longue qui illustre le comportement du composant quand le contenu s'étend sur plusieurs mots et doit passer à la ligne.",
+  "Un contenu volontairement très long : il sert à vérifier le retour à la ligne, la troncature éventuelle et la robustesse de la mise en page du composant face à un texte dense occupant plusieurs lignes successives.",
+];
+
+// Map an LLM/mechanical scenario onto a fresh instance. Keys are stripped prop
+// names (or exact raw keys); values are coerced per prop type. INSTANCE_SWAP is
+// left untouched. Applied as one setProperties call, falling back to per-key
+// application so a single bad value doesn't void the whole scenario.
+function applyExempleProps(
+  inst: InstanceNode,
+  scenario: Record<string, string | boolean>,
+  byName: Map<string, PropInfo>,
+  byRawKey: Map<string, PropInfo>
+): void {
+  const payload: { [rawKey: string]: string | boolean } = {};
+  for (const k of Object.keys(scenario)) {
+    const info = byName.get(k) ?? byName.get(stripPropKey(k)) ?? byRawKey.get(k);
+    if (!info) continue;
+    const v = scenario[k];
+    if (info.type === "INSTANCE_SWAP") continue;
+    if (info.type === "BOOLEAN") {
+      const b =
+        v === true ||
+        (typeof v === "string" && /^(true|oui|yes|1|on)$/i.test(v.trim()));
+      payload[info.rawKey] = b;
+    } else if (info.type === "VARIANT") {
+      const s = String(v);
+      const opts = info.variantOptions ?? [];
+      if (opts.length === 0 || opts.indexOf(s) !== -1) payload[info.rawKey] = s;
+    } else if (info.type === "TEXT") {
+      payload[info.rawKey] = String(v);
+    }
+  }
+  const keys = Object.keys(payload);
+  if (keys.length === 0) return;
+  try {
+    inst.setProperties(payload);
+  } catch {
+    for (const rk of keys) {
+      try {
+        inst.setProperties({ [rk]: payload[rk] });
+      } catch {
+        /* skip this prop, keep the instance */
+      }
+    }
+  }
+}
+
+// Fallback when no LLM scenarios are available: vary the first VARIANT axis
+// (or toggle BOOLEANs) and fill TEXT props with sample strings of growing
+// length so the sheet still demonstrates real prop variations + text behavior.
+function buildMechanicalExemples(props: PropInfo[]): AiExemple[] {
+  if (props.length === 0) return [{ props: {} }];
+
+  const variantAxis = props.find(
+    (p) => p.type === "VARIANT" && (p.variantOptions?.length ?? 0) >= 2
+  );
+  const booleanProps = props.filter((p) => p.type === "BOOLEAN");
+  const textProps = props.filter((p) => p.type === "TEXT");
+
+  let count = 1;
+  if (variantAxis) count = Math.min(variantAxis.variantOptions!.length, 4);
+  else if (textProps.length > 0) count = 4;
+  else if (booleanProps.length > 0) count = 2;
+
+  const out: AiExemple[] = [];
+  for (let i = 0; i < count; i++) {
+    const scenario: Record<string, string | boolean> = {};
+    if (variantAxis) {
+      scenario[variantAxis.name] =
+        variantAxis.variantOptions![i % variantAxis.variantOptions!.length];
+    }
+    for (const bp of booleanProps) scenario[bp.name] = i % 2 === 0;
+    for (const tp of textProps) {
+      scenario[tp.name] = EXEMPLE_SAMPLE_TEXTS[i % EXEMPLE_SAMPLE_TEXTS.length];
+    }
+    out.push({ props: scenario });
+  }
+  return out;
+}
+
+// Build the "Exemple" sheet body: a single canvas (same visual styling as the
+// Anatomy visual area) with one configured instance per usage scenario,
+// stacked vertically and centered. LLM scenarios when available, otherwise the
+// mechanical fallback.
+function buildExemplesSection(
+  target: DocTarget,
+  contentW: number,
+  exemples?: AiExemple[]
+): SceneNode {
+  const base = getBaseComponent(target);
+  if (!base) return textFrame("Aucun composant à analyser.");
+
+  const props = extractProps(target);
+  const byName = new Map<string, PropInfo>();
+  const byRawKey = new Map<string, PropInfo>();
+  for (const p of props) {
+    byName.set(p.name, p);
+    byRawKey.set(p.rawKey, p);
+  }
+
+  const list =
+    exemples && exemples.length > 0
+      ? exemples.slice(0, EXEMPLE_MAX)
+      : buildMechanicalExemples(props);
+  if (list.length === 0) return textFrame("Aucun exemple à générer.");
+
+  const innerW = contentW - EXEMPLE_VISUAL_PADDING * 2;
+  const placed: { inst: InstanceNode; w: number; h: number; scale: number }[] = [];
+  for (const ex of list) {
+    const inst = base.createInstance();
+    if (ex.title) inst.name = ex.title;
+    applyExempleProps(inst, ex.props || {}, byName, byRawKey);
+    const scale = Math.min(1, innerW / inst.width);
+    placed.push({
+      inst,
+      w: inst.width * scale,
+      h: inst.height * scale,
+      scale,
+    });
+  }
+
+  let contentH = EXEMPLE_VISUAL_PADDING * 2;
+  for (let i = 0; i < placed.length; i++) {
+    contentH += placed[i].h;
+    if (i < placed.length - 1) contentH += EXEMPLE_GAP;
+  }
+  const totalH = Math.max(Math.round(contentH), ANATOMY_VISUAL_H_MIN);
+
+  const visual = figma.createFrame();
+  visual.name = "ExemplesVisual";
+  visual.resize(contentW, totalH);
+  visual.fills = [{ type: "SOLID", color: COLOR.refMatrixCardBg }];
+  visual.cornerRadius = 8;
+  visual.clipsContent = true;
+
+  // Center the stack vertically when the canvas was floored to its minimum.
+  let y = EXEMPLE_VISUAL_PADDING + Math.max(0, (totalH - contentH) / 2);
+  for (const p of placed) {
+    visual.appendChild(p.inst);
+    if (p.scale < 1) p.inst.rescale(p.scale);
+    p.inst.x = Math.round((contentW - p.w) / 2);
+    p.inst.y = Math.round(y);
+    y += p.h + EXEMPLE_GAP;
+  }
+  return visual;
 }
 
 function buildPdfAnatomyPage(
