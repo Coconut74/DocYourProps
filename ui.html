@@ -5979,14 +5979,14 @@
         "",
         "Correction automatique (champ \"fix\") — IMPORTANT :",
         "- Tu DOIS fournir un \"fix\" applicable pour CHAQUE écart qui porte sur le CONTENU d'un texte (wording, orthographe, terminologie, ton, ponctuation, casse) ou sur une PROPRIÉTÉ d'instance. Ne te contente pas de décrire : rends-le applicable.",
-        "- setText : pour corriger un texte, prends le \"nodeKey\" EXACT depuis la liste « TEXTES ÉDITABLES » (chaque ligne = nodeKey | chemin | contenu actuel). \"value\" = le texte corrigé COMPLET. C'est la liste de référence des textes, même ceux à l'intérieur de boutons/champs.",
-        "- setProps : pour changer une propriété d'une instance, prends \"nodeKey\" + le nom de propriété + la valeur EXACTS depuis la liste « COMPOSANTS PRÉSENTS » (pour une VARIANT, la valeur DOIT être l'une des options entre []). \"props\" = { nom de propriété : valeur }.",
+        "- setText : pour corriger un texte, prends le \"nodeKey\" EXACT depuis la liste « TEXTES ÉDITABLES » (chaque ligne = nodeKey | chemin | contenu actuel). \"value\" = le texte corrigé COMPLET. \"before\" = le contenu actuel EXACT (copié tel quel depuis la liste) — OBLIGATOIRE, il sert de repli si la clé a bougé.",
+        "- setProps : pour changer une propriété d'une instance, prends \"nodeKey\" + le nom de propriété + la valeur EXACTS depuis la liste « COMPOSANTS PRÉSENTS » (pour une VARIANT, la valeur DOIT être l'une des options entre []). \"props\" = { nom de propriété : valeur }. \"component\" = le nom EXACT du composant (depuis la liste) — OBLIGATOIRE, repli si la clé a bougé.",
         "- N'invente JAMAIS de nodeKey : utilise uniquement ceux fournis (TEXTES ÉDITABLES pour setText, STRUCTURE pour setProps). Si aucun nodeKey ne correspond, mets \"fix\": { \"type\": \"none\" }.",
         "- Réserve \"fix\": { \"type\": \"none\" } aux seuls écarts réellement non automatisables (purement visuels/structurels, ou ambigus).",
         "- \"solution\" reste TOUJOURS obligatoire et lisible, même quand un \"fix\" est fourni.",
         "",
         "Sortie : STRICTEMENT un objet JSON, RIEN d'autre (pas de texte, pas de backticks, pas de markdown).",
-        'Schéma exact : { "summary": string, "issues": [ { "severity": "Critique"|"Mineur", "title": string, "detail": string, "solution": string, "docSource": string, "fix"?: { "type": "setText", "nodeKey": string, "value": string } | { "type": "setProps", "nodeKey": string, "props": { <nom>: string|boolean } } | { "type": "none" } } ] }',
+        'Schéma exact : { "summary": string, "issues": [ { "severity": "Critique"|"Mineur", "title": string, "detail": string, "solution": string, "docSource": string, "fix"?: { "type": "setText", "nodeKey": string, "value": string, "before": string } | { "type": "setProps", "nodeKey": string, "props": { <nom>: string|boolean }, "component": string } | { "type": "none" } } ] }',
         "Rédige summary, title, detail, solution et docSource en français.",
       ].join("\n");
 
@@ -6716,7 +6716,7 @@
             if (unrecoverable) {
               btn.textContent = "Échec";
               btn.disabled = true;
-              status.textContent = message + " — relance l'analyse.";
+              status.textContent = message;
             } else {
               btn.textContent = "Réessayer";
               btn.disabled = false;

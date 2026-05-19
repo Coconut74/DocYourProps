@@ -414,9 +414,26 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             fail("screen-not-found", "L'écran analysé est introuvable. Relance l'analyse.");
             return;
         }
-        const target = resolveLayerByKey(root, msg.nodeKey);
+        let target = resolveLayerByKey(root, msg.nodeKey);
+        // Robust fallback when the index-path key drifts (LLM key off-by-one,
+        // structure truncation, stale capture): re-locate by captured content
+        // (setText) or component name (setProps) — only used if unambiguous.
+        if ((!target || (fix.type === "setText" && target.type !== "TEXT")) &&
+            fix.type === "setText" &&
+            typeof fix.before === "string") {
+            const t = findUniqueTextNodeByContent(root, fix.before);
+            if (t)
+                target = t;
+        }
+        if ((!target || (fix.type === "setProps" && target.type !== "INSTANCE")) &&
+            fix.type === "setProps" &&
+            typeof fix.component === "string") {
+            const inst = yield findUniqueInstanceByComponent(root, fix.component);
+            if (inst)
+                target = inst;
+        }
         if (!target) {
-            fail("node-not-found", "Le calque ciblé est introuvable — l'écran a été modifié depuis l'analyse. Relance l'analyse.");
+            fail("node-not-found", "Le calque ciblé est introuvable (clé + repli par contenu/composant infructueux). Relance l'analyse.");
             return;
         }
         // Locked guard: target or any ancestor up to the analyzed root.
@@ -4892,6 +4909,79 @@ function collectScreenComponents(root) {
         });
         yield recurse(root, 0, "");
         return out;
+    });
+}
+// Content fallback: when the index-path key fails (LLM key drift / stale
+// capture), find the TEXT node by its exact captured content. Returns the
+// node only if the match is unambiguous (exactly one).
+function findUniqueTextNodeByContent(root, content) {
+    const want = String(content || "").trim();
+    if (!want)
+        return null;
+    const matches = [];
+    const recurse = (node, depth) => {
+        if (depth > SCREEN_TEXT_DEPTH_MAX || matches.length > 1)
+            return;
+        if (node.type === "TEXT") {
+            if ((node.characters || "").trim() === want)
+                matches.push(node);
+            return;
+        }
+        if (!("children" in node))
+            return;
+        for (const c of node.children) {
+            if (c.visible === false)
+                continue;
+            recurse(c, depth + 1);
+            if (matches.length > 1)
+                return;
+        }
+    };
+    recurse(root, 0);
+    return matches.length === 1 ? matches[0] : null;
+}
+// Component fallback for setProps: locate the single instance whose main
+// component (or its set) matches the captured component name.
+function findUniqueInstanceByComponent(root, componentName) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const want = String(componentName || "").trim();
+        if (!want)
+            return null;
+        const instances = [];
+        const recurse = (node, depth) => {
+            if (depth > SCREEN_TEXT_DEPTH_MAX)
+                return;
+            if (!("children" in node))
+                return;
+            for (const c of node.children) {
+                if (c.visible === false)
+                    continue;
+                if (c.type === "INSTANCE")
+                    instances.push(c);
+                recurse(c, depth + 1);
+            }
+        };
+        recurse(root, 0);
+        let found = null;
+        for (const inst of instances) {
+            let name = inst.name;
+            try {
+                const mc = yield inst.getMainComponentAsync();
+                if (mc) {
+                    const inSet = mc.parent && mc.parent.type === "COMPONENT_SET";
+                    name = inSet ? mc.parent.name : mc.name;
+                }
+            }
+            catch (_a) {
+                /* fall back to layer name */
+            }
+            if (name.trim() === want) {
+                if (found)
+                    return null; // ambiguous
+                found = inst;
+            }
+        }
+        return found;
     });
 }
 const EXEMPLE_NESTED_MAX = 16;
