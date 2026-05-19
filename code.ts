@@ -82,6 +82,12 @@ type AiExemple = {
   // INSTANCE_SWAP choices: stripped prop name → candidate component display
   // name (one of exempleContext.swaps[*].options).
   swaps?: Record<string, string>;
+  // Overrides applied to nested component instances inside the component
+  // (e.g. a HelperText instance inside a Field). Keyed by the nested
+  // instance key (exempleContext.nestedInstances[*].key), then by that
+  // sub-component's stripped prop name → value (VARIANT/BOOLEAN/TEXT, or an
+  // INSTANCE_SWAP candidate name).
+  nested?: Record<string, Record<string, string | boolean>>;
 };
 
 // Context handed to the LLM so it can produce non-generic scenarios: the
@@ -89,9 +95,19 @@ type AiExemple = {
 // swap candidates per INSTANCE_SWAP prop.
 type AiExempleTextLayer = { key: string; name: string; text: string };
 type AiExempleSwapInfo = { name: string; options: string[] };
+// A nested component instance the LLM can also drive. `options` carries
+// VARIANT values or INSTANCE_SWAP candidate names when relevant.
+type AiNestedProp = { name: string; type: string; options?: string[] };
+type AiNestedInstance = {
+  key: string;
+  name: string;
+  component: string;
+  props: AiNestedProp[];
+};
 type AiExempleContext = {
   textLayers: AiExempleTextLayer[];
   swaps: AiExempleSwapInfo[];
+  nestedInstances: AiNestedInstance[];
 };
 
 // Persisted per-component config — restored when the user reselects a component.
@@ -4202,7 +4218,9 @@ function buildAnatomySection(
 
 const EXEMPLE_VISUAL_PADDING = 32;
 const EXEMPLE_GAP = 40;
-const EXEMPLE_MAX = 6;
+// Always render 4 examples — and they must be diversified.
+const EXEMPLE_COUNT = 4;
+const EXEMPLE_MAX = EXEMPLE_COUNT;
 
 // French sample strings of increasing length — used by the mechanical fallback
 // to exercise short labels through to multi-line dense content.
@@ -4265,30 +4283,28 @@ function applyExempleProps(
 // (or toggle BOOLEANs) and fill TEXT props with sample strings of growing
 // length so the sheet still demonstrates real prop variations + text behavior.
 function buildMechanicalExemples(props: PropInfo[]): AiExemple[] {
-  if (props.length === 0) return [{ props: {} }];
-
   const variantAxis = props.find(
     (p) => p.type === "VARIANT" && (p.variantOptions?.length ?? 0) >= 2
   );
   const booleanProps = props.filter((p) => p.type === "BOOLEAN");
   const textProps = props.filter((p) => p.type === "TEXT");
 
-  let count = 1;
-  if (variantAxis) count = Math.min(variantAxis.variantOptions!.length, 4);
-  else if (textProps.length > 0) count = 4;
-  else if (booleanProps.length > 0) count = 2;
-
+  // Always EXEMPLE_COUNT scenarios, diversified: rotate the variant axis,
+  // flip each boolean on an independent bit, and rotate the sample texts.
   const out: AiExemple[] = [];
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < EXEMPLE_COUNT; i++) {
     const scenario: Record<string, string | boolean> = {};
     if (variantAxis) {
       scenario[variantAxis.name] =
         variantAxis.variantOptions![i % variantAxis.variantOptions!.length];
     }
-    for (const bp of booleanProps) scenario[bp.name] = i % 2 === 0;
-    for (const tp of textProps) {
-      scenario[tp.name] = EXEMPLE_SAMPLE_TEXTS[i % EXEMPLE_SAMPLE_TEXTS.length];
-    }
+    booleanProps.forEach((bp, j) => {
+      scenario[bp.name] = ((i >> j) & 1) === 0;
+    });
+    textProps.forEach((tp, j) => {
+      scenario[tp.name] =
+        EXEMPLE_SAMPLE_TEXTS[(i + j) % EXEMPLE_SAMPLE_TEXTS.length];
+    });
     out.push({ props: scenario });
   }
   return out;
@@ -4374,7 +4390,18 @@ async function buildExemplesSection(
       }
     }
 
-    // Internal TEXT layer overrides (key → new content).
+    // Nested component-instance overrides (a HelperText inside a Field, …).
+    if (ex.nested) {
+      for (const nestedKey of Object.keys(ex.nested)) {
+        const n = resolveLayerByKey(inst, nestedKey);
+        if (n && n.type === "INSTANCE") {
+          await applyNestedInstanceProps(n as InstanceNode, ex.nested[nestedKey]);
+        }
+      }
+    }
+
+    // Internal TEXT layer overrides (key → new content). Applied last so an
+    // explicit text override wins over a nested-instance text property.
     if (ex.texts) {
       for (const layerKey of Object.keys(ex.texts)) {
         const node = resolveLayerByKey(inst, layerKey);
@@ -5568,24 +5595,169 @@ function collectInstanceTextLayers(
   return out;
 }
 
+const EXEMPLE_NESTED_MAX = 16;
+
+type NestedSnapshot = {
+  key: string;
+  name: string;
+  mc: ComponentNode | null;
+  cp: { [rawKey: string]: { type: string } };
+};
+
+// Walk a probe instance collecting nested component INSTANCEs (e.g. a
+// HelperText instance inside a Field) with their stable index-path key and a
+// snapshot of their component-property types. Descends into nested instances
+// too. Snapshots are taken before the probe is disposed.
+function collectNestedInstances(root: InstanceNode): NestedSnapshot[] {
+  const out: NestedSnapshot[] = [];
+  const recurse = (node: SceneNode, depth: number, parentKey: string): void => {
+    if (depth > EXEMPLE_TEXT_DEPTH_MAX) return;
+    if (!("children" in node)) return;
+    const cont = node as ChildrenMixin & SceneNode;
+    for (let i = 0; i < cont.children.length; i++) {
+      if (out.length >= EXEMPLE_NESTED_MAX) return;
+      const c = cont.children[i];
+      if (c.visible === false) continue;
+      const key = parentKey ? `${parentKey}/${i}` : String(i);
+      if (c.type === "INSTANCE") {
+        const inst = c as InstanceNode;
+        const cpRaw = inst.componentProperties || {};
+        const cp: { [k: string]: { type: string } } = {};
+        for (const pk of Object.keys(cpRaw)) {
+          cp[pk] = { type: (cpRaw as Record<string, { type: string }>)[pk].type };
+        }
+        out.push({ key, name: inst.name, mc: inst.mainComponent, cp });
+      }
+      if ("children" in c) recurse(c, depth + 1, key);
+    }
+  };
+  recurse(root, 0, "");
+  return out;
+}
+
+async function buildNestedInstanceInfos(
+  snaps: NestedSnapshot[]
+): Promise<AiNestedInstance[]> {
+  const res: AiNestedInstance[] = [];
+  for (const s of snaps) {
+    const mc = s.mc;
+    if (!mc) continue;
+    const inSet = mc.parent && mc.parent.type === "COMPONENT_SET";
+    const componentName = inSet ? (mc.parent as ComponentSetNode).name : mc.name;
+    const defsHost: DocTarget = inSet
+      ? (mc.parent as ComponentSetNode)
+      : mc;
+    const defs = defsHost.componentPropertyDefinitions;
+    const swapNames = await resolveInstanceSwapNames(defs);
+    const props: AiNestedProp[] = [];
+    for (const pk of Object.keys(s.cp)) {
+      const type = s.cp[pk].type;
+      const name = stripPropKey(pk);
+      if (type === "VARIANT") {
+        const d = defs[pk] ?? defs[name];
+        props.push({ name, type, options: d?.variantOptions });
+      } else if (type === "INSTANCE_SWAP") {
+        const opts = swapNames.get(pk) ?? swapNames.get(name);
+        props.push({ name, type, options: opts });
+      } else {
+        props.push({ name, type });
+      }
+    }
+    if (props.length > 0) {
+      res.push({ key: s.key, name: s.name, component: componentName, props });
+    }
+  }
+  return res;
+}
+
+// Apply LLM-chosen overrides on a nested component instance. Maps the
+// sub-component's stripped prop names to its raw keys, coerces per type, and
+// resolves INSTANCE_SWAP candidate names to component ids.
+async function applyNestedInstanceProps(
+  node: InstanceNode,
+  scenario: Record<string, string | boolean>
+): Promise<void> {
+  const cp = node.componentProperties || {};
+  const byName = new Map<string, { rawKey: string; type: string }>();
+  for (const rk of Object.keys(cp)) {
+    byName.set(stripPropKey(rk), {
+      rawKey: rk,
+      type: (cp as Record<string, { type: string }>)[rk].type,
+    });
+  }
+  const mc = node.mainComponent;
+  const defsHost: DocTarget | null =
+    mc && mc.parent && mc.parent.type === "COMPONENT_SET"
+      ? (mc.parent as ComponentSetNode)
+      : mc;
+  let swapResolver: Map<
+    string,
+    { rawKey: string; byName: Map<string, string> }
+  > | null = null;
+  const payload: { [rawKey: string]: string | boolean } = {};
+  for (const propName of Object.keys(scenario)) {
+    const info = byName.get(propName) ?? byName.get(stripPropKey(propName));
+    if (!info) continue;
+    const v = scenario[propName];
+    if (info.type === "BOOLEAN") {
+      payload[info.rawKey] =
+        v === true ||
+        (typeof v === "string" && /^(true|oui|yes|1|on)$/i.test(v.trim()));
+    } else if (info.type === "INSTANCE_SWAP") {
+      if (!swapResolver && defsHost) {
+        swapResolver = await buildSwapResolver(
+          defsHost.componentPropertyDefinitions
+        );
+      }
+      const r = swapResolver
+        ? swapResolver.get(propName) ?? swapResolver.get(info.rawKey)
+        : undefined;
+      if (r) {
+        const id = r.byName.get(String(v));
+        if (id) payload[info.rawKey] = id;
+      }
+    } else {
+      // VARIANT or TEXT
+      payload[info.rawKey] = String(v);
+    }
+  }
+  const keys = Object.keys(payload);
+  if (keys.length === 0) return;
+  try {
+    node.setProperties(payload);
+  } catch {
+    for (const rk of keys) {
+      try {
+        node.setProperties({ [rk]: payload[rk] });
+      } catch {
+        /* skip this prop, keep the nested instance */
+      }
+    }
+  }
+}
+
 async function buildExempleContext(
   target: DocTarget
 ): Promise<AiExempleContext> {
   const base = getBaseComponent(target);
-  if (!base) return { textLayers: [], swaps: [] };
+  if (!base) return { textLayers: [], swaps: [], nestedInstances: [] };
 
   let textLayers: AiExempleTextLayer[] = [];
+  let nestedSnaps: NestedSnapshot[] = [];
   try {
     const probe = base.createInstance();
     textLayers = collectInstanceTextLayers(probe);
+    nestedSnaps = collectNestedInstances(probe);
     probe.remove();
   } catch {
     textLayers = [];
+    nestedSnaps = [];
   }
 
-  const swapNames = await resolveInstanceSwapNames(
-    target.componentPropertyDefinitions
-  );
+  const [swapNames, nestedInstances] = await Promise.all([
+    resolveInstanceSwapNames(target.componentPropertyDefinitions),
+    buildNestedInstanceInfos(nestedSnaps),
+  ]);
   const swaps: AiExempleSwapInfo[] = [];
   for (const rawKey of swapNames.keys()) {
     const options = swapNames.get(rawKey) ?? [];
@@ -5593,7 +5765,7 @@ async function buildExempleContext(
       swaps.push({ name: stripPropKey(rawKey), options });
     }
   }
-  return { textLayers, swaps };
+  return { textLayers, swaps, nestedInstances };
 }
 
 // Resolve INSTANCE_SWAP candidate display names to component ids, keyed by

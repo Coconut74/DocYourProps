@@ -4743,6 +4743,7 @@
         "- documentation : arbre reading-order des frames de doc liées, images PNG si fournies.",
         "- exempleContext.textLayers : calques texte ÉDITABLES de l'instance — chaque entrée { key, name, text } (key = chemin d'index stable, text = contenu actuel, souvent un placeholder type \"Label\" / \"0\").",
         "- exempleContext.swaps : pour chaque prop INSTANCE_SWAP, { name, options } — la liste des composants échangeables disponibles (noms exacts).",
+        "- exempleContext.nestedInstances : sous-composants imbriqués que tu peux AUSSI piloter (ex. une instance HelperText dans un Field). Chaque entrée { key, name, component, props } où props = [{ name, type, options? }] (options = valeurs VARIANT ou noms de composants pour INSTANCE_SWAP).",
         "",
         "Tu réponds UNIQUEMENT avec un objet JSON strict — pas de Markdown, pas de backticks, pas de préambule :",
         "",
@@ -4756,7 +4757,8 @@
         '      "titre": "Nom court du cas d\'usage",',
         '      "props": { "<nomDeProp>": <valeur> },',
         '      "texts": { "<keyDuCalque>": "Contenu réaliste à afficher" },',
-        '      "swaps": { "<nomPropInstanceSwap>": "<nomComposantChoisi>" }',
+        '      "swaps": { "<nomPropInstanceSwap>": "<nomComposantChoisi>" },',
+        '      "nested": { "<keyInstanceImbriquée>": { "<nomPropSousComposant>": <valeur> } }',
         "    }",
         "  ]",
         "}",
@@ -4771,7 +4773,8 @@
         "- Pas d'invention : si une info manque, reste générique.",
         "- Si le composant n'a aucune propriété, propDescriptions = {}.",
         "",
-        "exemples : 3 à 6 scénarios d'usage RÉALISTES et variés du composant (pas une simple matrice de variantes).",
+        "exemples : TOUJOURS EXACTEMENT 4 scénarios d'usage RÉALISTES et FORTEMENT DIVERSIFIÉS (jamais 3, jamais 5 ; pas une simple matrice de variantes).",
+        "- Les 4 scénarios doivent couvrir des cas d'usage NETTEMENT différents les uns des autres (états, contextes, longueurs de contenu, sous-composants) — deux scénarios quasi identiques sont interdits.",
         "- Quand la documentation Figma liée existe, c'est TA SOURCE PRINCIPALE : ne propose QUE des cas d'usage réellement décrits / montrés / recommandés par cette doc, en respectant ses règles et ses combinaisons d'états.",
         "- N'invente JAMAIS un scénario qui n'est pas censé exister : pas de combinaison interdite, contradictoire ou absurde (ex. un état désactivé avec un état de chargement, deux modes mutuellement exclusifs activés ensemble, un libellé là où la doc dit qu'il n'y en a pas).",
         "- Si la doc indique ou laisse entendre qu'une combinaison de props ne doit pas se faire, exclus-la.",
@@ -4789,9 +4792,14 @@
         "swaps (quand exempleContext.swaps n'est pas vide) :",
         "- Choisis, par scénario, le composant le plus pertinent pour le cas d'usage parmi exempleContext.swaps[*].options (nom EXACT). Omets la clé pour garder le défaut.",
         "",
+        "nested (quand exempleContext.nestedInstances n'est pas vide) :",
+        "- Pilote AUSSI les sous-composants imbriqués pertinents (ex. le HelperText d'un Field) : la clé externe est exactement `key` de nestedInstances, puis { nomProp: valeur } en suivant les `props` (et `options`) déclarés pour ce sous-composant.",
+        "- VARIANT/INSTANCE_SWAP imbriqués : valeur EXACTE prise dans `options`. BOOLEAN : true/false. TEXT imbriqué : contenu réaliste (jamais le placeholder).",
+        "- Sers-toi des sous-composants pour différencier les scénarios (ex. un scénario avec helper d'aide, un avec message d'erreur, un sans).",
+        "",
         "- Tu peux omettre une prop d'un scénario : elle gardera sa valeur par défaut.",
-        "- En cas de doute sur la pertinence d'un scénario, ne le produis pas : mieux vaut 3 exemples sûrs et concrets que 6 douteux ou génériques.",
-        "- Si le composant n'a aucune propriété ni calque texte exploitable, exemples = [].",
+        "- Tu DOIS toujours renvoyer 4 scénarios sûrs, concrets, valides et distincts (jamais génériques). Si peu de props sont exploitables, diversifie via les textes et les sous-composants.",
+        "- Si le composant n'a vraiment aucune propriété, aucun calque texte ni sous-composant exploitable, exemples = [].",
       ].join("\n");
 
       // Coerce the LLM's `exemples` payload into [{ title, props }]. Tolerates
@@ -4821,6 +4829,21 @@
           };
           const texts = cleanStrMap(e.texts);
           const swaps = cleanStrMap(e.swaps);
+          // nested: { "<nestedKey>": { "<propName>": value } }
+          const nested = {};
+          if (e.nested && typeof e.nested === "object") {
+            for (const nk of Object.keys(e.nested)) {
+              const sub = e.nested[nk];
+              if (!sub || typeof sub !== "object") continue;
+              const m = {};
+              for (const pk of Object.keys(sub)) {
+                const v = sub[pk];
+                if (typeof v === "string" || typeof v === "boolean") m[pk] = v;
+                else if (typeof v === "number") m[pk] = String(v);
+              }
+              if (Object.keys(m).length > 0) nested[nk] = m;
+            }
+          }
           const title =
             typeof e.titre === "string"
               ? e.titre
@@ -4831,9 +4854,10 @@
           if (title) entry.title = title;
           if (Object.keys(texts).length > 0) entry.texts = texts;
           if (Object.keys(swaps).length > 0) entry.swaps = swaps;
+          if (Object.keys(nested).length > 0) entry.nested = nested;
           out.push(entry);
         }
-        return out.slice(0, 6);
+        return out.slice(0, 4);
       }
 
       const REPETITION_VERIFY_SYSTEM_PROMPT = [
