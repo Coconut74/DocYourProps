@@ -4765,12 +4765,16 @@
         "- Si le composant n'a aucune propriété, propDescriptions = {}.",
         "",
         "exemples : 3 à 6 scénarios d'usage RÉALISTES et variés du composant (pas une simple matrice de variantes).",
+        "- Quand la documentation Figma liée existe, c'est TA SOURCE PRINCIPALE : ne propose QUE des cas d'usage réellement décrits / montrés / recommandés par cette doc, en respectant ses règles et ses combinaisons d'états.",
+        "- N'invente JAMAIS un scénario qui n'est pas censé exister : pas de combinaison interdite, contradictoire ou absurde (ex. un état désactivé avec un état de chargement, deux modes mutuellement exclusifs activés ensemble, un libellé là où la doc dit qu'il n'y en a pas).",
+        "- Si la doc indique ou laisse entendre qu'une combinaison de props ne doit pas se faire, exclus-la.",
         "- Chaque scénario : un \"titre\" court + un objet \"props\" associant des noms de props à des valeurs concrètes.",
-        "- VARIANT : utilise EXACTEMENT une des valeurs listées dans metadata.variants[*].properties (sensible à la casse).",
+        "- VARIANT : utilise EXACTEMENT une des valeurs listées dans metadata.variants[*].properties (sensible à la casse). Pour un set de variants, l'ensemble des valeurs VARIANT d'un scénario doit correspondre à une combinaison qui existe réellement dans metadata.variants — sinon n'inclus pas ce scénario.",
         "- BOOLEAN : true ou false.",
         "- TEXT : un vrai contenu en français, plausible pour le composant ; varie les longueurs — au moins un exemple avec un texte long (plusieurs phrases) pour montrer le retour à la ligne.",
         "- N'inclus PAS les props INSTANCE_SWAP.",
         "- Tu peux omettre une prop d'un scénario : elle gardera sa valeur par défaut.",
+        "- En cas de doute sur la pertinence d'un scénario, ne le produis pas : mieux vaut 3 exemples sûrs que 6 douteux.",
         "- Si le composant n'a aucune propriété exploitable, exemples = [].",
       ].join("\n");
 
