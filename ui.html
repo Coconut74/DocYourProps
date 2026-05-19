@@ -4726,15 +4726,15 @@
       ].join("\n");
 
       const ANCHOR_REVIEW_SYSTEM_PROMPT = [
-        "Tu places des annotations (badges + ligne de rappel) sur un composant Figma. Pour chaque ancre, la ligne doit pointer l'élément RÉELLEMENT VISIBLE que l'ancre désigne, pas un conteneur transparent.",
+        "Tu places des annotations (badges + ligne de rappel) sur un composant Figma. Pour chaque ancre, la ligne doit pointer l'élément RÉELLEMENT VISIBLE à l'écran que l'ancre désigne, jamais une zone transparente ni un conteneur pleine largeur quasi vide.",
         "",
-        "Tu reçois { anatomy:[...], tokens:[...] }. Chaque entrée : { anchorKey, candidates:[{ key, name, type, x, y, w, h, text?, paint, stroke }] }.",
-        "candidates[0] est le nœud documenté ; les suivants sont ses descendants. x/y/w/h sont en px (repère composant). paint/stroke = le nœud peint un fond/bordure visible ; text = contenu textuel.",
+        "On te fournit UNE ou DEUX images : la 1re = rendu du composant pour l'anatomie, la 2nde (si présente) = rendu pour les tokens. Tu reçois aussi un JSON { anatomy:[...], tokens:[...] } ; chaque entrée : { anchorKey, candidates:[{ key, name, type, x, y, w, h, text?, paint, stroke }] }.",
+        "candidates[0] est le nœud documenté ; les suivants sont ses descendants. x/y/w/h sont en UNITÉS COMPOSANT, origine = coin haut-gauche du composant ; l'image couvre tout le composant (donc px_image ≈ unité × échelle). paint/stroke = le nœud peint un fond/bordure visible ; text = son contenu textuel.",
         "",
-        "Pour chaque ancre, choisis la key du candidat dont la boîte représente le mieux l'élément visible :",
-        "- préfère un nœud qui peint vraiment (paint/stroke) ou du texte ;",
-        "- ÉVITE les conteneurs larges quasi vides (ex. ligne auto-layout pleine largeur transparente) dont le centre tombe dans le vide ;",
-        "- privilégie la boîte la plus serrée autour du contenu visible (icône/contrôle/texte).",
+        "Méthode : REGARDE l'image. Pour chaque ancre, repère où se trouve l'élément visible concerné, puis choisis la `key` du candidat dont la boîte (x,y,w,h) recouvre le mieux CET élément visible :",
+        "- préfère l'icône / le contrôle / le texte réellement peint à l'écran ;",
+        "- rejette toute boîte dont la zone correspondante de l'image est vide/transparente (typique : ligne auto-layout pleine largeur) ;",
+        "- privilégie la boîte la plus serrée autour du contenu visible.",
         "",
         "Réponds STRICTEMENT en JSON, sans texte ni Markdown ni backticks :",
         '{ "anchors": [ { "anchorKey": string, "targetKey": string } ] }',
@@ -5299,18 +5299,33 @@
           }, 8000);
         });
 
-        const entries = []
-          .concat(Array.isArray(data.anatomy) ? data.anatomy : [])
-          .concat(Array.isArray(data.tokens) ? data.tokens : []);
+        // New shape: { anatomy:{items,image}, tokens:{items,image} }.
+        // Back-compat: accept the old plain-array shape too.
+        const sectionItems = (sec) =>
+          Array.isArray(sec) ? sec : sec && Array.isArray(sec.items) ? sec.items : [];
+        const sectionImage = (sec) =>
+          sec && !Array.isArray(sec) && sec.image ? sec.image : null;
+        const anatomyItems = sectionItems(data.anatomy);
+        const tokenItems = sectionItems(data.tokens);
+        const entries = [].concat(anatomyItems).concat(tokenItems);
         if (entries.length === 0) {
           aiState.anchorTargets = null;
           return;
         }
+        const images = [
+          sectionImage(data.anatomy),
+          sectionImage(data.tokens),
+        ]
+          .filter((im) => im && im.base64)
+          .map((im) => ({ mediaType: im.mediaType || "image/png", base64: im.base64 }));
         try {
           const { text, usage } = await callLlm({
             systemPrompt: ANCHOR_REVIEW_SYSTEM_PROMPT,
-            userText: JSON.stringify(data),
-            images: null,
+            userText: JSON.stringify({
+              anatomy: anatomyItems,
+              tokens: tokenItems,
+            }),
+            images: images.length > 0 ? images : null,
           });
           addAiGenUsage(usage);
           const parsed = parseLlmJson(text);
