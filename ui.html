@@ -4996,6 +4996,17 @@
       }
       function aiNeedsAnalysis() {
         if (!aiState.propDescriptions) return true;
+        // The Exemple sheet is AI-orchestrated: when it's requested but the
+        // cache has no scenarios yet, re-run so the LLM decides what to show
+        // (rather than silently dropping to the mechanical fallback).
+        const exempleOn = document.getElementById("opt-exemple");
+        if (
+          exempleOn &&
+          exempleOn.checked &&
+          (!aiState.exemples || aiState.exemples.length === 0)
+        ) {
+          return true;
+        }
         return aiCacheKey(aiState.linkedDocFrameIds) !== aiCacheKey(aiState.analyzedDocFrameIds);
       }
 
