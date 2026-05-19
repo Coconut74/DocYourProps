@@ -2185,6 +2185,11 @@
             <div class="layer-list" id="anatomy-layers-list"></div>
           </div>
         </div>
+        <label class="slot-opt" for="anatomy-include-slots" style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;">
+          <input type="checkbox" id="anatomy-include-slots" />
+          <span>Annoter les calques « Slot » (emplacements d'instance)</span>
+        </label>
+        <div class="hint">Désactivé par défaut — les slots sont des emplacements vides, leurs pointeurs sont du bruit.</div>
       </div>
 
       <div class="settings-footer">
@@ -2432,6 +2437,9 @@
       let availableTokensAuto = [];
       let tokensLayerFetchSeq = 0;
       let anatomyConfigured = false;
+      let anatomyIncludeSlots = false; // OFF by default
+      let pendingAnatomyIncludeSlots = null; // set during settings edit
+      const anatomyIncludeSlotsEl = document.getElementById("anatomy-include-slots");
       let tokensConfigured = false;
 
       // ── AI state (Phase C — Documentation technique) ──────────────────────
@@ -2778,6 +2786,7 @@
         availableAnatomyTree = [];
         availableAnatomyAuto = [];
         anatomyConfigured = false;
+        anatomyIncludeSlots = false;
         tokenVariant = {};
         tokenIncludedLayers = null;
         availableTokensTree = [];
@@ -3550,6 +3559,9 @@
         }
         pendingAnatomyIncludedLayers = undefined;
         pendingAnatomyIncludedTouched = false;
+        pendingAnatomyIncludeSlots = anatomyIncludeSlots;
+        if (anatomyIncludeSlotsEl)
+          anatomyIncludeSlotsEl.checked = anatomyIncludeSlots;
         // Default both panels: combo expanded, layers collapsed.
         anatomyComboCollapse.classList.remove("collapsed");
         anatomyLayersCollapse.classList.add("collapsed");
@@ -3575,10 +3587,13 @@
             );
           }
         }
+        if (anatomyIncludeSlotsEl)
+          anatomyIncludeSlots = !!anatomyIncludeSlotsEl.checked;
         anatomyConfigured = true;
         pendingAnatomyVariant = null;
         pendingAnatomyIncludedLayers = undefined;
         pendingAnatomyIncludedTouched = false;
+        pendingAnatomyIncludeSlots = null;
         updateAnatomyGearDot();
         showView("main");
       }
@@ -3587,6 +3602,7 @@
         pendingAnatomyVariant = null;
         pendingAnatomyIncludedLayers = undefined;
         pendingAnatomyIncludedTouched = false;
+        pendingAnatomyIncludeSlots = null;
         showView("main");
       }
 
@@ -4050,6 +4066,7 @@
           tokenIncludedLayers = null;
         }
         anatomyConfigured = saved.anatomyConfigured === true;
+        anatomyIncludeSlots = saved.includeSlots === true;
         tokensConfigured = saved.tokensConfigured === true;
         updateGearDot();
         updateAnatomyGearDot();
@@ -4321,6 +4338,7 @@
           tokenIncludedLayers: tokenIncludedLayers === null ? undefined : tokenIncludedLayers.slice(),
           anatomyConfigured: anatomyConfigured,
           tokensConfigured: tokensConfigured,
+          includeSlots: anatomyIncludeSlots,
           groupBy: groupByOrder.slice(),
           // Drop empty rules (no conditions selected)
           excludeRules: exclusionRules
@@ -4519,6 +4537,7 @@
         anatomyVariant = {};
         anatomyIncludedLayers = null;
         anatomyConfigured = false;
+        anatomyIncludeSlots = false;
         tokenVariant = {};
         tokenIncludedLayers = null;
         tokensConfigured = false;
@@ -5284,6 +5303,7 @@
                   tokenIncludedLayers === null
                     ? undefined
                     : tokenIncludedLayers.slice(),
+                includeSlots: anatomyIncludeSlots,
               },
             },
             "*"
