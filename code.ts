@@ -3004,7 +3004,7 @@ const ANATOMY_VISUAL_RATIO = 0.55; // visual area takes ~55% of content width
 const ANATOMY_VISUAL_H_MIN = 240;
 const ANATOMY_VISUAL_PADDING = 24;
 const ANATOMY_CALLOUT_GAP = 32; // space between visual right edge and the badge column
-const ANATOMY_BADGE_SIZE = 24;
+const ANATOMY_BADGE_SIZE = 18;
 const ANATOMY_NAME_FONT_SIZE = 13;
 const ANATOMY_NAME_LINE_HEIGHT = 18;
 // Vibrant purple — picked to contrast strongly with primary-blue components
@@ -3013,12 +3013,13 @@ const ANATOMY_ACCENT_COLOR = "#A020F0";
 const ANATOMY_MAX_LAYERS = 12;
 const ANATOMY_MAX_DEPTH = 4;
 // Pin placement (badge + leader line) — used by buildPinnedVisualBlock.
-const ANATOMY_PIN_LAYER_PADDING = 6; // min gap between badge and any layer bbox
-const ANATOMY_PIN_BADGE_GAP = 8; // min gap between two badges (edge-to-edge)
-const ANATOMY_PIN_RING_STEP = 12;
-const ANATOMY_PIN_MAX_RINGS = 12;
+const ANATOMY_PIN_LAYER_PADDING = 18; // min gap badge↔layer; also pushes badges
+// out so leaders have a visible, clean elbow instead of a tangled stub.
+const ANATOMY_PIN_BADGE_GAP = 14; // min gap between two badges (edge-to-edge)
+const ANATOMY_PIN_RING_STEP = 14;
+const ANATOMY_PIN_MAX_RINGS = 16;
 const ANATOMY_PIN_DIRECTIONS = 16;
-const ANATOMY_PIN_SEARCH_MARGIN = 80; // how far outside the component pins may extend
+const ANATOMY_PIN_SEARCH_MARGIN = 120; // how far outside the component pins may extend
 const ANATOMY_LEADER_WEIGHT = 1.5;
 const ANATOMY_LEADER_DOT_R = 3.5;
 
@@ -3550,10 +3551,7 @@ function makeLeaderLine(x1: number, y1: number, x2: number, y2: number): Rectang
   line.resize(len, ANATOMY_LEADER_WEIGHT);
   line.cornerRadius = ANATOMY_LEADER_WEIGHT / 2;
   line.fills = [{ type: "SOLID", color: hex(ANATOMY_ACCENT_COLOR) }];
-  // Thin white halo so the leader reads on any background.
-  line.strokes = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
-  line.strokeWeight = 1;
-  line.strokeAlign = "OUTSIDE";
+  line.strokes = [];
   // Offset by half the leader thickness perpendicular to its direction so the
   // rectangle's centerline sits on the (x1,y1)→(x2,y2) path.
   const perpX = -Math.sin(rad) * (ANATOMY_LEADER_WEIGHT / 2);
@@ -3605,7 +3603,7 @@ function makeAnnotationBadge(n: number, size: number): FrameNode {
 
   const t = figma.createText();
   t.fontName = FONT.bodyMed;
-  t.fontSize = size <= 20 ? 11 : 12;
+  t.fontSize = size <= 18 ? 10 : size <= 22 ? 11 : 12;
   t.lineHeight = { value: size, unit: "PIXELS" };
   t.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
   t.characters = String(n);
@@ -3983,13 +3981,28 @@ function buildPinnedVisualBlock(
         cx2 = badgeCX;
         cy2 = tipPt.y;
       }
+      // Pull the dot just OUTSIDE the element edge along the final segment so
+      // it kisses the border instead of sitting on the glyphs/content.
+      let ex = tipPt.x;
+      let ey = tipPt.y;
+      let ax = tipPt.x - cx2;
+      let ay = tipPt.y - cy2;
+      let al = Math.sqrt(ax * ax + ay * ay);
+      if (al < 1e-6) {
+        ax = tipPt.x - badgeCX;
+        ay = tipPt.y - badgeCY;
+        al = Math.max(1e-6, Math.sqrt(ax * ax + ay * ay));
+      }
+      const back = ANATOMY_LEADER_DOT_R + 1;
+      ex = tipPt.x - (ax / al) * back;
+      ey = tipPt.y - (ay / al) * back;
       const seg = (x1: number, y1: number, x2: number, y2: number): void => {
         if (Math.abs(x2 - x1) + Math.abs(y2 - y1) < 1) return;
         visual.appendChild(makeLeaderLine(x1, y1, x2, y2));
       };
       seg(sx, sy, cx2, cy2);
-      seg(cx2, cy2, tipPt.x, tipPt.y);
-      visual.appendChild(makeLeaderDot(tipPt.x, tipPt.y));
+      seg(cx2, cy2, ex, ey);
+      visual.appendChild(makeLeaderDot(ex, ey));
     }
   }
   for (let i = 0; i < placements.length; i++) {
