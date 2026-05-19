@@ -4202,7 +4202,8 @@ function applyExempleProps(
   inst: InstanceNode,
   scenario: Record<string, string | boolean>,
   byName: Map<string, PropInfo>,
-  byRawKey: Map<string, PropInfo>
+  byRawKey: Map<string, PropInfo>,
+  skipVariant: boolean
 ): void {
   const payload: { [rawKey: string]: string | boolean } = {};
   for (const k of Object.keys(scenario)) {
@@ -4210,6 +4211,9 @@ function applyExempleProps(
     if (!info) continue;
     const v = scenario[k];
     if (info.type === "INSTANCE_SWAP") continue;
+    // VARIANT already locked-in by instantiating the matching variant child
+    // (validated against the real combinations) — don't re-apply it here.
+    if (info.type === "VARIANT" && skipVariant) continue;
     if (info.type === "BOOLEAN") {
       const b =
         v === true ||
@@ -4297,12 +4301,37 @@ function buildExemplesSection(
       : buildMechanicalExemples(props);
   if (list.length === 0) return textFrame("Aucun exemple à générer.");
 
+  const isSet = target.type === "COMPONENT_SET";
   const innerW = contentW - EXEMPLE_VISUAL_PADDING * 2;
   const placed: { inst: InstanceNode; w: number; h: number; scale: number }[] = [];
   for (const ex of list) {
-    const inst = base.createInstance();
+    const scenario = ex.props || {};
+
+    // Resolve the VARIANT axes the scenario pins down (valid option values
+    // only). For a COMPONENT_SET, the full VARIANT combination must map to an
+    // existing variant child — otherwise the scenario describes a state that
+    // isn't supposed to exist, so we drop it entirely rather than render a
+    // mismatched instance.
+    const variantSel: VariantSelection = {};
+    for (const k of Object.keys(scenario)) {
+      const info = byName.get(k) ?? byName.get(stripPropKey(k)) ?? byRawKey.get(k);
+      if (info && info.type === "VARIANT") {
+        const s = String(scenario[k]);
+        const opts = info.variantOptions ?? [];
+        if (opts.length === 0 || opts.indexOf(s) !== -1) variantSel[info.name] = s;
+      }
+    }
+
+    let source: ComponentNode | null = base;
+    const usedVariantChild = isSet && Object.keys(variantSel).length > 0;
+    if (usedVariantChild) {
+      source = findVariantBySelection(target as ComponentSetNode, variantSel);
+      if (!source) continue; // impossible combination → skip this exemple
+    }
+
+    const inst = source.createInstance();
     if (ex.title) inst.name = ex.title;
-    applyExempleProps(inst, ex.props || {}, byName, byRawKey);
+    applyExempleProps(inst, scenario, byName, byRawKey, usedVariantChild);
     const scale = Math.min(1, innerW / inst.width);
     placed.push({
       inst,
@@ -4311,6 +4340,7 @@ function buildExemplesSection(
       scale,
     });
   }
+  if (placed.length === 0) return textFrame("Aucun exemple valide à générer.");
 
   let contentH = EXEMPLE_VISUAL_PADDING * 2;
   for (let i = 0; i < placed.length; i++) {

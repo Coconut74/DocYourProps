@@ -3504,7 +3504,7 @@ const EXEMPLE_SAMPLE_TEXTS = [
 // names (or exact raw keys); values are coerced per prop type. INSTANCE_SWAP is
 // left untouched. Applied as one setProperties call, falling back to per-key
 // application so a single bad value doesn't void the whole scenario.
-function applyExempleProps(inst, scenario, byName, byRawKey) {
+function applyExempleProps(inst, scenario, byName, byRawKey, skipVariant) {
     var _a, _b, _c;
     const payload = {};
     for (const k of Object.keys(scenario)) {
@@ -3513,6 +3513,10 @@ function applyExempleProps(inst, scenario, byName, byRawKey) {
             continue;
         const v = scenario[k];
         if (info.type === "INSTANCE_SWAP")
+            continue;
+        // VARIANT already locked-in by instantiating the matching variant child
+        // (validated against the real combinations) — don't re-apply it here.
+        if (info.type === "VARIANT" && skipVariant)
             continue;
         if (info.type === "BOOLEAN") {
             const b = v === true ||
@@ -3583,6 +3587,7 @@ function buildMechanicalExemples(props) {
 // stacked vertically and centered. LLM scenarios when available, otherwise the
 // mechanical fallback.
 function buildExemplesSection(target, contentW, exemples) {
+    var _a, _b, _c;
     const base = getBaseComponent(target);
     if (!base)
         return textFrame("Aucun composant à analyser.");
@@ -3598,13 +3603,37 @@ function buildExemplesSection(target, contentW, exemples) {
         : buildMechanicalExemples(props);
     if (list.length === 0)
         return textFrame("Aucun exemple à générer.");
+    const isSet = target.type === "COMPONENT_SET";
     const innerW = contentW - EXEMPLE_VISUAL_PADDING * 2;
     const placed = [];
     for (const ex of list) {
-        const inst = base.createInstance();
+        const scenario = ex.props || {};
+        // Resolve the VARIANT axes the scenario pins down (valid option values
+        // only). For a COMPONENT_SET, the full VARIANT combination must map to an
+        // existing variant child — otherwise the scenario describes a state that
+        // isn't supposed to exist, so we drop it entirely rather than render a
+        // mismatched instance.
+        const variantSel = {};
+        for (const k of Object.keys(scenario)) {
+            const info = (_b = (_a = byName.get(k)) !== null && _a !== void 0 ? _a : byName.get(stripPropKey(k))) !== null && _b !== void 0 ? _b : byRawKey.get(k);
+            if (info && info.type === "VARIANT") {
+                const s = String(scenario[k]);
+                const opts = (_c = info.variantOptions) !== null && _c !== void 0 ? _c : [];
+                if (opts.length === 0 || opts.indexOf(s) !== -1)
+                    variantSel[info.name] = s;
+            }
+        }
+        let source = base;
+        const usedVariantChild = isSet && Object.keys(variantSel).length > 0;
+        if (usedVariantChild) {
+            source = findVariantBySelection(target, variantSel);
+            if (!source)
+                continue; // impossible combination → skip this exemple
+        }
+        const inst = source.createInstance();
         if (ex.title)
             inst.name = ex.title;
-        applyExempleProps(inst, ex.props || {}, byName, byRawKey);
+        applyExempleProps(inst, scenario, byName, byRawKey, usedVariantChild);
         const scale = Math.min(1, innerW / inst.width);
         placed.push({
             inst,
@@ -3613,6 +3642,8 @@ function buildExemplesSection(target, contentW, exemples) {
             scale,
         });
     }
+    if (placed.length === 0)
+        return textFrame("Aucun exemple valide à générer.");
     let contentH = EXEMPLE_VISUAL_PADDING * 2;
     for (let i = 0; i < placed.length; i++) {
         contentH += placed[i].h;
