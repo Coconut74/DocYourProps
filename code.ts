@@ -587,6 +587,8 @@ figma.ui.onmessage = async (msg: {
     nodeKey?: string;
     value?: string;
     props?: Record<string, string | boolean>;
+    before?: string;
+    component?: string;
   };
 }) => {
   if (msg.type === "capture-screen") {
@@ -674,11 +676,33 @@ figma.ui.onmessage = async (msg: {
       );
       return;
     }
-    const target = resolveLayerByKey(root as SceneNode, msg.nodeKey);
+    let target = resolveLayerByKey(root as SceneNode, msg.nodeKey);
+    // Robust fallback when the index-path key drifts (LLM key off-by-one,
+    // structure truncation, stale capture): re-locate by captured content
+    // (setText) or component name (setProps) — only used if unambiguous.
+    if (
+      (!target || (fix.type === "setText" && target.type !== "TEXT")) &&
+      fix.type === "setText" &&
+      typeof fix.before === "string"
+    ) {
+      const t = findUniqueTextNodeByContent(root as SceneNode, fix.before);
+      if (t) target = t;
+    }
+    if (
+      (!target || (fix.type === "setProps" && target.type !== "INSTANCE")) &&
+      fix.type === "setProps" &&
+      typeof fix.component === "string"
+    ) {
+      const inst = await findUniqueInstanceByComponent(
+        root as SceneNode,
+        fix.component
+      );
+      if (inst) target = inst;
+    }
     if (!target) {
       fail(
         "node-not-found",
-        "Le calque ciblé est introuvable — l'écran a été modifié depuis l'analyse. Relance l'analyse."
+        "Le calque ciblé est introuvable (clé + repli par contenu/composant infructueux). Relance l'analyse."
       );
       return;
     }
@@ -5932,6 +5956,73 @@ async function collectScreenComponents(
   };
   await recurse(root, 0, "");
   return out;
+}
+
+// Content fallback: when the index-path key fails (LLM key drift / stale
+// capture), find the TEXT node by its exact captured content. Returns the
+// node only if the match is unambiguous (exactly one).
+function findUniqueTextNodeByContent(
+  root: SceneNode,
+  content: string
+): TextNode | null {
+  const want = String(content || "").trim();
+  if (!want) return null;
+  const matches: TextNode[] = [];
+  const recurse = (node: SceneNode, depth: number): void => {
+    if (depth > SCREEN_TEXT_DEPTH_MAX || matches.length > 1) return;
+    if (node.type === "TEXT") {
+      if (((node as TextNode).characters || "").trim() === want)
+        matches.push(node as TextNode);
+      return;
+    }
+    if (!("children" in node)) return;
+    for (const c of (node as ChildrenMixin & SceneNode).children) {
+      if (c.visible === false) continue;
+      recurse(c, depth + 1);
+      if (matches.length > 1) return;
+    }
+  };
+  recurse(root, 0);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+// Component fallback for setProps: locate the single instance whose main
+// component (or its set) matches the captured component name.
+async function findUniqueInstanceByComponent(
+  root: SceneNode,
+  componentName: string
+): Promise<InstanceNode | null> {
+  const want = String(componentName || "").trim();
+  if (!want) return null;
+  const instances: InstanceNode[] = [];
+  const recurse = (node: SceneNode, depth: number): void => {
+    if (depth > SCREEN_TEXT_DEPTH_MAX) return;
+    if (!("children" in node)) return;
+    for (const c of (node as ChildrenMixin & SceneNode).children) {
+      if (c.visible === false) continue;
+      if (c.type === "INSTANCE") instances.push(c as InstanceNode);
+      recurse(c, depth + 1);
+    }
+  };
+  recurse(root, 0);
+  let found: InstanceNode | null = null;
+  for (const inst of instances) {
+    let name = inst.name;
+    try {
+      const mc = await inst.getMainComponentAsync();
+      if (mc) {
+        const inSet = mc.parent && mc.parent.type === "COMPONENT_SET";
+        name = inSet ? (mc.parent as ComponentSetNode).name : mc.name;
+      }
+    } catch {
+      /* fall back to layer name */
+    }
+    if (name.trim() === want) {
+      if (found) return null; // ambiguous
+      found = inst;
+    }
+  }
+  return found;
 }
 
 const EXEMPLE_NESTED_MAX = 16;
