@@ -364,6 +364,16 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 delete f.image;
                 delete f.imageError;
             }
+            const components = yield collectScreenComponents(node);
+            let screenCss = null;
+            try {
+                if ("getCSSAsync" in node) {
+                    screenCss = yield node.getCSSAsync();
+                }
+            }
+            catch (_l) {
+                screenCss = null;
+            }
             figma.ui.postMessage({
                 type: "screen-captured",
                 data: {
@@ -378,6 +388,8 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     image,
                     textFallback: res.textFallback,
                     editableTexts: collectScreenTextLayers(node),
+                    components,
+                    screenCss,
                 },
             });
         }
@@ -446,9 +458,19 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     fail("failed", "Aucune propriété à appliquer.");
                     return;
                 }
-                yield applyNestedInstanceProps(target, props);
+                const res = yield applyNestedInstanceProps(target, props);
+                if (res.applied === 0) {
+                    fail("failed", "La propriété n'a pas pu être modifiée (nom ou valeur non reconnu sur ce composant)" +
+                        (res.details ? " — " + res.details : "") +
+                        ". Vérifie le variant/propriété attendu.");
+                    return;
+                }
                 summary =
-                    "Propriétés mises à jour : " +
+                    "Propriétés mises à jour (" +
+                        res.applied +
+                        "/" +
+                        res.requested +
+                        ") : " +
                         Object.keys(props)
                             .map((k) => k + " = " + String(props[k]))
                             .join(", ");
@@ -519,7 +541,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 try {
                     probe.setProperties(booleanPayload);
                 }
-                catch (_l) {
+                catch (_m) {
                     /* invalid combo — keep default state */
                 }
             }
@@ -579,7 +601,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     try {
                         probe.setProperties(an.booleanPayload);
                     }
-                    catch (_m) {
+                    catch (_o) {
                         /* keep default */
                     }
                 }
@@ -615,7 +637,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     try {
                         probe.setProperties(tk.booleanPayload);
                     }
-                    catch (_o) {
+                    catch (_p) {
                         /* keep default */
                     }
                 }
@@ -696,7 +718,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     figma.currentPage.selection = [locked];
                 }
             }
-            catch (_p) {
+            catch (_q) {
                 /* selection restore is best-effort */
             }
         }
@@ -908,7 +930,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.clientStorage.deleteAsync(CONFIG_KEY_PREFIX + target.id);
             }
-            catch (_q) {
+            catch (_r) {
                 /* best effort */
             }
         }
@@ -917,7 +939,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             yield figma.clientStorage.setAsync(ONBOARDED_KEY, true);
         }
-        catch (_r) {
+        catch (_s) {
             /* best effort */
         }
     }
@@ -966,7 +988,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     missing = false;
                 }
             }
-            catch (_s) {
+            catch (_t) {
                 /* node unavailable — keep missing flag */
             }
             items.push({
@@ -1006,7 +1028,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             node = yield figma.getNodeByIdAsync(msg.targetId);
         }
-        catch (_t) {
+        catch (_u) {
             node = null;
         }
         if (!node || node.removed) {
@@ -1027,7 +1049,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.setCurrentPageAsync(page);
             }
-            catch (_u) {
+            catch (_v) {
                 // ignore — fall back to current page scrollAndZoom
             }
         }
@@ -4811,6 +4833,67 @@ function collectScreenTextLayers(root) {
     recurse(root, 0, "", "");
     return out;
 }
+const SCREEN_COMPONENTS_MAX = 80;
+// Full inventory of every component INSTANCE on the analyzed screen (descends
+// into nested instances), with a resolvable key + its current properties and
+// VARIANT options. Gives the LLM a complete component list independent of the
+// structure-walk budget/truncation, and exact nodeKey/prop names for setProps.
+function collectScreenComponents(root) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const out = [];
+        const recurse = (node, depth, parentKey) => __awaiter(this, void 0, void 0, function* () {
+            if (depth > SCREEN_TEXT_DEPTH_MAX)
+                return;
+            if (!("children" in node))
+                return;
+            const cont = node;
+            for (let i = 0; i < cont.children.length; i++) {
+                if (out.length >= SCREEN_COMPONENTS_MAX)
+                    return;
+                const c = cont.children[i];
+                if (c.visible === false)
+                    continue;
+                const key = parentKey ? `${parentKey}/${i}` : String(i);
+                if (c.type === "INSTANCE") {
+                    const inst = c;
+                    let component = inst.name;
+                    let defs = null;
+                    try {
+                        const mc = yield inst.getMainComponentAsync();
+                        if (mc) {
+                            const inSet = mc.parent && mc.parent.type === "COMPONENT_SET";
+                            component = inSet ? mc.parent.name : mc.name;
+                            defs = inSet
+                                ? mc.parent.componentPropertyDefinitions
+                                : mc.componentPropertyDefinitions;
+                        }
+                    }
+                    catch (_a) {
+                        /* keep layer name as fallback */
+                    }
+                    const cp = inst.componentProperties || {};
+                    const props = Object.keys(cp).map((rk) => {
+                        const entry = cp[rk];
+                        const opts = defs && defs[rk] && defs[rk].variantOptions
+                            ? defs[rk].variantOptions
+                            : undefined;
+                        return {
+                            name: stripPropKey(rk),
+                            type: entry.type,
+                            value: String(entry.value),
+                            options: opts,
+                        };
+                    });
+                    out.push({ key, name: inst.name, component, props });
+                }
+                if ("children" in c)
+                    yield recurse(c, depth + 1, key);
+            }
+        });
+        yield recurse(root, 0, "");
+        return out;
+    });
+}
 const EXEMPLE_NESTED_MAX = 16;
 // Walk a probe instance collecting nested component INSTANCEs (e.g. a
 // HelperText instance inside a Field) with their stable index-path key and a
@@ -4895,8 +4978,10 @@ function buildNestedInstanceInfos(snaps) {
     });
 }
 // Apply LLM-chosen overrides on a nested component instance. Maps the
-// sub-component's stripped prop names to its raw keys, coerces per type, and
-// resolves INSTANCE_SWAP candidate names to component ids.
+// sub-component's stripped prop names to its raw keys, coerces per type,
+// normalizes VARIANT values to an exact option, resolves INSTANCE_SWAP
+// candidate names to component ids, and reports how many props really changed
+// (so callers can surface an honest success/failure).
 function applyNestedInstanceProps(node, scenario) {
     return __awaiter(this, void 0, void 0, function* () {
         var _a, _b;
@@ -4912,8 +4997,10 @@ function applyNestedInstanceProps(node, scenario) {
         const defsHost = mc && mc.parent && mc.parent.type === "COMPONENT_SET"
             ? mc.parent
             : mc;
+        const defs = defsHost ? defsHost.componentPropertyDefinitions : null;
         let swapResolver = null;
         const payload = {};
+        const requestedKeys = Object.keys(scenario).filter((propName) => { var _a; return Boolean((_a = byName.get(propName)) !== null && _a !== void 0 ? _a : byName.get(stripPropKey(propName))); });
         for (const propName of Object.keys(scenario)) {
             const info = (_a = byName.get(propName)) !== null && _a !== void 0 ? _a : byName.get(stripPropKey(propName));
             if (!info)
@@ -4937,14 +5024,22 @@ function applyNestedInstanceProps(node, scenario) {
                         payload[info.rawKey] = id;
                 }
             }
+            else if (info.type === "VARIANT") {
+                // Normalize to an exact variant option (case/space-insensitive) so a
+                // near-miss value from the LLM still flips the variant.
+                const want = String(v).trim().toLowerCase();
+                const opts = (defs && defs[info.rawKey] && defs[info.rawKey].variantOptions) || [];
+                const exact = opts.find((o) => o.trim().toLowerCase() === want);
+                payload[info.rawKey] = exact !== null && exact !== void 0 ? exact : String(v);
+            }
             else {
-                // VARIANT or TEXT
-                payload[info.rawKey] = String(v);
+                payload[info.rawKey] = String(v); // TEXT
             }
         }
         const keys = Object.keys(payload);
-        if (keys.length === 0)
-            return;
+        if (keys.length === 0) {
+            return { requested: requestedKeys.length, applied: 0, details: "" };
+        }
         try {
             node.setProperties(payload);
         }
@@ -4958,6 +5053,24 @@ function applyNestedInstanceProps(node, scenario) {
                 }
             }
         }
+        // Honest verification: re-read and count props that now equal the request.
+        const after = node.componentProperties || {};
+        let applied = 0;
+        const miss = [];
+        for (const rk of keys) {
+            const got = after[rk] && "value" in after[rk]
+                ? after[rk].value
+                : undefined;
+            if (String(got) === String(payload[rk]))
+                applied++;
+            else
+                miss.push(stripPropKey(rk) + "→" + String(payload[rk]));
+        }
+        return {
+            requested: keys.length,
+            applied,
+            details: miss.length ? "non appliqué : " + miss.join(", ") : "",
+        };
     });
 }
 function buildExempleContext(target) {

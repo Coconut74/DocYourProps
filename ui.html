@@ -5926,7 +5926,7 @@
         "Correction automatique (champ \"fix\") — IMPORTANT :",
         "- Tu DOIS fournir un \"fix\" applicable pour CHAQUE écart qui porte sur le CONTENU d'un texte (wording, orthographe, terminologie, ton, ponctuation, casse) ou sur une PROPRIÉTÉ d'instance. Ne te contente pas de décrire : rends-le applicable.",
         "- setText : pour corriger un texte, prends le \"nodeKey\" EXACT depuis la liste « TEXTES ÉDITABLES » (chaque ligne = nodeKey | chemin | contenu actuel). \"value\" = le texte corrigé COMPLET. C'est la liste de référence des textes, même ceux à l'intérieur de boutons/champs.",
-        "- setProps : pour changer une propriété d'une instance, \"nodeKey\" = le nodeKey d'un élément \"instance\" de la STRUCTURE ; \"props\" = { nom de propriété : valeur }.",
+        "- setProps : pour changer une propriété d'une instance, prends \"nodeKey\" + le nom de propriété + la valeur EXACTS depuis la liste « COMPOSANTS PRÉSENTS » (pour une VARIANT, la valeur DOIT être l'une des options entre []). \"props\" = { nom de propriété : valeur }.",
         "- N'invente JAMAIS de nodeKey : utilise uniquement ceux fournis (TEXTES ÉDITABLES pour setText, STRUCTURE pour setProps). Si aucun nodeKey ne correspond, mets \"fix\": { \"type\": \"none\" }.",
         "- Réserve \"fix\": { \"type\": \"none\" } aux seuls écarts réellement non automatisables (purement visuels/structurels, ou ambigus).",
         "- \"solution\" reste TOUJOURS obligatoire et lisible, même quand un \"fix\" est fourni.",
@@ -6510,8 +6510,44 @@
           }
           out += "\n";
         }
+        const comps = Array.isArray(captured.components)
+          ? captured.components
+          : [];
+        if (comps.length) {
+          out += "=== COMPOSANTS PRÉSENTS (inventaire complet) ===\n";
+          out +=
+            "Liste exhaustive des instances de composants à l'écran. Pour un fix \"setProps\", utilise le nodeKey EXACT ici, et un nom/valeur de propriété EXACTS (les valeurs VARIANT autorisées sont entre []).\n";
+          for (const c of comps) {
+            const props = (c.props || [])
+              .map(
+                (p) =>
+                  p.name +
+                  "(" +
+                  p.type +
+                  ")=" +
+                  p.value +
+                  (p.options && p.options.length
+                    ? " [" + p.options.join("|") + "]"
+                    : "")
+              )
+              .join(", ");
+            out +=
+              c.key +
+              " | " +
+              c.component +
+              (props ? " | " + props : "") +
+              "\n";
+          }
+          out += "\n";
+        }
+        if (captured.screenCss && typeof captured.screenCss === "object") {
+          const css = Object.keys(captured.screenCss)
+            .map((k) => k + ": " + captured.screenCss[k])
+            .join("; ");
+          if (css) out += "=== CSS DE L'ÉCRAN ===\n" + css + "\n\n";
+        }
         out +=
-          "=== CONSIGNE ===\nAudite l'écran (capture + structure) vis-à-vis de la documentation ci-dessus. Pour CHAQUE écart corrigeable automatiquement, fournis un \"fix\". Réponds STRICTEMENT par l'objet JSON demandé.\n";
+          "=== CONSIGNE ===\nAudite l'écran à partir de la CAPTURE (image), de la STRUCTURE, de l'INVENTAIRE DES COMPOSANTS et du CSS, vis-à-vis de la documentation ci-dessus. Détecte TOUS les composants présents (sers-toi de l'inventaire + de l'image, pas seulement de la structure). Pour CHAQUE écart corrigeable automatiquement, fournis un \"fix\". Réponds STRICTEMENT par l'objet JSON demandé.\n";
         return out;
       }
 
