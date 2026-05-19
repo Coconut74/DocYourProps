@@ -2658,15 +2658,35 @@ function isLeafContentNode(n) {
 // dropped so the leader aims at the real content, not the geometric centre
 // of a transparent full-width row. Falls back to the node box when nothing
 // qualifies.
-function contentBoundsOf(node, ox, oy, nw, nh) {
+// Tight box of what a node actually RENDERS (ink: glyphs, painted pixels —
+// honours text alignment / partial fill / a text frame larger than its
+// text), expressed in the SAME instance-local space as the accumulated
+// walk (i.e. relative to `root`'s top-left). null when nothing is rendered
+// or coords aren't available → caller keeps the geometric box.
+function tightLocalBox(n, root) {
+    const rb = n
+        .absoluteRenderBounds;
+    const ab = root
+        .absoluteBoundingBox;
+    if (!rb || !ab)
+        return null;
+    return { x: rb.x - ab.x, y: rb.y - ab.y, w: rb.width, h: rb.height };
+}
+function contentBoundsOf(node, ox, oy, nw, nh, root) {
     const nodeArea = Math.max(1, nw * nh);
     const boxes = [];
+    const leafBox = (n, x, y) => {
+        const tb = tightLocalBox(n, root);
+        if (tb && tb.w > 0 && tb.h > 0)
+            return tb;
+        const lm = n;
+        return { x, y, w: lm.width, h: lm.height };
+    };
     const visit = (n, x, y, depth) => {
         if (n.visible === false)
             return;
-        const lm = n;
         if (isLeafContentNode(n)) {
-            boxes.push({ x, y, w: lm.width, h: lm.height });
+            boxes.push(leafBox(n, x, y));
             return;
         }
         if (depth > 0 && "children" in n) {
@@ -2683,7 +2703,7 @@ function contentBoundsOf(node, ox, oy, nw, nh) {
         }
     }
     else if (isLeafContentNode(node)) {
-        boxes.push({ x: ox, y: oy, w: nw, h: nh });
+        boxes.push(leafBox(node, ox, oy));
     }
     if (boxes.length === 0)
         return { x: ox, y: oy, w: nw, h: nh };
@@ -2713,8 +2733,8 @@ function contentBoundsOf(node, ox, oy, nw, nh) {
 // Leader target for a documented layer: the tight content cluster inside it
 // (icon + label), not a wrapper's geometric centre. Returns coords in the
 // SAME local space as the input.
-function resolveLeafTarget(wrapper, wrapperLocalX, wrapperLocalY, wrapperW, wrapperH) {
-    return contentBoundsOf(wrapper, wrapperLocalX, wrapperLocalY, wrapperW, wrapperH);
+function resolveLeafTarget(wrapper, wrapperLocalX, wrapperLocalY, wrapperW, wrapperH, root) {
+    return contentBoundsOf(wrapper, wrapperLocalX, wrapperLocalY, wrapperW, wrapperH, root);
 }
 // Post-rescale leader retargeting (Fix: scale/auto-layout drift). Given the
 // LIVE rescaled instance and an anchor key, walk to the documented node by
@@ -2742,7 +2762,7 @@ function liveTargetRect(inst, key) {
         cur = ch;
     }
     const clm0 = cur;
-    return contentBoundsOf(cur, x, y, clm0.width, clm0.height);
+    return contentBoundsOf(cur, x, y, clm0.width, clm0.height, inst);
 }
 // ─── Fix B: LLM-chosen anchor target ────────────────────────────────────────
 // Resolve an absolute child-index key (instance-local) to its box on a live
@@ -2769,6 +2789,9 @@ function boxForKeyOnInstance(root, key) {
         y += lm.y;
         cur = ch;
     }
+    const tb = tightLocalBox(cur, root);
+    if (tb && tb.w > 0 && tb.h > 0)
+        return tb;
     const clm = cur;
     return { x, y, w: clm.width, h: clm.height };
 }
@@ -2801,14 +2824,20 @@ function collectAnchorCandidates(root, anchorKey) {
     const push = (n, key, x, y) => {
         const lm = n;
         const g = n;
+        // Prefer the tight render box (where the text/ink actually is) so the
+        // box the LLM reasons about matches what it sees in the image.
+        const tb = tightLocalBox(n, root);
+        const box = tb && tb.w > 0 && tb.h > 0
+            ? tb
+            : { x, y, w: lm.width, h: lm.height };
         const desc = {
             key,
             name: n.name,
             type: n.type,
-            x: Math.round(x),
-            y: Math.round(y),
-            w: Math.round(lm.width),
-            h: Math.round(lm.height),
+            x: Math.round(box.x),
+            y: Math.round(box.y),
+            w: Math.round(box.w),
+            h: Math.round(box.h),
             paint: isVisiblePaintList(g.fills),
             stroke: isVisiblePaintList(g.strokes),
         };
@@ -3504,7 +3533,7 @@ function findNamedLayersOnInstance(inst, rep) {
                 child.type === "COMPONENT" ||
                 child.type === "COMPONENT_SET";
             if (meaningful || isComponentLike) {
-                const tgt = resolveLeafTarget(child, cx, cy, lm.width, lm.height);
+                const tgt = resolveLeafTarget(child, cx, cy, lm.width, lm.height, inst);
                 out.push({
                     node: child,
                     key: childKey,
@@ -3594,7 +3623,7 @@ function findAllVisibleLayersWithPositions(inst) {
             const cx = dx + lm.x;
             const cy = dy + lm.y;
             const key = parentKey ? `${parentKey}/${i}` : String(i);
-            const tgt = resolveLeafTarget(child, cx, cy, lm.width, lm.height);
+            const tgt = resolveLeafTarget(child, cx, cy, lm.width, lm.height, inst);
             out.push({
                 node: child,
                 key,
@@ -4316,7 +4345,7 @@ function collectVariableUsagesOnInstance(inst) {
                 // box; otherwise drill to the representative leaf of the bound node.
                 const t = key === "root"
                     ? { x: localX, y: localY, w, h }
-                    : resolveLeafTarget(node, localX, localY, w, h);
+                    : resolveLeafTarget(node, localX, localY, w, h, inst);
                 out.push({
                     variableId: id,
                     anchorKey: key,
