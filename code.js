@@ -400,6 +400,96 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         }
         return;
     }
+    if (msg.type === "detect-anchor-candidates") {
+        const target = yield resolveTarget();
+        if (!target) {
+            figma.ui.postMessage({
+                type: "anchor-candidates-error",
+                message: "Sélectionne un composant.",
+            });
+            return;
+        }
+        try {
+            const out = { anatomy: [], tokens: [] };
+            const an = getAnatomyBaseAndOverrides(target, msg.anatomyVariant);
+            if (an.base) {
+                const probe = an.base.createInstance();
+                if (Object.keys(an.booleanPayload).length > 0) {
+                    try {
+                        probe.setProperties(an.booleanPayload);
+                    }
+                    catch (_j) {
+                        /* keep default */
+                    }
+                }
+                const rep = resolveRepetition(probe, {});
+                let layers;
+                const inc = Array.isArray(msg.anatomyIncludedLayers)
+                    ? new Set(msg.anatomyIncludedLayers)
+                    : null;
+                if (inc) {
+                    layers = findAllVisibleLayersWithPositions(probe)
+                        .filter((l) => inc.has(l.key) && !rep.isRedundant(l.key))
+                        .slice(0, ANATOMY_MAX_LAYERS);
+                }
+                else {
+                    layers = findNamedLayersOnInstance(probe, rep);
+                }
+                for (const l of layers) {
+                    const cands = collectAnchorCandidates(probe, l.key);
+                    if (cands.length > 1)
+                        out.anatomy.push({ anchorKey: l.key, candidates: cands });
+                }
+                probe.remove();
+            }
+            const tk = getAnatomyBaseAndOverrides(target, msg.tokenVariant);
+            if (tk.base) {
+                const probe = tk.base.createInstance();
+                if (Object.keys(tk.booleanPayload).length > 0) {
+                    try {
+                        probe.setProperties(tk.booleanPayload);
+                    }
+                    catch (_k) {
+                        /* keep default */
+                    }
+                }
+                const rep = resolveRepetition(probe, {});
+                const incSet = Array.isArray(msg.tokenIncludedLayers)
+                    ? new Set(msg.tokenIncludedLayers)
+                    : null;
+                const keys = [];
+                const seen = new Set();
+                const consider = (k) => {
+                    if (k === "root" || seen.has(k))
+                        return;
+                    if (rep.isRedundant(k))
+                        return;
+                    if (incSet && !isAnchorInScope(k, incSet))
+                        return;
+                    seen.add(k);
+                    keys.push(k);
+                };
+                for (const u of collectVariableUsagesOnInstance(probe))
+                    consider(u.anchorKey);
+                for (const u of collectTextStyleUsagesOnInstance(probe))
+                    consider(u.anchorKey);
+                for (const k of keys) {
+                    const cands = collectAnchorCandidates(probe, k);
+                    if (cands.length > 1)
+                        out.tokens.push({ anchorKey: k, candidates: cands });
+                }
+                probe.remove();
+            }
+            figma.ui.postMessage({ type: "anchor-candidates", data: out });
+        }
+        catch (e) {
+            figma.ui.postMessage({
+                type: "anchor-candidates-error",
+                message: e instanceof Error ? e.message : String(e),
+            });
+        }
+        return;
+    }
     if (msg.type === "get-llm-config") {
         const cfg = yield loadLlmConfig();
         figma.ui.postMessage({ type: "llm-config", data: cfg });
@@ -438,7 +528,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     figma.currentPage.selection = [locked];
                 }
             }
-            catch (_j) {
+            catch (_l) {
                 /* selection restore is best-effort */
             }
         }
@@ -530,6 +620,8 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 opts.generalDescription = ai.generalDescription;
             if (ai.repetitionGroups)
                 opts.repetitionGroups = ai.repetitionGroups;
+            if (ai.anchorTargets)
+                opts.anchorTargets = ai.anchorTargets;
         }
         resetGenerationWarnings();
         try {
@@ -566,6 +658,8 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 opts.generalDescription = ai.generalDescription;
             if (ai.repetitionGroups)
                 opts.repetitionGroups = ai.repetitionGroups;
+            if (ai.anchorTargets)
+                opts.anchorTargets = ai.anchorTargets;
         }
         resetGenerationWarnings();
         try {
@@ -600,6 +694,8 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 opts.generalDescription = ai.generalDescription;
             if (ai.repetitionGroups)
                 opts.repetitionGroups = ai.repetitionGroups;
+            if (ai.anchorTargets)
+                opts.anchorTargets = ai.anchorTargets;
         }
         resetGenerationWarnings();
         try {
@@ -637,7 +733,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.clientStorage.deleteAsync(CONFIG_KEY_PREFIX + target.id);
             }
-            catch (_k) {
+            catch (_m) {
                 /* best effort */
             }
         }
@@ -646,7 +742,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             yield figma.clientStorage.setAsync(ONBOARDED_KEY, true);
         }
-        catch (_l) {
+        catch (_o) {
             /* best effort */
         }
     }
@@ -695,7 +791,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                     missing = false;
                 }
             }
-            catch (_m) {
+            catch (_p) {
                 /* node unavailable — keep missing flag */
             }
             items.push({
@@ -735,7 +831,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
         try {
             node = yield figma.getNodeByIdAsync(msg.targetId);
         }
-        catch (_o) {
+        catch (_q) {
             node = null;
         }
         if (!node || node.removed) {
@@ -756,7 +852,7 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 yield figma.setCurrentPageAsync(page);
             }
-            catch (_p) {
+            catch (_r) {
                 // ignore — fall back to current page scrollAndZoom
             }
         }
@@ -1993,6 +2089,15 @@ function buildTokensSectionForWidth(target, contentW, variantSel, includedLayers
         const rep = resolveRepetition(probe, opts);
         let varUsages = collectVariableUsagesOnInstance(probe);
         let styleUsages = collectTextStyleUsagesOnInstance(probe);
+        // Resolve LLM-chosen target boxes (Fix B) while the probe is still alive.
+        const anchorTargetBoxes = new Map();
+        if (opts && opts.anchorTargets) {
+            for (const ak of Object.keys(opts.anchorTargets)) {
+                const b = boxForKeyOnInstance(probe, opts.anchorTargets[ak]);
+                if (b)
+                    anchorTargetBoxes.set(ak, b);
+            }
+        }
         probe.remove();
         // Collapse repeated identical siblings: a token bound on N clones (e.g. each
         // Breadcrumb item) is documented once via the representative. The instance
@@ -2041,18 +2146,26 @@ function buildTokensSectionForWidth(target, contentW, variantSel, includedLayers
         wrapper.layoutAlign = "STRETCH";
         wrapper.itemSpacing = 32;
         wrapper.fills = [];
+        const tokenAnchorTarget = (u) => {
+            var _a;
+            const b = anchorTargetBoxes.get(u.anchorKey);
+            return b
+                ? {
+                    targetX: b.x,
+                    targetY: b.y,
+                    targetW: b.w,
+                    targetH: b.h,
+                    targetKey: (_a = opts === null || opts === void 0 ? void 0 : opts.anchorTargets) === null || _a === void 0 ? void 0 : _a[u.anchorKey],
+                }
+                : {
+                    targetX: u.anchorTargetX,
+                    targetY: u.anchorTargetY,
+                    targetW: u.anchorTargetW,
+                    targetH: u.anchorTargetH,
+                };
+        };
         if (colorUsages.length > 0) {
-            const anchors = colorUsages.map((u) => ({
-                key: u.anchorKey,
-                localX: u.anchorLocalX,
-                localY: u.anchorLocalY,
-                w: u.anchorW,
-                h: u.anchorH,
-                targetX: u.anchorTargetX,
-                targetY: u.anchorTargetY,
-                targetW: u.anchorTargetW,
-                targetH: u.anchorTargetH,
-            }));
+            const anchors = colorUsages.map((u) => (Object.assign({ key: u.anchorKey, localX: u.anchorLocalX, localY: u.anchorLocalY, w: u.anchorW, h: u.anchorH }, tokenAnchorTarget(u))));
             const legendRows = colorUsages.map((u) => {
                 const info = varInfo.get(u.variableId);
                 return { primary: info.name, secondary: info.collection };
@@ -2061,13 +2174,19 @@ function buildTokensSectionForWidth(target, contentW, variantSel, includedLayers
             wrapper.appendChild(buildSubSection("Couleurs", block));
         }
         if (validStyleUsages.length > 0) {
-            const anchors = validStyleUsages.map((u) => ({
-                key: u.anchorKey,
-                localX: u.anchorLocalX,
-                localY: u.anchorLocalY,
-                w: u.anchorW,
-                h: u.anchorH,
-            }));
+            const anchors = validStyleUsages.map((u) => {
+                var _a;
+                const b = anchorTargetBoxes.get(u.anchorKey);
+                return Object.assign({ key: u.anchorKey, localX: u.anchorLocalX, localY: u.anchorLocalY, w: u.anchorW, h: u.anchorH }, (b
+                    ? {
+                        targetX: b.x,
+                        targetY: b.y,
+                        targetW: b.w,
+                        targetH: b.h,
+                        targetKey: (_a = opts === null || opts === void 0 ? void 0 : opts.anchorTargets) === null || _a === void 0 ? void 0 : _a[u.anchorKey],
+                    }
+                    : {}));
+            });
             const legendRows = validStyleUsages.map((u) => {
                 const info = styleInfo.get(u.styleId);
                 return { primary: info.name, secondary: info.spec };
@@ -2434,12 +2553,82 @@ function findNamedLayers(root) {
     });
     return out.slice(0, ANATOMY_MAX_LAYERS);
 }
+// ─── Paint-aware leaf selection (Fix A) ─────────────────────────────────────
+// Pure geometry can't tell that the right 80% of a full-width auto-layout row
+// is transparent — so "largest visible child" lands the leader in empty
+// space. These helpers steer drilling toward children that actually paint
+// something (fill / stroke / text / instance), skipping transparent
+// spacers/stretch wrappers.
+const CONTENT_PROBE_BUDGET = 4;
+function isVisiblePaintList(p) {
+    if (p === figma.mixed)
+        return true;
+    if (!Array.isArray(p))
+        return false;
+    return p.some((paint) => !!paint &&
+        paint.visible !== false &&
+        (typeof paint.opacity !== "number" ||
+            paint.opacity > 0));
+}
+function nodeIsContent(n) {
+    if (n.visible === false)
+        return false;
+    if (n.type === "TEXT")
+        return (n.characters || "").trim().length > 0;
+    if (n.type === "INSTANCE" ||
+        n.type === "COMPONENT" ||
+        n.type === "COMPONENT_SET")
+        return true;
+    const g = n;
+    return isVisiblePaintList(g.fills) || isVisiblePaintList(g.strokes);
+}
+// True when the node itself, or any descendant within a small budget, paints
+// real content. Lets us skip an empty stretch wrapper while still descending
+// into a transparent wrapper that *contains* the icon/label.
+function hasVisibleContent(n, budget) {
+    if (n.visible === false)
+        return false;
+    if (nodeIsContent(n))
+        return true;
+    if (budget <= 0 || !("children" in n))
+        return false;
+    for (const c of n.children) {
+        if (hasVisibleContent(c, budget - 1))
+            return true;
+    }
+    return false;
+}
+// Pick the visible child to drill into: prefer the largest child that
+// carries real content (skips transparent full-width spacers); fall back to
+// the largest visible child so we never regress to "no leaf".
+function chooseLeafChild(node) {
+    if (!("children" in node))
+        return null;
+    const cs = node.children;
+    let contentPick = null;
+    let contentArea = -1;
+    let anyPick = null;
+    let anyArea = -1;
+    for (const c of cs) {
+        if (c.visible === false)
+            continue;
+        const clm = c;
+        const area = Math.max(0, clm.width) * Math.max(0, clm.height);
+        if (area > anyArea) {
+            anyArea = area;
+            anyPick = c;
+        }
+        if (area > contentArea &&
+            hasVisibleContent(c, CONTENT_PROBE_BUDGET)) {
+            contentArea = area;
+            contentPick = c;
+        }
+    }
+    return contentPick || anyPick;
+}
 // Drill toward the visually "representative" leaf of a layer so the leader
-// tip aims at the real content (e.g. the radio glyph inside a "Radio"
-// instance, or one option row inside a "RadioSet") rather than the centre of
-// a wrapper / empty space. At each level we descend into the LARGEST visible
-// child (this also handles multi-child containers and wrappers around a
-// single instance — previously these stopped early and pointed at whitespace).
+// tip aims at the real content (e.g. the radio glyph / label inside a row)
+// rather than the centre of a wrapper or an empty transparent region.
 // Returns coords in the SAME local space as the input.
 function resolveLeafTarget(wrapper, wrapperLocalX, wrapperLocalY, wrapperW, wrapperH) {
     let cur = wrapper;
@@ -2448,24 +2637,8 @@ function resolveLeafTarget(wrapper, wrapperLocalX, wrapperLocalY, wrapperW, wrap
     let curW = wrapperW;
     let curH = wrapperH;
     for (let depth = 0; depth < 6; depth++) {
-        if (!("children" in cur))
-            break;
-        const cs = cur.children;
-        let chosen = null;
-        let bestArea = -1;
-        let visibles = 0;
-        for (const c of cs) {
-            if (c.visible === false)
-                continue;
-            visibles++;
-            const clm = c;
-            const area = Math.max(0, clm.width) * Math.max(0, clm.height);
-            if (area > bestArea) {
-                bestArea = area;
-                chosen = c;
-            }
-        }
-        if (visibles === 0 || !chosen || chosen === cur)
+        const chosen = chooseLeafChild(cur);
+        if (!chosen || chosen === cur)
             break;
         const lm = chosen;
         curX += lm.x;
@@ -2504,24 +2677,8 @@ function liveTargetRect(inst, key) {
         cur = ch;
     }
     for (let depth = 0; depth < 6; depth++) {
-        if (!("children" in cur))
-            break;
-        const cs = cur.children;
-        let chosen = null;
-        let bestArea = -1;
-        let visibles = 0;
-        for (const c of cs) {
-            if (c.visible === false)
-                continue;
-            visibles++;
-            const clm = c;
-            const area = Math.max(0, clm.width) * Math.max(0, clm.height);
-            if (area > bestArea) {
-                bestArea = area;
-                chosen = c;
-            }
-        }
-        if (visibles === 0 || !chosen || chosen === cur)
+        const chosen = chooseLeafChild(cur);
+        if (!chosen || chosen === cur)
             break;
         const lm = chosen;
         x += lm.x;
@@ -2530,6 +2687,103 @@ function liveTargetRect(inst, key) {
     }
     const clm = cur;
     return { x, y, w: clm.width, h: clm.height };
+}
+// ─── Fix B: LLM-chosen anchor target ────────────────────────────────────────
+// Resolve an absolute child-index key (instance-local) to its box on a live
+// probe — no leaf drilling: the LLM already picked the exact node. Returns
+// null for root / unresolvable paths.
+function boxForKeyOnInstance(root, key) {
+    if (!key || key === "root")
+        return null;
+    let cur = root;
+    let x = 0;
+    let y = 0;
+    for (const seg of key.split("/")) {
+        if (!("children" in cur))
+            return null;
+        const idx = parseInt(seg, 10);
+        if (!Number.isFinite(idx))
+            return null;
+        const ch = cur
+            .children[idx];
+        if (!ch)
+            return null;
+        const lm = ch;
+        x += lm.x;
+        y += lm.y;
+        cur = ch;
+    }
+    const clm = cur;
+    return { x, y, w: clm.width, h: clm.height };
+}
+// Walk the documented node's subtree (bounded) emitting candidates with keys
+// in the SAME absolute child-index scheme as anchor keys, so the LLM's pick
+// is resolvable via boxForKeyOnInstance.
+function collectAnchorCandidates(root, anchorKey) {
+    const out = [];
+    if (!anchorKey || anchorKey === "root")
+        return out;
+    // Locate the documented node + its absolute offset.
+    let cur = root;
+    let baseX = 0;
+    let baseY = 0;
+    for (const seg of anchorKey.split("/")) {
+        if (!("children" in cur))
+            return out;
+        const idx = parseInt(seg, 10);
+        if (!Number.isFinite(idx))
+            return out;
+        const ch = cur
+            .children[idx];
+        if (!ch)
+            return out;
+        const lm = ch;
+        baseX += lm.x;
+        baseY += lm.y;
+        cur = ch;
+    }
+    const push = (n, key, x, y) => {
+        const lm = n;
+        const g = n;
+        const desc = {
+            key,
+            name: n.name,
+            type: n.type,
+            x: Math.round(x),
+            y: Math.round(y),
+            w: Math.round(lm.width),
+            h: Math.round(lm.height),
+            paint: isVisiblePaintList(g.fills),
+            stroke: isVisiblePaintList(g.strokes),
+        };
+        if (n.type === "TEXT") {
+            const t = (n.characters || "").trim();
+            if (t)
+                desc.text = t.slice(0, 40);
+        }
+        out.push(desc);
+    };
+    push(cur, anchorKey, baseX, baseY);
+    const recurse = (n, key, x, y, depth) => {
+        if (depth <= 0 || out.length >= 20 || !("children" in n))
+            return;
+        const cs = n.children;
+        for (let i = 0; i < cs.length; i++) {
+            const c = cs[i];
+            if (c.visible === false)
+                continue;
+            if (out.length >= 20)
+                break;
+            const lm = c;
+            const cx = x + lm.x;
+            const cy = y + lm.y;
+            const ck = `${key}/${i}`;
+            push(c, ck, cx, cy);
+            recurse(c, ck, cx, cy, depth - 1);
+        }
+    };
+    recurse(cur, anchorKey, baseX, baseY, 4);
+    return out;
 }
 // AABB intersection with an outer padding (rects considered overlapping if
 // they're closer than `padding` on any axis).
@@ -2932,7 +3186,12 @@ function buildPinnedVisualBlock(base, booleanPayload, anchors, legendRows, conte
         // Re-derive the target from the LIVE rescaled instance so the leader hits
         // the real element exactly (eliminates fitScale/rounding/auto-layout
         // rescale drift). Falls back to the pre-rescale projected rect.
-        const live = liveTargetRect(inst, anchors[i].key);
+        // When the LLM picked an explicit target (Fix B), resolve THAT node's
+        // live box (no heuristic drill); otherwise re-derive via the paint-aware
+        // heuristic from the documented anchor.
+        const live = anchors[i].targetKey
+            ? boxForKeyOnInstance(inst, anchors[i].targetKey)
+            : liveTargetRect(inst, anchors[i].key);
         const targetRectFinal = live
             ? { x: inst.x + live.x, y: inst.y + live.y, w: live.w, h: live.h }
             : {
@@ -3019,17 +3278,36 @@ function buildAnatomySectionForWidth(target, contentW, variantSel, includedLayer
     }
     // Snapshot what we need before disposing the probe (node references become
     // stale once .remove() is called).
-    const anchors = layers.map((l) => ({
-        key: l.key,
-        localX: l.localX,
-        localY: l.localY,
-        w: l.w,
-        h: l.h,
-        targetX: l.targetX,
-        targetY: l.targetY,
-        targetW: l.targetW,
-        targetH: l.targetH,
-    }));
+    const ovr = opts && opts.anchorTargets ? opts.anchorTargets : null;
+    const anchors = layers.map((l) => {
+        let tx = l.targetX;
+        let ty = l.targetY;
+        let tw = l.targetW;
+        let th = l.targetH;
+        let targetKey;
+        if (ovr && typeof ovr[l.key] === "string") {
+            const b = boxForKeyOnInstance(probe, ovr[l.key]);
+            if (b) {
+                tx = b.x;
+                ty = b.y;
+                tw = b.w;
+                th = b.h;
+                targetKey = ovr[l.key];
+            }
+        }
+        return {
+            key: l.key,
+            localX: l.localX,
+            localY: l.localY,
+            w: l.w,
+            h: l.h,
+            targetX: tx,
+            targetY: ty,
+            targetW: tw,
+            targetH: th,
+            targetKey,
+        };
+    });
     const legendRows = layers.map((l) => ({ primary: l.node.name }));
     probe.remove();
     const visualW = Math.round(contentW * ANATOMY_VISUAL_RATIO);
