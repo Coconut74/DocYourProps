@@ -633,6 +633,7 @@ figma.ui.onmessage = async (msg: {
           structure: res,
           image,
           textFallback: res.textFallback,
+          editableTexts: collectScreenTextLayers(node as SceneNode),
         },
       });
     } catch (e) {
@@ -5789,6 +5790,49 @@ function collectInstanceTextLayers(
     }
   };
   recurse(root, 0, "");
+  return out;
+}
+
+const SCREEN_TEXT_LAYERS_MAX = 120;
+const SCREEN_TEXT_DEPTH_MAX = 24;
+
+type ScreenTextLayer = { key: string; name: string; path: string; text: string };
+
+// Flat list of every visible TEXT layer of an analyzed screen, descending
+// through nested instances/components (most screen copy lives inside button /
+// field instances). Keys use the raw-child-index scheme so they resolve back
+// via resolveLayerByKey on a fresh getNodeByIdAsync(screenId). `path` gives the
+// LLM human context (ancestor names) to disambiguate similar texts.
+function collectScreenTextLayers(root: SceneNode): ScreenTextLayer[] {
+  const out: ScreenTextLayer[] = [];
+  const recurse = (
+    node: SceneNode,
+    depth: number,
+    parentKey: string,
+    parentPath: string
+  ): void => {
+    if (depth > SCREEN_TEXT_DEPTH_MAX) return;
+    if (!("children" in node)) return;
+    const cont = node as ChildrenMixin & SceneNode;
+    for (let i = 0; i < cont.children.length; i++) {
+      if (out.length >= SCREEN_TEXT_LAYERS_MAX) return;
+      const c = cont.children[i];
+      if (c.visible === false) continue;
+      const key = parentKey ? `${parentKey}/${i}` : String(i);
+      const path = parentPath ? `${parentPath} › ${c.name}` : c.name;
+      if (c.type === "TEXT") {
+        const t = (c as TextNode).characters || "";
+        out.push({
+          key,
+          name: c.name,
+          path,
+          text: t.length > 240 ? t.slice(0, 240) + "…" : t,
+        });
+      }
+      if ("children" in c) recurse(c, depth + 1, key, path);
+    }
+  };
+  recurse(root, 0, "", "");
   return out;
 }
 
