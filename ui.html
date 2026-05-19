@@ -1510,7 +1510,22 @@
         color: var(--figma-color-text, #333);
         white-space: pre-wrap;
       }
+      .analyse-issue .solution {
+        font-size: 11px;
+        color: var(--figma-color-text, #333);
+        background: color-mix(in srgb, var(--figma-color-text-success, #1a7f37) 9%, transparent);
+        border-radius: 4px;
+        padding: 4px 6px;
+        white-space: pre-wrap;
+      }
       .analyse-issue .src {
+        font-size: 10px;
+        color: var(--figma-color-text-tertiary, #999);
+      }
+      .analyse-cost {
+        margin-top: 4px;
+        padding-top: 6px;
+        border-top: 1px solid var(--figma-color-border, #e6e6e6);
         font-size: 10px;
         color: var(--figma-color-text-tertiary, #999);
       }
@@ -5836,6 +5851,7 @@
         "- N'utilise QUE des noms de fichiers présents dans l'index, à l'identique.",
         "- Ne sélectionne PAS la doc d'un élément absent de l'écran (ex. pas la doc des modales s'il n'y a pas de modale).",
         "- Sélectionne TOUS les fichiers correspondant aux éléments présents (plusieurs si besoin).",
+        "- Si la description signale un CONTENU TEXTUEL IMPORTANT (paragraphes/phrases), inclus TOUJOURS, en plus, tout fichier portant sur le langage, le ton éditorial, le wording, la rédaction, le copywriting ou la terminologie.",
         "- En cas de doute réel sur un élément présent, inclus le fichier ; ne renvoie jamais un tableau vide si au moins un fichier peut être lié.",
       ].join("\n");
 
@@ -5852,11 +5868,13 @@
         "  • \"Critique\" : violation bloquante ou contradiction directe avec une règle explicite de la doc (composant/état interdit, contenu obligatoire manquant, comportement non conforme).",
         "  • \"Mineur\" : tout autre écart (variante, espacement, wording, cosmétique, recommandation non bloquante).",
         "- Chaque écart DOIT citer sa source : champ docSource = nom du fichier .md + section/titre concerné.",
+        "- Chaque écart DOIT proposer une solution concrète et actionnable (champ solution) : quoi changer précisément pour devenir conforme.",
+        "- ATTENTION AU TEXTE : dès que l'écran contient des paragraphes ou phrases, si un document de langage / ton éditorial / wording / rédaction / copywriting / terminologie figure dans la doc fournie, évalue le contenu textuel vis-à-vis de ce document (orthographe, grammaire, terminologie imposée, ton, voix, casse, ponctuation) et signale chaque écart.",
         "- Si l'écran est conforme : issues = [] et un summary qui le dit clairement.",
         "",
         "Sortie : STRICTEMENT un objet JSON, RIEN d'autre (pas de texte, pas de backticks, pas de markdown).",
-        'Schéma exact : { "summary": string, "issues": [ { "severity": "Critique"|"Mineur", "title": string, "detail": string, "docSource": string } ] }',
-        "Rédige summary, title, detail et docSource en français.",
+        'Schéma exact : { "summary": string, "issues": [ { "severity": "Critique"|"Mineur", "title": string, "detail": string, "solution": string, "docSource": string } ] }',
+        "Rédige summary, title, detail, solution et docSource en français.",
       ].join("\n");
 
       let chatDocs = []; // [{ name, content }]
@@ -6299,12 +6317,24 @@
       // Flatten the captured structure tree + text fallback into a compact
       // text blob (node/component names + visible text) so the doc router can
       // decide which .md are relevant — without spending image tokens.
+      // A text run counts as a "paragraph" when it's long or reads like a
+      // sentence — used to flag screens whose copy must be checked against a
+      // language/tone doc.
+      function looksLikeParagraph(t) {
+        const s = String(t || "").trim();
+        if (s.length >= 60) return true;
+        return /[.!?…:]/.test(s) && s.split(/\s+/).length >= 6;
+      }
+
       function buildScreenFingerprint(captured) {
         const parts = [];
+        let paragraphs = 0;
         const walk = (n) => {
           if (!n || typeof n !== "object") return;
-          if (n.kind === "text" && n.text) parts.push(n.text);
-          else if (n.kind === "instance" && n.componentName)
+          if (n.kind === "text" && n.text) {
+            parts.push(n.text);
+            if (looksLikeParagraph(n.text)) paragraphs++;
+          } else if (n.kind === "instance" && n.componentName)
             parts.push("[" + n.componentName + "]");
           else if (n.kind === "schema" && n.name) parts.push(n.name);
           else if (n.kind === "container") {
@@ -6320,10 +6350,22 @@
           }
         }
         if (captured && Array.isArray(captured.textFallback)) {
-          for (const t of captured.textFallback) if (t) parts.push(t);
+          for (const t of captured.textFallback) {
+            if (t) {
+              parts.push(t);
+              if (looksLikeParagraph(t)) paragraphs++;
+            }
+          }
         }
         let fp = parts.join(" · ").replace(/\s+/g, " ").trim();
         if (fp.length > 4000) fp = fp.slice(0, 4000) + "…";
+        if (paragraphs > 0) {
+          fp =
+            "CONTENU TEXTUEL IMPORTANT (" +
+            paragraphs +
+            " paragraphe(s) détecté(s)) — vérifier les règles de langage/ton si un tel document existe.\n" +
+            fp;
+        }
         return fp;
       }
 
@@ -6424,7 +6466,15 @@
         }
       }
 
-      function renderAnalyseReport(screenName, report) {
+      function appendAnalyseCost(block, footerText) {
+        if (!footerText) return;
+        const cost = document.createElement("div");
+        cost.className = "analyse-cost";
+        cost.textContent = footerText;
+        block.appendChild(cost);
+      }
+
+      function renderAnalyseReport(screenName, report, footerText) {
         analyseResultsEl.innerHTML = "";
         const block = document.createElement("div");
         block.className = "analyse-block";
@@ -6480,6 +6530,11 @@
                 '<div class="detail">' +
                 chatEscapeHtml((iss && iss.detail) || "") +
                 "</div>" +
+                ((iss && iss.solution)
+                  ? '<div class="solution"><strong>Solution :</strong> ' +
+                    chatEscapeHtml(iss.solution) +
+                    "</div>"
+                  : "") +
                 ((iss && iss.docSource)
                   ? '<div class="src">Source : ' +
                     chatEscapeHtml(iss.docSource) +
@@ -6488,11 +6543,12 @@
               block.appendChild(el);
             });
         }
+        appendAnalyseCost(block, footerText);
         analyseResultsEl.appendChild(block);
         analyseResultsEl.scrollTop = 0;
       }
 
-      function renderAnalyseDegraded(screenName, rawText) {
+      function renderAnalyseDegraded(screenName, rawText, footerText) {
         analyseResultsEl.innerHTML = "";
         const block = document.createElement("div");
         block.className = "analyse-block is-error";
@@ -6504,6 +6560,7 @@
           "</div><div class=\"analyse-summary\">Le LLM n'a pas renvoyé un rapport JSON exploitable. Réponse brute :</div><div class=\"detail\">" +
           chatEscapeHtml(raw) +
           "</div>";
+        appendAnalyseCost(block, footerText);
         analyseResultsEl.appendChild(block);
       }
 
@@ -6531,6 +6588,7 @@
         analyseMsgEl.classList.add("hidden");
         analyseInFlight = true;
         refreshAnalyseButton();
+        resetAiGenUsage();
         const screenName = analyseSelection.name;
         analyseStatusEl.textContent = "Capture de l'écran…";
         analyseStatusEl.classList.add("is-busy");
@@ -6549,19 +6607,7 @@
           });
           if (sel.routerUsage) addAiGenUsage(sel.routerUsage);
           addAiGenUsage(usage);
-          let report = null;
-          try {
-            report = parseLlmJson(text);
-          } catch (parseErr) {
-            console.error("analyse JSON parse failed", { text, parseErr });
-          }
-          if (report && typeof report === "object" && !Array.isArray(report)) {
-            renderAnalyseReport(screenName, report);
-          } else {
-            renderAnalyseDegraded(screenName, text);
-          }
-          analyseStatusEl.classList.remove("is-busy");
-          analyseStatusEl.textContent =
+          const footerText =
             sel.docs.length +
             "/" +
             chatDocs.length +
@@ -6570,6 +6616,19 @@
             (captured.image ? "" : " · capture image indisponible") +
             " · " +
             formatAiGenUsage();
+          let report = null;
+          try {
+            report = parseLlmJson(text);
+          } catch (parseErr) {
+            console.error("analyse JSON parse failed", { text, parseErr });
+          }
+          if (report && typeof report === "object" && !Array.isArray(report)) {
+            renderAnalyseReport(screenName, report, footerText);
+          } else {
+            renderAnalyseDegraded(screenName, text, footerText);
+          }
+          analyseStatusEl.classList.remove("is-busy");
+          analyseStatusEl.textContent = "Analyse terminée";
         } catch (err) {
           console.error("runAnalyse error:", err);
           analyseStatusEl.classList.remove("is-busy");
