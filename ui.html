@@ -4741,6 +4741,8 @@
         "- metadata.variants[*].properties : valeurs des props VARIANT pour chaque variant.",
         "- css : CSS calculé par variante (radii, couleurs, ombres).",
         "- documentation : arbre reading-order des frames de doc liées, images PNG si fournies.",
+        "- exempleContext.textLayers : calques texte ÉDITABLES de l'instance — chaque entrée { key, name, text } (key = chemin d'index stable, text = contenu actuel, souvent un placeholder type \"Label\" / \"0\").",
+        "- exempleContext.swaps : pour chaque prop INSTANCE_SWAP, { name, options } — la liste des composants échangeables disponibles (noms exacts).",
         "",
         "Tu réponds UNIQUEMENT avec un objet JSON strict — pas de Markdown, pas de backticks, pas de préambule :",
         "",
@@ -4750,7 +4752,12 @@
         '    "<nomDeProp>": "Une phrase très courte (≤ 10 mots) décrivant le rôle de cette propriété."',
         "  },",
         '  "exemples": [',
-        '    { "titre": "Nom court du cas d\'usage", "props": { "<nomDeProp>": <valeur> } }',
+        "    {",
+        '      "titre": "Nom court du cas d\'usage",',
+        '      "props": { "<nomDeProp>": <valeur> },',
+        '      "texts": { "<keyDuCalque>": "Contenu réaliste à afficher" },',
+        '      "swaps": { "<nomPropInstanceSwap>": "<nomComposantChoisi>" }',
+        "    }",
         "  ]",
         "}",
         "",
@@ -4771,11 +4778,20 @@
         "- Chaque scénario : un \"titre\" court + un objet \"props\" associant des noms de props à des valeurs concrètes.",
         "- VARIANT : utilise EXACTEMENT une des valeurs listées dans metadata.variants[*].properties (sensible à la casse). Pour un set de variants, l'ensemble des valeurs VARIANT d'un scénario doit correspondre à une combinaison qui existe réellement dans metadata.variants — sinon n'inclus pas ce scénario.",
         "- BOOLEAN : true ou false.",
-        "- TEXT : un vrai contenu en français, plausible pour le composant ; varie les longueurs — au moins un exemple avec un texte long (plusieurs phrases) pour montrer le retour à la ligne.",
-        "- N'inclus PAS les props INSTANCE_SWAP.",
+        "- TEXT (prop déclarée) : un vrai contenu en français, plausible pour le composant.",
+        "",
+        "texts (OBLIGATOIRE quand exempleContext.textLayers n'est pas vide) :",
+        "- Pour CHAQUE scénario, réécris les calques pertinents avec un contenu RÉALISTE et SPÉCIFIQUE au métier du composant (déduit du nom du composant, des props et de la doc). Ne laisse JAMAIS les placeholders génériques (\"Label\", \"0\", \"Helper text\", lorem) : ils doivent disparaître.",
+        "- La clé est exactement le `key` fourni dans exempleContext.textLayers. Ne réécris que des calques réellement présents dans cette liste.",
+        "- Chaque scénario doit raconter un cas concret différent (libellés, valeurs, montants, noms… distincts d'un scénario à l'autre).",
+        "- Varie les longueurs : au moins un scénario avec un texte long (plusieurs phrases) là où c'est plausible, pour montrer le retour à la ligne.",
+        "",
+        "swaps (quand exempleContext.swaps n'est pas vide) :",
+        "- Choisis, par scénario, le composant le plus pertinent pour le cas d'usage parmi exempleContext.swaps[*].options (nom EXACT). Omets la clé pour garder le défaut.",
+        "",
         "- Tu peux omettre une prop d'un scénario : elle gardera sa valeur par défaut.",
-        "- En cas de doute sur la pertinence d'un scénario, ne le produis pas : mieux vaut 3 exemples sûrs que 6 douteux.",
-        "- Si le composant n'a aucune propriété exploitable, exemples = [].",
+        "- En cas de doute sur la pertinence d'un scénario, ne le produis pas : mieux vaut 3 exemples sûrs et concrets que 6 douteux ou génériques.",
+        "- Si le composant n'a aucune propriété ni calque texte exploitable, exemples = [].",
       ].join("\n");
 
       // Coerce the LLM's `exemples` payload into [{ title, props }]. Tolerates
@@ -4792,13 +4808,30 @@
             if (typeof v === "string" || typeof v === "boolean") clean[k] = v;
             else if (typeof v === "number") clean[k] = String(v);
           }
+          const cleanStrMap = (obj) => {
+            const m = {};
+            if (obj && typeof obj === "object") {
+              for (const k of Object.keys(obj)) {
+                const v = obj[k];
+                if (typeof v === "string") m[k] = v;
+                else if (typeof v === "number") m[k] = String(v);
+              }
+            }
+            return m;
+          };
+          const texts = cleanStrMap(e.texts);
+          const swaps = cleanStrMap(e.swaps);
           const title =
             typeof e.titre === "string"
               ? e.titre
               : typeof e.title === "string"
               ? e.title
               : undefined;
-          out.push(title ? { title, props: clean } : { props: clean });
+          const entry = { props: clean };
+          if (title) entry.title = title;
+          if (Object.keys(texts).length > 0) entry.texts = texts;
+          if (Object.keys(swaps).length > 0) entry.swaps = swaps;
+          out.push(entry);
         }
         return out.slice(0, 6);
       }

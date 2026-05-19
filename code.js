@@ -1092,7 +1092,7 @@ function buildSheets(target, options) {
             sheets.push(makeAdminSheet(target, "Design tokens", yield buildTokensSection(target, options.tokenVariant, options.tokenIncludedLayers, options)));
         }
         if (options.exemple) {
-            sheets.push(makeAdminSheet(target, "Exemple", buildExemplesSection(target, ADMIN_CONTENT_WIDTH_DEFAULT, options.exemples)));
+            sheets.push(makeAdminSheet(target, "Exemple", yield buildExemplesSection(target, ADMIN_CONTENT_WIDTH_DEFAULT, options.exemples)));
         }
         return sheets;
     });
@@ -3587,87 +3587,119 @@ function buildMechanicalExemples(props) {
 // stacked vertically and centered. LLM scenarios when available, otherwise the
 // mechanical fallback.
 function buildExemplesSection(target, contentW, exemples) {
-    var _a, _b, _c;
-    const base = getBaseComponent(target);
-    if (!base)
-        return textFrame("Aucun composant à analyser.");
-    const props = extractProps(target);
-    const byName = new Map();
-    const byRawKey = new Map();
-    for (const p of props) {
-        byName.set(p.name, p);
-        byRawKey.set(p.rawKey, p);
-    }
-    const list = exemples && exemples.length > 0
-        ? exemples.slice(0, EXEMPLE_MAX)
-        : buildMechanicalExemples(props);
-    if (list.length === 0)
-        return textFrame("Aucun exemple à générer.");
-    const isSet = target.type === "COMPONENT_SET";
-    const innerW = contentW - EXEMPLE_VISUAL_PADDING * 2;
-    const placed = [];
-    for (const ex of list) {
-        const scenario = ex.props || {};
-        // Resolve the VARIANT axes the scenario pins down (valid option values
-        // only). For a COMPONENT_SET, the full VARIANT combination must map to an
-        // existing variant child — otherwise the scenario describes a state that
-        // isn't supposed to exist, so we drop it entirely rather than render a
-        // mismatched instance.
-        const variantSel = {};
-        for (const k of Object.keys(scenario)) {
-            const info = (_b = (_a = byName.get(k)) !== null && _a !== void 0 ? _a : byName.get(stripPropKey(k))) !== null && _b !== void 0 ? _b : byRawKey.get(k);
-            if (info && info.type === "VARIANT") {
-                const s = String(scenario[k]);
-                const opts = (_c = info.variantOptions) !== null && _c !== void 0 ? _c : [];
-                if (opts.length === 0 || opts.indexOf(s) !== -1)
-                    variantSel[info.name] = s;
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a, _b, _c, _d;
+        const base = getBaseComponent(target);
+        if (!base)
+            return textFrame("Aucun composant à analyser.");
+        const props = extractProps(target);
+        const byName = new Map();
+        const byRawKey = new Map();
+        for (const p of props) {
+            byName.set(p.name, p);
+            byRawKey.set(p.rawKey, p);
+        }
+        const list = exemples && exemples.length > 0
+            ? exemples.slice(0, EXEMPLE_MAX)
+            : buildMechanicalExemples(props);
+        if (list.length === 0)
+            return textFrame("Aucun exemple à générer.");
+        const swapResolver = yield buildSwapResolver(target.componentPropertyDefinitions);
+        const isSet = target.type === "COMPONENT_SET";
+        const innerW = contentW - EXEMPLE_VISUAL_PADDING * 2;
+        const placed = [];
+        for (const ex of list) {
+            const scenario = ex.props || {};
+            // Resolve the VARIANT axes the scenario pins down (valid option values
+            // only). For a COMPONENT_SET, the full VARIANT combination must map to an
+            // existing variant child — otherwise the scenario describes a state that
+            // isn't supposed to exist, so we drop it entirely rather than render a
+            // mismatched instance.
+            const variantSel = {};
+            for (const k of Object.keys(scenario)) {
+                const info = (_b = (_a = byName.get(k)) !== null && _a !== void 0 ? _a : byName.get(stripPropKey(k))) !== null && _b !== void 0 ? _b : byRawKey.get(k);
+                if (info && info.type === "VARIANT") {
+                    const s = String(scenario[k]);
+                    const opts = (_c = info.variantOptions) !== null && _c !== void 0 ? _c : [];
+                    if (opts.length === 0 || opts.indexOf(s) !== -1)
+                        variantSel[info.name] = s;
+                }
             }
+            let source = base;
+            const usedVariantChild = isSet && Object.keys(variantSel).length > 0;
+            if (usedVariantChild) {
+                source = findVariantBySelection(target, variantSel);
+                if (!source)
+                    continue; // impossible combination → skip this exemple
+            }
+            const inst = source.createInstance();
+            if (ex.title)
+                inst.name = ex.title;
+            applyExempleProps(inst, scenario, byName, byRawKey, usedVariantChild);
+            // INSTANCE_SWAP choices (name → component id).
+            if (ex.swaps) {
+                const swapPayload = {};
+                for (const propName of Object.keys(ex.swaps)) {
+                    const r = (_d = swapResolver.get(propName)) !== null && _d !== void 0 ? _d : swapResolver.get(stripPropKey(propName));
+                    if (!r)
+                        continue;
+                    const id = r.byName.get(ex.swaps[propName]);
+                    if (id)
+                        swapPayload[r.rawKey] = id;
+                }
+                if (Object.keys(swapPayload).length > 0) {
+                    try {
+                        inst.setProperties(swapPayload);
+                    }
+                    catch (_e) {
+                        /* keep instance with default swaps */
+                    }
+                }
+            }
+            // Internal TEXT layer overrides (key → new content).
+            if (ex.texts) {
+                for (const layerKey of Object.keys(ex.texts)) {
+                    const node = resolveLayerByKey(inst, layerKey);
+                    if (node && node.type === "TEXT") {
+                        yield applyTextLayerOverride(node, ex.texts[layerKey]);
+                    }
+                }
+            }
+            const scale = Math.min(1, innerW / inst.width);
+            placed.push({
+                inst,
+                w: inst.width * scale,
+                h: inst.height * scale,
+                scale,
+            });
         }
-        let source = base;
-        const usedVariantChild = isSet && Object.keys(variantSel).length > 0;
-        if (usedVariantChild) {
-            source = findVariantBySelection(target, variantSel);
-            if (!source)
-                continue; // impossible combination → skip this exemple
+        if (placed.length === 0)
+            return textFrame("Aucun exemple valide à générer.");
+        let contentH = EXEMPLE_VISUAL_PADDING * 2;
+        for (let i = 0; i < placed.length; i++) {
+            contentH += placed[i].h;
+            if (i < placed.length - 1)
+                contentH += EXEMPLE_GAP;
         }
-        const inst = source.createInstance();
-        if (ex.title)
-            inst.name = ex.title;
-        applyExempleProps(inst, scenario, byName, byRawKey, usedVariantChild);
-        const scale = Math.min(1, innerW / inst.width);
-        placed.push({
-            inst,
-            w: inst.width * scale,
-            h: inst.height * scale,
-            scale,
-        });
-    }
-    if (placed.length === 0)
-        return textFrame("Aucun exemple valide à générer.");
-    let contentH = EXEMPLE_VISUAL_PADDING * 2;
-    for (let i = 0; i < placed.length; i++) {
-        contentH += placed[i].h;
-        if (i < placed.length - 1)
-            contentH += EXEMPLE_GAP;
-    }
-    const totalH = Math.max(Math.round(contentH), ANATOMY_VISUAL_H_MIN);
-    const visual = figma.createFrame();
-    visual.name = "ExemplesVisual";
-    visual.resize(contentW, totalH);
-    visual.fills = [{ type: "SOLID", color: COLOR.refMatrixCardBg }];
-    visual.cornerRadius = 8;
-    visual.clipsContent = true;
-    // Center the stack vertically when the canvas was floored to its minimum.
-    let y = EXEMPLE_VISUAL_PADDING + Math.max(0, (totalH - contentH) / 2);
-    for (const p of placed) {
-        visual.appendChild(p.inst);
-        if (p.scale < 1)
-            p.inst.rescale(p.scale);
-        p.inst.x = Math.round((contentW - p.w) / 2);
-        p.inst.y = Math.round(y);
-        y += p.h + EXEMPLE_GAP;
-    }
-    return visual;
+        const totalH = Math.max(Math.round(contentH), ANATOMY_VISUAL_H_MIN);
+        const visual = figma.createFrame();
+        visual.name = "ExemplesVisual";
+        visual.resize(contentW, totalH);
+        visual.fills = [{ type: "SOLID", color: COLOR.refMatrixCardBg }];
+        visual.cornerRadius = 8;
+        visual.clipsContent = true;
+        // Center the stack vertically when the canvas was floored to its minimum.
+        let y = EXEMPLE_VISUAL_PADDING + Math.max(0, (totalH - contentH) / 2);
+        for (const p of placed) {
+            visual.appendChild(p.inst);
+            if (p.scale < 1)
+                p.inst.rescale(p.scale);
+            p.inst.x = Math.round((contentW - p.w) / 2);
+            p.inst.y = Math.round(y);
+            y += p.h + EXEMPLE_GAP;
+        }
+        return visual;
+    });
 }
 function buildPdfAnatomyPage(target, variantSel, includedLayers, opts) {
     const page = makePdfPage();
@@ -4515,10 +4547,11 @@ function extractAiDocs(docFrames) {
 }
 function buildAiPayload(componentNode, docFrames) {
     return __awaiter(this, void 0, void 0, function* () {
-        const [metadata, css, documentation] = yield Promise.all([
+        const [metadata, css, documentation, exempleContext] = yield Promise.all([
             extractAiMetadata(componentNode),
             extractAiCSS(componentNode),
             extractAiDocs(docFrames),
+            buildExempleContext(componentNode),
         ]);
         return {
             meta: {
@@ -4529,7 +4562,137 @@ function buildAiPayload(componentNode, docFrames) {
             metadata,
             css,
             documentation,
+            exempleContext,
         };
+    });
+}
+const EXEMPLE_TEXT_LAYERS_MAX = 50;
+const EXEMPLE_TEXT_DEPTH_MAX = 12;
+// Walk a probe instance collecting every visible TEXT layer with a stable
+// index-path key (same scheme as resolveLayerByKey, so the key resolves back
+// on a fresh instance). Descends through nested instances/components too —
+// labels are frequently wrapped.
+function collectInstanceTextLayers(root) {
+    const out = [];
+    const recurse = (node, depth, parentKey) => {
+        if (depth > EXEMPLE_TEXT_DEPTH_MAX)
+            return;
+        if (!("children" in node))
+            return;
+        const cont = node;
+        for (let i = 0; i < cont.children.length; i++) {
+            if (out.length >= EXEMPLE_TEXT_LAYERS_MAX)
+                return;
+            const c = cont.children[i];
+            if (c.visible === false)
+                continue;
+            const key = parentKey ? `${parentKey}/${i}` : String(i);
+            if (c.type === "TEXT") {
+                out.push({ key, name: c.name, text: c.characters });
+            }
+            if ("children" in c)
+                recurse(c, depth + 1, key);
+        }
+    };
+    recurse(root, 0, "");
+    return out;
+}
+function buildExempleContext(target) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        const base = getBaseComponent(target);
+        if (!base)
+            return { textLayers: [], swaps: [] };
+        let textLayers = [];
+        try {
+            const probe = base.createInstance();
+            textLayers = collectInstanceTextLayers(probe);
+            probe.remove();
+        }
+        catch (_b) {
+            textLayers = [];
+        }
+        const swapNames = yield resolveInstanceSwapNames(target.componentPropertyDefinitions);
+        const swaps = [];
+        for (const rawKey of swapNames.keys()) {
+            const options = (_a = swapNames.get(rawKey)) !== null && _a !== void 0 ? _a : [];
+            if (options.length > 0) {
+                swaps.push({ name: stripPropKey(rawKey), options });
+            }
+        }
+        return { textLayers, swaps };
+    });
+}
+// Resolve INSTANCE_SWAP candidate display names to component ids, keyed by
+// stripped prop name. Mirrors the resolution eligibleAxes does for the matrix.
+function buildSwapResolver(defs) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        const out = new Map();
+        const tasks = [];
+        for (const key of Object.keys(defs)) {
+            const def = defs[key];
+            if (def.type !== "INSTANCE_SWAP")
+                continue;
+            const pv = (_a = def.preferredValues) !== null && _a !== void 0 ? _a : [];
+            if (pv.length === 0)
+                continue;
+            const byName = new Map();
+            tasks.push(Promise.all(pv.map((item) => __awaiter(this, void 0, void 0, function* () {
+                try {
+                    if (item.type === "COMPONENT") {
+                        const c = yield figma.importComponentByKeyAsync(item.key);
+                        byName.set(c.name, c.id);
+                    }
+                    else {
+                        const cs = yield figma.importComponentSetByKeyAsync(item.key);
+                        const first = cs.children.find((ch) => ch.type === "COMPONENT");
+                        if (first)
+                            byName.set(cs.name, first.id);
+                    }
+                }
+                catch (_a) {
+                    /* skip unresolvable candidate */
+                }
+            }))).then(() => {
+                if (byName.size > 0)
+                    out.set(stripPropKey(key), { rawKey: key, byName });
+            }));
+        }
+        yield Promise.all(tasks);
+        return out;
+    });
+}
+// Load every font used by a TEXT node (handles mixed-font ranges) then replace
+// its content. Best-effort: a failure leaves the layer untouched.
+function applyTextLayerOverride(node, text) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const fonts = [];
+            if (node.fontName === figma.mixed) {
+                const len = node.characters.length || 1;
+                for (let i = 0; i < len; i++) {
+                    const f = node.getRangeFontName(i, i + 1);
+                    if (f !== figma.mixed)
+                        fonts.push(f);
+                }
+            }
+            else {
+                fonts.push(node.fontName);
+            }
+            for (const f of fonts) {
+                try {
+                    yield figma.loadFontAsync(f);
+                }
+                catch (_a) {
+                    /* ignore individual font failure */
+                }
+            }
+            node.characters = text;
+        }
+        catch (_b) {
+            /* leave layer unchanged */
+        }
     });
 }
 // Recursively collect all variable IDs referenced in a polymorphic

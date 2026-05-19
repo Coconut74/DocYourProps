@@ -75,6 +75,23 @@ type DocOptions = {
 type AiExemple = {
   title?: string;
   props: Record<string, string | boolean>;
+  // Internal TEXT layer overrides: layer key ("0/1/2" index path) → new
+  // content. Lets the LLM rewrite visible labels/values that aren't exposed as
+  // TEXT component properties.
+  texts?: Record<string, string>;
+  // INSTANCE_SWAP choices: stripped prop name → candidate component display
+  // name (one of exempleContext.swaps[*].options).
+  swaps?: Record<string, string>;
+};
+
+// Context handed to the LLM so it can produce non-generic scenarios: the
+// instance's editable text layers (with current content) and the available
+// swap candidates per INSTANCE_SWAP prop.
+type AiExempleTextLayer = { key: string; name: string; text: string };
+type AiExempleSwapInfo = { name: string; options: string[] };
+type AiExempleContext = {
+  textLayers: AiExempleTextLayer[];
+  swaps: AiExempleSwapInfo[];
 };
 
 // Persisted per-component config — restored when the user reselects a component.
@@ -1317,7 +1334,7 @@ async function buildSheets(target: DocTarget, options: DocOptions): Promise<Fram
       makeAdminSheet(
         target,
         "Exemple",
-        buildExemplesSection(target, ADMIN_CONTENT_WIDTH_DEFAULT, options.exemples)
+        await buildExemplesSection(target, ADMIN_CONTENT_WIDTH_DEFAULT, options.exemples)
       )
     );
   }
@@ -4279,11 +4296,11 @@ function buildMechanicalExemples(props: PropInfo[]): AiExemple[] {
 // Anatomy visual area) with one configured instance per usage scenario,
 // stacked vertically and centered. LLM scenarios when available, otherwise the
 // mechanical fallback.
-function buildExemplesSection(
+async function buildExemplesSection(
   target: DocTarget,
   contentW: number,
   exemples?: AiExemple[]
-): SceneNode {
+): Promise<SceneNode> {
   const base = getBaseComponent(target);
   if (!base) return textFrame("Aucun composant à analyser.");
 
@@ -4300,6 +4317,10 @@ function buildExemplesSection(
       ? exemples.slice(0, EXEMPLE_MAX)
       : buildMechanicalExemples(props);
   if (list.length === 0) return textFrame("Aucun exemple à générer.");
+
+  const swapResolver = await buildSwapResolver(
+    target.componentPropertyDefinitions
+  );
 
   const isSet = target.type === "COMPONENT_SET";
   const innerW = contentW - EXEMPLE_VISUAL_PADDING * 2;
@@ -4332,6 +4353,35 @@ function buildExemplesSection(
     const inst = source.createInstance();
     if (ex.title) inst.name = ex.title;
     applyExempleProps(inst, scenario, byName, byRawKey, usedVariantChild);
+
+    // INSTANCE_SWAP choices (name → component id).
+    if (ex.swaps) {
+      const swapPayload: { [rawKey: string]: string } = {};
+      for (const propName of Object.keys(ex.swaps)) {
+        const r = swapResolver.get(propName) ?? swapResolver.get(stripPropKey(propName));
+        if (!r) continue;
+        const id = r.byName.get(ex.swaps[propName]);
+        if (id) swapPayload[r.rawKey] = id;
+      }
+      if (Object.keys(swapPayload).length > 0) {
+        try {
+          inst.setProperties(swapPayload);
+        } catch {
+          /* keep instance with default swaps */
+        }
+      }
+    }
+
+    // Internal TEXT layer overrides (key → new content).
+    if (ex.texts) {
+      for (const layerKey of Object.keys(ex.texts)) {
+        const node = resolveLayerByKey(inst, layerKey);
+        if (node && node.type === "TEXT") {
+          await applyTextLayerOverride(node as TextNode, ex.texts[layerKey]);
+        }
+      }
+    }
+
     const scale = Math.min(1, innerW / inst.width);
     placed.push({
       inst,
@@ -4966,6 +5016,7 @@ type AiPayload = {
   metadata: AiExtractedMetadata;
   css: Record<string, Record<string, string> | null>;
   documentation: AiExtractedDocs;
+  exempleContext: AiExempleContext;
 };
 
 // Internal placeholders carry a transient `_node` reference that gets stripped
@@ -5466,10 +5517,11 @@ async function buildAiPayload(
   componentNode: DocTarget,
   docFrames: SceneNode[]
 ): Promise<AiPayload> {
-  const [metadata, css, documentation] = await Promise.all([
+  const [metadata, css, documentation, exempleContext] = await Promise.all([
     extractAiMetadata(componentNode),
     extractAiCSS(componentNode),
     extractAiDocs(docFrames),
+    buildExempleContext(componentNode),
   ]);
   return {
     meta: {
@@ -5480,7 +5532,136 @@ async function buildAiPayload(
     metadata,
     css,
     documentation,
+    exempleContext,
   };
+}
+
+const EXEMPLE_TEXT_LAYERS_MAX = 50;
+const EXEMPLE_TEXT_DEPTH_MAX = 12;
+
+// Walk a probe instance collecting every visible TEXT layer with a stable
+// index-path key (same scheme as resolveLayerByKey, so the key resolves back
+// on a fresh instance). Descends through nested instances/components too —
+// labels are frequently wrapped.
+function collectInstanceTextLayers(
+  root: InstanceNode
+): AiExempleTextLayer[] {
+  const out: AiExempleTextLayer[] = [];
+  const recurse = (node: SceneNode, depth: number, parentKey: string): void => {
+    if (depth > EXEMPLE_TEXT_DEPTH_MAX) return;
+    if (!("children" in node)) return;
+    const cont = node as ChildrenMixin & SceneNode;
+    for (let i = 0; i < cont.children.length; i++) {
+      if (out.length >= EXEMPLE_TEXT_LAYERS_MAX) return;
+      const c = cont.children[i];
+      if (c.visible === false) continue;
+      const key = parentKey ? `${parentKey}/${i}` : String(i);
+      if (c.type === "TEXT") {
+        out.push({ key, name: c.name, text: (c as TextNode).characters });
+      }
+      if ("children" in c) recurse(c, depth + 1, key);
+    }
+  };
+  recurse(root, 0, "");
+  return out;
+}
+
+async function buildExempleContext(
+  target: DocTarget
+): Promise<AiExempleContext> {
+  const base = getBaseComponent(target);
+  if (!base) return { textLayers: [], swaps: [] };
+
+  let textLayers: AiExempleTextLayer[] = [];
+  try {
+    const probe = base.createInstance();
+    textLayers = collectInstanceTextLayers(probe);
+    probe.remove();
+  } catch {
+    textLayers = [];
+  }
+
+  const swapNames = await resolveInstanceSwapNames(
+    target.componentPropertyDefinitions
+  );
+  const swaps: AiExempleSwapInfo[] = [];
+  for (const rawKey of swapNames.keys()) {
+    const options = swapNames.get(rawKey) ?? [];
+    if (options.length > 0) {
+      swaps.push({ name: stripPropKey(rawKey), options });
+    }
+  }
+  return { textLayers, swaps };
+}
+
+// Resolve INSTANCE_SWAP candidate display names to component ids, keyed by
+// stripped prop name. Mirrors the resolution eligibleAxes does for the matrix.
+async function buildSwapResolver(
+  defs: ComponentPropertyDefinitions
+): Promise<Map<string, { rawKey: string; byName: Map<string, string> }>> {
+  const out = new Map<string, { rawKey: string; byName: Map<string, string> }>();
+  const tasks: Promise<void>[] = [];
+  for (const key of Object.keys(defs)) {
+    const def = defs[key];
+    if (def.type !== "INSTANCE_SWAP") continue;
+    const pv = def.preferredValues ?? [];
+    if (pv.length === 0) continue;
+    const byName = new Map<string, string>();
+    tasks.push(
+      Promise.all(
+        pv.map(async (item) => {
+          try {
+            if (item.type === "COMPONENT") {
+              const c = await figma.importComponentByKeyAsync(item.key);
+              byName.set(c.name, c.id);
+            } else {
+              const cs = await figma.importComponentSetByKeyAsync(item.key);
+              const first = cs.children.find(
+                (ch) => ch.type === "COMPONENT"
+              ) as ComponentNode | undefined;
+              if (first) byName.set(cs.name, first.id);
+            }
+          } catch {
+            /* skip unresolvable candidate */
+          }
+        })
+      ).then(() => {
+        if (byName.size > 0) out.set(stripPropKey(key), { rawKey: key, byName });
+      })
+    );
+  }
+  await Promise.all(tasks);
+  return out;
+}
+
+// Load every font used by a TEXT node (handles mixed-font ranges) then replace
+// its content. Best-effort: a failure leaves the layer untouched.
+async function applyTextLayerOverride(
+  node: TextNode,
+  text: string
+): Promise<void> {
+  try {
+    const fonts: FontName[] = [];
+    if (node.fontName === figma.mixed) {
+      const len = node.characters.length || 1;
+      for (let i = 0; i < len; i++) {
+        const f = node.getRangeFontName(i, i + 1);
+        if (f !== figma.mixed) fonts.push(f as FontName);
+      }
+    } else {
+      fonts.push(node.fontName as FontName);
+    }
+    for (const f of fonts) {
+      try {
+        await figma.loadFontAsync(f);
+      } catch {
+        /* ignore individual font failure */
+      }
+    }
+    node.characters = text;
+  } catch {
+    /* leave layer unchanged */
+  }
 }
 
 // ─── Variable usage walker (for Variables liées) ────────────────────────────
