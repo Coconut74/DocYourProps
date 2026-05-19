@@ -4987,6 +4987,7 @@
           repetitionGroups: null,
           anchorTargets: null,
           exemples: null,
+          lastTokens: null,
         };
       }
 
@@ -5021,6 +5022,10 @@
           aiState.exemples = Array.isArray(data.exemples)
             ? normalizeExemples(data.exemples)
             : null;
+          aiState.lastTokens =
+            data.lastTokens && typeof data.lastTokens === "object"
+              ? data.lastTokens
+              : null;
         }
         renderAiBlock();
       }
@@ -5065,6 +5070,7 @@
                 repetitionGroups: aiState.repetitionGroups,
                 anchorTargets: aiState.anchorTargets,
                 exemples: aiState.exemples,
+                lastTokens: aiState.lastTokens,
               },
             },
           },
@@ -5113,6 +5119,11 @@
         } else if (isAnalyzed) {
           const parts = [propDescCount + " description" + (propDescCount > 1 ? "s" : "")];
           if (aiState.model) parts.push(aiState.model);
+          if (aiState.lastTokens && aiState.lastTokens.total) {
+            parts.push(
+              aiState.lastTokens.total.toLocaleString("fr-FR") + " tokens"
+            );
+          }
           aiStatus.textContent = parts.join(" · ");
         } else if (!currentLlmConfig.apiKey) {
           aiStatus.textContent = "Configure la clé API ↓";
@@ -5577,14 +5588,24 @@
           await verifyRepetitionGroups();
           // Optional pin-target arbitration (Fix B) — never blocks.
           await reviewAnchorTargets();
+          // Persist the analysis token cost so it stays visible on every
+          // re-render / reselection (renderAiBlock would otherwise clobber the
+          // one-shot status set below).
+          if (usage) {
+            aiState.lastTokens = {
+              total:
+                typeof usage.total_tokens === "number" ? usage.total_tokens : 0,
+              prompt:
+                typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0,
+              completion:
+                typeof usage.completion_tokens === "number"
+                  ? usage.completion_tokens
+                  : 0,
+            };
+          }
           persistAiState();
           aiAnalysisInFlight = false;
           aiStatus.classList.remove("is-busy");
-          const n = Object.keys(aiState.propDescriptions || {}).length;
-          const parts = [n + " description" + (n > 1 ? "s" : "")];
-          if (aiState.model) parts.push(aiState.model);
-          if (usage && usage.total_tokens) parts.push(usage.total_tokens + " tokens");
-          aiStatus.textContent = parts.join(" · ");
           clearAiError();
           renderAiBlock();
           if (aiAnalysisDeferred) {
