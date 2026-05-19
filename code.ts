@@ -5849,9 +5849,15 @@ type NestedSnapshot = {
 // HelperText instance inside a Field) with their stable index-path key and a
 // snapshot of their component-property types. Descends into nested instances
 // too. Snapshots are taken before the probe is disposed.
-function collectNestedInstances(root: InstanceNode): NestedSnapshot[] {
+async function collectNestedInstances(
+  root: InstanceNode
+): Promise<NestedSnapshot[]> {
   const out: NestedSnapshot[] = [];
-  const recurse = (node: SceneNode, depth: number, parentKey: string): void => {
+  const recurse = async (
+    node: SceneNode,
+    depth: number,
+    parentKey: string
+  ): Promise<void> => {
     if (depth > EXEMPLE_TEXT_DEPTH_MAX) return;
     if (!("children" in node)) return;
     const cont = node as ChildrenMixin & SceneNode;
@@ -5867,12 +5873,18 @@ function collectNestedInstances(root: InstanceNode): NestedSnapshot[] {
         for (const pk of Object.keys(cpRaw)) {
           cp[pk] = { type: (cpRaw as Record<string, { type: string }>)[pk].type };
         }
-        out.push({ key, name: inst.name, mc: inst.mainComponent, cp });
+        let mc: ComponentNode | null = null;
+        try {
+          mc = await inst.getMainComponentAsync();
+        } catch {
+          mc = null;
+        }
+        out.push({ key, name: inst.name, mc, cp });
       }
-      if ("children" in c) recurse(c, depth + 1, key);
+      if ("children" in c) await recurse(c, depth + 1, key);
     }
   };
-  recurse(root, 0, "");
+  await recurse(root, 0, "");
   return out;
 }
 
@@ -5926,7 +5938,7 @@ async function applyNestedInstanceProps(
       type: (cp as Record<string, { type: string }>)[rk].type,
     });
   }
-  const mc = node.mainComponent;
+  const mc = await node.getMainComponentAsync();
   const defsHost: DocTarget | null =
     mc && mc.parent && mc.parent.type === "COMPONENT_SET"
       ? (mc.parent as ComponentSetNode)
@@ -5988,7 +6000,7 @@ async function buildExempleContext(
   try {
     const probe = base.createInstance();
     textLayers = collectInstanceTextLayers(probe);
-    nestedSnaps = collectNestedInstances(probe);
+    nestedSnaps = await collectNestedInstances(probe);
     probe.remove();
   } catch {
     textLayers = [];

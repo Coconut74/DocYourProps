@@ -4817,35 +4817,44 @@ const EXEMPLE_NESTED_MAX = 16;
 // snapshot of their component-property types. Descends into nested instances
 // too. Snapshots are taken before the probe is disposed.
 function collectNestedInstances(root) {
-    const out = [];
-    const recurse = (node, depth, parentKey) => {
-        if (depth > EXEMPLE_TEXT_DEPTH_MAX)
-            return;
-        if (!("children" in node))
-            return;
-        const cont = node;
-        for (let i = 0; i < cont.children.length; i++) {
-            if (out.length >= EXEMPLE_NESTED_MAX)
+    return __awaiter(this, void 0, void 0, function* () {
+        const out = [];
+        const recurse = (node, depth, parentKey) => __awaiter(this, void 0, void 0, function* () {
+            if (depth > EXEMPLE_TEXT_DEPTH_MAX)
                 return;
-            const c = cont.children[i];
-            if (c.visible === false)
-                continue;
-            const key = parentKey ? `${parentKey}/${i}` : String(i);
-            if (c.type === "INSTANCE") {
-                const inst = c;
-                const cpRaw = inst.componentProperties || {};
-                const cp = {};
-                for (const pk of Object.keys(cpRaw)) {
-                    cp[pk] = { type: cpRaw[pk].type };
+            if (!("children" in node))
+                return;
+            const cont = node;
+            for (let i = 0; i < cont.children.length; i++) {
+                if (out.length >= EXEMPLE_NESTED_MAX)
+                    return;
+                const c = cont.children[i];
+                if (c.visible === false)
+                    continue;
+                const key = parentKey ? `${parentKey}/${i}` : String(i);
+                if (c.type === "INSTANCE") {
+                    const inst = c;
+                    const cpRaw = inst.componentProperties || {};
+                    const cp = {};
+                    for (const pk of Object.keys(cpRaw)) {
+                        cp[pk] = { type: cpRaw[pk].type };
+                    }
+                    let mc = null;
+                    try {
+                        mc = yield inst.getMainComponentAsync();
+                    }
+                    catch (_a) {
+                        mc = null;
+                    }
+                    out.push({ key, name: inst.name, mc, cp });
                 }
-                out.push({ key, name: inst.name, mc: inst.mainComponent, cp });
+                if ("children" in c)
+                    yield recurse(c, depth + 1, key);
             }
-            if ("children" in c)
-                recurse(c, depth + 1, key);
-        }
-    };
-    recurse(root, 0, "");
-    return out;
+        });
+        yield recurse(root, 0, "");
+        return out;
+    });
 }
 function buildNestedInstanceInfos(snaps) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -4899,7 +4908,7 @@ function applyNestedInstanceProps(node, scenario) {
                 type: cp[rk].type,
             });
         }
-        const mc = node.mainComponent;
+        const mc = yield node.getMainComponentAsync();
         const defsHost = mc && mc.parent && mc.parent.type === "COMPONENT_SET"
             ? mc.parent
             : mc;
@@ -4962,7 +4971,7 @@ function buildExempleContext(target) {
         try {
             const probe = base.createInstance();
             textLayers = collectInstanceTextLayers(probe);
-            nestedSnaps = collectNestedInstances(probe);
+            nestedSnaps = yield collectNestedInstances(probe);
             probe.remove();
         }
         catch (_b) {
