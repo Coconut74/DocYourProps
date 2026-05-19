@@ -202,6 +202,7 @@ function saveConfig(targetId, options) {
             tokenIncludedLayers: options.tokenIncludedLayers,
             anatomyConfigured: options.anatomyConfigured === true,
             tokensConfigured: options.tokensConfigured === true,
+            includeSlots: options.includeSlots === true,
         };
         try {
             yield figma.clientStorage.setAsync(CONFIG_KEY_PREFIX + targetId, config);
@@ -459,6 +460,9 @@ figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 }
                 else {
                     layers = findNamedLayersOnInstance(probe, rep);
+                }
+                if (!msg.includeSlots) {
+                    layers = layers.filter((l) => !isSlotLayerName(l.node.name));
                 }
                 for (const l of layers) {
                     const cands = collectAnchorCandidates(probe, l.key);
@@ -1501,6 +1505,9 @@ function buildDocAsObject(target, options) {
                 else {
                     layers = findNamedLayersOnInstance(probe, rep);
                 }
+                if (!options.includeSlots) {
+                    layers = layers.filter((l) => !isSlotLayerName(l.node.name));
+                }
                 doc.anatomy = layers.map((l) => l.node.name).filter((n) => n.length > 0);
                 probe.remove();
             }
@@ -2521,6 +2528,11 @@ function isMeaningfulLayerName(name) {
         return false;
     return !GENERIC_LAYER_NAME_RE.test(name);
 }
+// "Slot" layers = INSTANCE_SWAP placeholders (Figma names them "Slot" by
+// convention). Their pins are noise by default.
+function isSlotLayerName(name) {
+    return /^slot\b/i.test((name || "").trim());
+}
 function visibleChildCount(node) {
     if (!("children" in node))
         return 0;
@@ -3013,9 +3025,7 @@ function makeLeaderDot(cx, cy) {
     dot.x = cx - r;
     dot.y = cy - r;
     dot.fills = [{ type: "SOLID", color: hex(ANATOMY_ACCENT_COLOR) }];
-    dot.strokes = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
-    dot.strokeWeight = 1.5;
-    dot.strokeAlign = "OUTSIDE";
+    dot.strokes = [];
     return dot;
 }
 function makeAnnotationBadge(n, size) {
@@ -3029,9 +3039,7 @@ function makeAnnotationBadge(n, size) {
     f.resize(size, size);
     f.cornerRadius = size / 2;
     f.fills = [{ type: "SOLID", color: hex(ANATOMY_ACCENT_COLOR) }];
-    f.strokes = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
-    f.strokeWeight = 3;
-    f.strokeAlign = "OUTSIDE";
+    f.strokes = [];
     f.effects = [
         {
             type: "DROP_SHADOW",
@@ -3323,10 +3331,31 @@ function buildPinnedVisualBlock(base, booleanPayload, anchors, legendRows, conte
         const dy = tipPt.y - badgeCY;
         const len = Math.sqrt(dx * dx + dy * dy);
         if (len > BADGE_R + 1) {
-            const edgeX = badgeCX + (BADGE_R / len) * dx;
-            const edgeY = badgeCY + (BADGE_R / len) * dy;
-            const leader = makeLeaderLine(edgeX, edgeY, tipPt.x, tipPt.y);
-            visual.appendChild(leader);
+            // Orthogonal elbow: exit the badge along the dominant axis, one bend.
+            const horizFirst = Math.abs(dx) >= Math.abs(dy);
+            let sx;
+            let sy;
+            let cx2;
+            let cy2;
+            if (horizFirst) {
+                sx = badgeCX + (dx >= 0 ? BADGE_R : -BADGE_R);
+                sy = badgeCY;
+                cx2 = tipPt.x;
+                cy2 = badgeCY;
+            }
+            else {
+                sx = badgeCX;
+                sy = badgeCY + (dy >= 0 ? BADGE_R : -BADGE_R);
+                cx2 = badgeCX;
+                cy2 = tipPt.y;
+            }
+            const seg = (x1, y1, x2, y2) => {
+                if (Math.abs(x2 - x1) + Math.abs(y2 - y1) < 1)
+                    return;
+                visual.appendChild(makeLeaderLine(x1, y1, x2, y2));
+            };
+            seg(sx, sy, cx2, cy2);
+            seg(cx2, cy2, tipPt.x, tipPt.y);
             visual.appendChild(makeLeaderDot(tipPt.x, tipPt.y));
         }
     }
@@ -3387,6 +3416,9 @@ function buildAnatomySectionForWidth(target, contentW, variantSel, includedLayer
     }
     else {
         layers = findNamedLayersOnInstance(probe, rep);
+    }
+    if (!(opts && opts.includeSlots)) {
+        layers = layers.filter((l) => !isSlotLayerName(l.node.name));
     }
     if (layers.length === 0) {
         probe.remove();

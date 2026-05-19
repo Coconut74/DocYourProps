@@ -40,6 +40,10 @@ type DocOptions = {
   // it should inherit from the other.
   anatomyConfigured?: boolean;
   tokensConfigured?: boolean;
+  // Annotate "Slot" layers (INSTANCE_SWAP placeholders) in the Anatomy
+  // section. OFF by default — their pins are noise; user opts in via the
+  // Anatomy settings checkbox.
+  includeSlots?: boolean;
   // AI-generated descriptions per prop name. Populated by the request handlers
   // from clientStorage just before delegating to buildSheets / exportAsPdf /
   // buildDocData. Missing or empty → fall back to PROP_DESCRIPTION_PLACEHOLDER.
@@ -80,6 +84,7 @@ type SavedConfig = {
   // panel on first open (anatomy → tokens, or tokens → anatomy).
   anatomyConfigured?: boolean;
   tokensConfigured?: boolean;
+  includeSlots?: boolean;
 };
 
 type PropInfo = {
@@ -360,6 +365,7 @@ async function saveConfig(targetId: string, options: DocOptions): Promise<void> 
     tokenIncludedLayers: options.tokenIncludedLayers,
     anatomyConfigured: options.anatomyConfigured === true,
     tokensConfigured: options.tokensConfigured === true,
+    includeSlots: options.includeSlots === true,
   };
   try {
     await figma.clientStorage.setAsync(CONFIG_KEY_PREFIX + targetId, config);
@@ -515,6 +521,7 @@ figma.ui.onmessage = async (msg: {
   docFrameIds?: string[];
   anatomyIncludedLayers?: string[];
   tokenIncludedLayers?: string[];
+  includeSlots?: boolean;
 }) => {
   if (msg.type === "ai-extract") {
     const target = await resolveTarget();
@@ -662,6 +669,9 @@ figma.ui.onmessage = async (msg: {
             .slice(0, ANATOMY_MAX_LAYERS);
         } else {
           layers = findNamedLayersOnInstance(probe, rep);
+        }
+        if (!msg.includeSlots) {
+          layers = layers.filter((l) => !isSlotLayerName(l.node.name));
         }
         for (const l of layers) {
           const cands = collectAnchorCandidates(probe, l.key);
@@ -1668,7 +1678,7 @@ async function buildPdfTokensPage(
   target: DocTarget,
   variantSel?: VariantSelection,
   includedLayers?: string[],
-  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets">
+  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets" | "includeSlots">
 ): Promise<FrameNode[]> {
   const page = makePdfPage();
 
@@ -1819,6 +1829,9 @@ async function buildDocAsObject(target: DocTarget, options: DocOptions): Promise
         if (layers.length > ANATOMY_MAX_LAYERS) layers = layers.slice(0, ANATOMY_MAX_LAYERS);
       } else {
         layers = findNamedLayersOnInstance(probe, rep);
+      }
+      if (!options.includeSlots) {
+        layers = layers.filter((l) => !isSlotLayerName(l.node.name));
       }
       doc.anatomy = layers.map((l) => l.node.name).filter((n) => n.length > 0);
       probe.remove();
@@ -2520,7 +2533,7 @@ async function buildTokensSectionForWidth(
   contentW: number,
   variantSel?: VariantSelection,
   includedLayers?: string[],
-  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets">
+  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets" | "includeSlots">
 ): Promise<SceneNode> {
   // Reuse the anatomy variant resolver — for COMPONENT_SET, picks the
   // matching child variant; applies BOOLEAN overrides on the probe.
@@ -2703,7 +2716,7 @@ async function buildTokensSection(
   target: DocTarget,
   variantSel?: VariantSelection,
   includedLayers?: string[],
-  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets">
+  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets" | "includeSlots">
 ): Promise<SceneNode> {
   return buildTokensSectionForWidth(
     target,
@@ -3017,6 +3030,12 @@ function isMeaningfulLayerName(name: string): boolean {
   if (!name || name.length === 0) return false;
   if (name.startsWith(".") || name.startsWith("_")) return false;
   return !GENERIC_LAYER_NAME_RE.test(name);
+}
+
+// "Slot" layers = INSTANCE_SWAP placeholders (Figma names them "Slot" by
+// convention). Their pins are noise by default.
+function isSlotLayerName(name: string): boolean {
+  return /^slot\b/i.test((name || "").trim());
 }
 
 function visibleChildCount(node: SceneNode): number {
@@ -3556,9 +3575,7 @@ function makeLeaderDot(cx: number, cy: number): EllipseNode {
   dot.x = cx - r;
   dot.y = cy - r;
   dot.fills = [{ type: "SOLID", color: hex(ANATOMY_ACCENT_COLOR) }];
-  dot.strokes = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
-  dot.strokeWeight = 1.5;
-  dot.strokeAlign = "OUTSIDE";
+  dot.strokes = [];
   return dot;
 }
 
@@ -3573,9 +3590,7 @@ function makeAnnotationBadge(n: number, size: number): FrameNode {
   f.resize(size, size);
   f.cornerRadius = size / 2;
   f.fills = [{ type: "SOLID", color: hex(ANATOMY_ACCENT_COLOR) }];
-  f.strokes = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
-  f.strokeWeight = 3;
-  f.strokeAlign = "OUTSIDE";
+  f.strokes = [];
   f.effects = [
     {
       type: "DROP_SHADOW",
@@ -3951,10 +3966,29 @@ function buildPinnedVisualBlock(
     const dy = tipPt.y - badgeCY;
     const len = Math.sqrt(dx * dx + dy * dy);
     if (len > BADGE_R + 1) {
-      const edgeX = badgeCX + (BADGE_R / len) * dx;
-      const edgeY = badgeCY + (BADGE_R / len) * dy;
-      const leader = makeLeaderLine(edgeX, edgeY, tipPt.x, tipPt.y);
-      visual.appendChild(leader);
+      // Orthogonal elbow: exit the badge along the dominant axis, one bend.
+      const horizFirst = Math.abs(dx) >= Math.abs(dy);
+      let sx: number;
+      let sy: number;
+      let cx2: number;
+      let cy2: number;
+      if (horizFirst) {
+        sx = badgeCX + (dx >= 0 ? BADGE_R : -BADGE_R);
+        sy = badgeCY;
+        cx2 = tipPt.x;
+        cy2 = badgeCY;
+      } else {
+        sx = badgeCX;
+        sy = badgeCY + (dy >= 0 ? BADGE_R : -BADGE_R);
+        cx2 = badgeCX;
+        cy2 = tipPt.y;
+      }
+      const seg = (x1: number, y1: number, x2: number, y2: number): void => {
+        if (Math.abs(x2 - x1) + Math.abs(y2 - y1) < 1) return;
+        visual.appendChild(makeLeaderLine(x1, y1, x2, y2));
+      };
+      seg(sx, sy, cx2, cy2);
+      seg(cx2, cy2, tipPt.x, tipPt.y);
       visual.appendChild(makeLeaderDot(tipPt.x, tipPt.y));
     }
   }
@@ -3992,7 +4026,7 @@ function buildAnatomySectionForWidth(
   contentW: number,
   variantSel?: VariantSelection,
   includedLayers?: string[],
-  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets">
+  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets" | "includeSlots">
 ): SceneNode {
   const { base, booleanPayload } = getAnatomyBaseAndOverrides(target, variantSel);
   if (!base) return textFrame("Aucun composant à analyser.");
@@ -4025,6 +4059,10 @@ function buildAnatomySectionForWidth(
     if (layers.length > ANATOMY_MAX_LAYERS) layers = layers.slice(0, ANATOMY_MAX_LAYERS);
   } else {
     layers = findNamedLayersOnInstance(probe, rep);
+  }
+
+  if (!(opts && opts.includeSlots)) {
+    layers = layers.filter((l) => !isSlotLayerName(l.node.name));
   }
 
   if (layers.length === 0) {
@@ -4083,7 +4121,7 @@ function buildAnatomySection(
   target: DocTarget,
   variantSel?: VariantSelection,
   includedLayers?: string[],
-  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets">
+  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets" | "includeSlots">
 ): SceneNode {
   return buildAnatomySectionForWidth(
     target,
@@ -4098,7 +4136,7 @@ function buildPdfAnatomyPage(
   target: DocTarget,
   variantSel?: VariantSelection,
   includedLayers?: string[],
-  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets">
+  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets" | "includeSlots">
 ): FrameNode {
   const page = makePdfPage();
   const header = makePdfHeader(target.name, "Anatomie");
@@ -4474,7 +4512,7 @@ function detectRepeatedSiblingGroups(inst: InstanceNode): RepetitionResult {
 // otherwise run the inline structural detection. `undefined` → structural.
 function resolveRepetition(
   inst: InstanceNode,
-  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets">
+  opts?: Pick<DocOptions, "repetitionGroups" | "anchorTargets" | "includeSlots">
 ): RepetitionResult {
   const confirmed = opts ? opts.repetitionGroups : undefined;
   if (confirmed !== undefined) {
