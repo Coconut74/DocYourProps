@@ -5923,12 +5923,12 @@
         "- ATTENTION AU TEXTE : dès que l'écran contient des paragraphes ou phrases, si un document de langage / ton éditorial / wording / rédaction / copywriting / terminologie figure dans la doc fournie, évalue le contenu textuel vis-à-vis de ce document (orthographe, grammaire, terminologie imposée, ton, voix, casse, ponctuation) et signale chaque écart.",
         "- Si l'écran est conforme : issues = [] et un summary qui le dit clairement.",
         "",
-        "Correction automatique (champ \"fix\", FACULTATIF) :",
-        "- Ajoute \"fix\" UNIQUEMENT si la correction est automatisable SANS AMBIGUÏTÉ sur un calque précis.",
-        "- \"fix\" DOIT référencer un \"nodeKey\" qui existe EXACTEMENT dans la STRUCTURE fournie (champ nodeKey des éléments de type \"text\" ou \"instance\"). N'invente JAMAIS de nodeKey.",
-        "- type \"setText\" : corriger le CONTENU d'un calque texte (wording, orthographe, terminologie). \"value\" = le texte corrigé COMPLET.",
-        "- type \"setProps\" : changer une ou plusieurs propriétés d'une instance de composant. \"props\" = { nom de propriété : valeur } (noms tels que documentés).",
-        "- Si la correction est visuelle, structurelle, ambiguë ou ne cible pas un seul calque identifiable : \"fix\": { \"type\": \"none\" } ou omets \"fix\".",
+        "Correction automatique (champ \"fix\") — IMPORTANT :",
+        "- Tu DOIS fournir un \"fix\" applicable pour CHAQUE écart qui porte sur le CONTENU d'un texte (wording, orthographe, terminologie, ton, ponctuation, casse) ou sur une PROPRIÉTÉ d'instance. Ne te contente pas de décrire : rends-le applicable.",
+        "- setText : pour corriger un texte, prends le \"nodeKey\" EXACT depuis la liste « TEXTES ÉDITABLES » (chaque ligne = nodeKey | chemin | contenu actuel). \"value\" = le texte corrigé COMPLET. C'est la liste de référence des textes, même ceux à l'intérieur de boutons/champs.",
+        "- setProps : pour changer une propriété d'une instance, \"nodeKey\" = le nodeKey d'un élément \"instance\" de la STRUCTURE ; \"props\" = { nom de propriété : valeur }.",
+        "- N'invente JAMAIS de nodeKey : utilise uniquement ceux fournis (TEXTES ÉDITABLES pour setText, STRUCTURE pour setProps). Si aucun nodeKey ne correspond, mets \"fix\": { \"type\": \"none\" }.",
+        "- Réserve \"fix\": { \"type\": \"none\" } aux seuls écarts réellement non automatisables (purement visuels/structurels, ou ambigus).",
         "- \"solution\" reste TOUJOURS obligatoire et lisible, même quand un \"fix\" est fourni.",
         "",
         "Sortie : STRICTEMENT un objet JSON, RIEN d'autre (pas de texte, pas de backticks, pas de markdown).",
@@ -6492,8 +6492,26 @@
         }
         out += "=== STRUCTURE DE L'ÉCRAN ===\n";
         out += JSON.stringify(captured.structure) + "\n\n";
+        const et = Array.isArray(captured.editableTexts)
+          ? captured.editableTexts
+          : [];
+        if (et.length) {
+          out += "=== TEXTES ÉDITABLES (nodeKey → contenu actuel) ===\n";
+          out +=
+            "Pour toute correction de contenu textuel, utilise un de ces nodeKey EXACTS dans un fix \"setText\".\n";
+          for (const t of et) {
+            out +=
+              t.key +
+              " | " +
+              (t.path || t.name) +
+              " | « " +
+              String(t.text || "").replace(/\n/g, " ") +
+              " »\n";
+          }
+          out += "\n";
+        }
         out +=
-          "=== CONSIGNE ===\nAudite l'écran (capture + structure) vis-à-vis de la documentation ci-dessus. Réponds STRICTEMENT par l'objet JSON demandé.\n";
+          "=== CONSIGNE ===\nAudite l'écran (capture + structure) vis-à-vis de la documentation ci-dessus. Pour CHAQUE écart corrigeable automatiquement, fournis un \"fix\". Réponds STRICTEMENT par l'objet JSON demandé.\n";
         return out;
       }
 
