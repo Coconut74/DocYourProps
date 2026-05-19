@@ -448,6 +448,8 @@ type AiDescriptionsStored = {
   anchorTargets?: Record<string, string>;
   // LLM-generated usage scenarios for the "Exemple" sheet.
   exemples?: AiExemple[];
+  // Token cost of the last analysis, kept so the UI can keep showing it.
+  lastTokens?: { total: number; prompt: number; completion: number };
 };
 
 async function loadAiDescriptions(targetId: string): Promise<AiDescriptionsStored | null> {
